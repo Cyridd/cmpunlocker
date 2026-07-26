@@ -2,6 +2,11 @@
 
 ## 1. 170hx 临时解锁算力 (重启后失效)
 
+注意：HiveOS 用户，解锁后需要执行以下命令重启 Hive 服务，否则 Web 页面会显示掉卡
+```sh
+systemctl restart hive.service
+```
+
 适用版本：
 
 - `590.48.01` / `595.71.05`：默认 `auto` profile 可执行。
