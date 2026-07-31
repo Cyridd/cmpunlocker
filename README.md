@@ -4,7 +4,7 @@
 
 Github: https://github.com/pearlfortune/cmpunlocker
 
-解锁自有 NVIDIA CMP 170HX / 90HX / 50HX 的算力限制。Linux x86-64，需要 root。
+解锁自有 NVIDIA CMP 170HX / 90HX 的算力限制。Linux x86-64，需要 root。
 
 不刷 VBIOS，刷不坏卡。驱动 / 内核 / VBIOS 不在下表内时，程序直接拒绝执行，不会写入。
 
