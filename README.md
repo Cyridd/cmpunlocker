@@ -1,6 +1,6 @@
 # cmpunlocker
 
-中文 | [English](USAGE.en.md)
+中文 | [English](README.en.md)
 
 Github: https://github.com/pearlfortune/cmpunlocker
 
@@ -19,18 +19,20 @@ Github: https://github.com/pearlfortune/cmpunlocker
 | CMP 90HX | `10de:220d` | Open `580.159.03` | `6.10.0-hiveos` | `94.02.74.00.01` |
 | CMP 90HX | `10de:220d` | Open `610.43.03` | `6.10.0-hiveos` | `94.02.74.00.01` / `94.02.74.00.05` |
 
-
 查看自己的环境：
 
 ```sh
+# 看有哪些 NVIDIA 卡，记下 PCI ID 和 BDF（形如 0000:01:00.0）
 lspci -Dnn | grep -i nvidia
+
+# 当前 NVIDIA 驱动版本
 modinfo -F version nvidia
+
+# 当前内核版本
 uname -r
 ```
 
 ---
-
-
 
 # 1. 临时解锁
 
@@ -40,16 +42,29 @@ uname -r
 
 ## 1.1 下载二进制
 
-只需要下载这一次，下面所有型号共用。
+只需要下载这一次，下面所有型号共用。**一条一条执行**，方便看出哪一步失败。
 
 ```sh
+# 进入临时目录
 cd /var/tmp
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-cli.tar.gz \
-&& wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/SHA256SUMS \
-&& sha256sum -c SHA256SUMS --ignore-missing \
-&& tar vxzf cmpunlocker-v0.1.23-linux-x64-cli.tar.gz \
-&& cd cmpunlocker-v0.1.23-linux-x64-cli \
-&& ./cmpunlocker-rs --version
+
+# 下载二进制包
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-cli.tar.gz
+
+# 下载校验文件
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/SHA256SUMS
+
+# 校验完整性，必须看到 OK；不 OK 就是没下全，删掉重下
+sha256sum -c SHA256SUMS --ignore-missing
+
+# 解压
+tar vxzf cmpunlocker-v0.1.23-linux-x64-cli.tar.gz
+
+# 进入解压出来的目录，后面所有命令都在这里执行
+cd cmpunlocker-v0.1.23-linux-x64-cli
+
+# 确认能跑起来，会打印版本号
+./cmpunlocker-rs --version
 ```
 
 
@@ -63,6 +78,7 @@ wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cm
 #### CMP 170HX（驱动 590.48.01 / 595.71.05）
 
 ```sh
+# 解锁全部 170HX。--quiesce 会先停掉占用 GPU 的 miner / watchdog / Xorg
 sudo ./cmpunlocker-rs compute590 run \
 --all-cmp170hx \
 --acknowledge I-ACCEPT-590-FLEET-COMPUTE-TRANSACTION \
@@ -78,6 +94,7 @@ sudo ./cmpunlocker-rs compute590 run \
 必须多带 `--profile 610.43.03-compute`，不带只会做只读检查，什么都不改。
 
 ```sh
+# 610 驱动必须显式指定 compute profile
 sudo ./cmpunlocker-rs compute590 run \
 --profile 610.43.03-compute \
 --all-cmp170hx \
@@ -92,15 +109,16 @@ sudo ./cmpunlocker-rs compute590 run \
 #### CMP 90HX
 
 ```sh
+# 解锁全部 90HX
 sudo ./cmpunlocker-rs compute90hx-v67 run \
 --all-cmp90hx \
---acknowledge I-ACCEPT-90HX-V67-COMPUTE-UNLOCK \
-&& sudo ./cmpunlocker-rs compute90hx-v67 verify --all-cmp90hx --expect full
+--acknowledge I-ACCEPT-90HX-V67-COMPUTE-UNLOCK
+
+# 复查状态，这一步是只读的，随时可以单独跑
+sudo ./cmpunlocker-rs compute90hx-v67 verify --all-cmp90hx --expect full
 ```
 
 成功标志：`PASS_CMP90HX_ALL_TARGETS_FULL_SPEED`
-
-
 
 ---
 
@@ -108,7 +126,7 @@ sudo ./cmpunlocker-rs compute90hx-v67 run \
 
 # 2. 持久解锁
 
-重启后仍然生效。需要在目标机**现场编译**内核模块，用的是另外两个专用包。
+重启后仍然生效。需要在目标机**现场编译**内核模块，用的是单独的专用包。
 换内核或换驱动后必须重新编译安装。
 
 前置依赖：`/lib/modules/$(uname -r)/build`、`make`、`gcc`、`patch`，并关闭 Secure Boot。
@@ -117,84 +135,10 @@ CMP 90HX 目前只有临时解锁，没有持久方案。
 
 
 
-## 2.1 CMP 50HX 持久解锁
+## 2.1 CMP 170HX 持久显存解锁
 
-环境：NVIDIA Open `580.173.02` 或 `610.43.03` + 内核 `6.1.0-hiveos`。同时支持 OEM 卡 `1462:371f`。
-
-#### **第一步，下载并编译**，按你的驱动版本选一段。
-
-驱动 `610.43.03`：
-
-```sh
-cd /var/tmp
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-50hx-stockflow.tar.gz \
-&& tar vxzf cmpunlocker-v0.1.23-linux-x64-50hx-stockflow.tar.gz \
-&& cd cmpunlocker-v0.1.23-linux-x64-50hx-stockflow \
-&& wget -c https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-610.43.03.tar.xz \
-&& cd stockflow/610.43.03 \
-&& ./build-candidate.sh --source-tarball ../../NVIDIA-kernel-module-source-610.43.03.tar.xz \
-&& cd ../..
-```
-
-驱动 `580.173.02`：
-
-```sh
-cd /var/tmp
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-50hx-stockflow.tar.gz \
-&& tar vxzf cmpunlocker-v0.1.23-linux-x64-50hx-stockflow.tar.gz \
-&& cd cmpunlocker-v0.1.23-linux-x64-50hx-stockflow \
-&& wget -c https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-580.173.02.tar.xz \
-&& cd stockflow/580.173.02 \
-&& ./build-candidate.sh --source-tarball ../../NVIDIA-kernel-module-source-580.173.02.tar.xz \
-&& cd ../..
-```
-
-
-
-#### **第二步，先探测再安装**。
-
-`stockflow-probe` 会临时加载验证能否达到 full-speed，验完自动恢复原驱动；通过后才会继续安装。安装时会打印 `BACKUP_DIR`，记下来备用。
-
-```sh
-ART="stockflow/$(modinfo -F version nvidia)/artifacts/$(modinfo -F version nvidia)-$(uname -r)-v551-stockflow"
-
-sudo ./cmpunlocker-rs compute50hx-v534 stockflow-probe \
---all-cmp50hx \
---stockflow-candidate "$ART" \
---acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK \
-&& sudo ./cmpunlocker-rs compute50hx-v534 stockflow-install \
---stockflow-candidate "$ART" \
---acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
-
-sudo reboot
-```
-
-
-
-#### **第三步，重启后验证**：
-
-```sh
-cd /var/tmp/cmpunlocker-v0.1.23-linux-x64-50hx-stockflow
-sudo ./cmpunlocker-rs compute50hx-v534 verify --all-cmp50hx --expect full
-```
-
-成功标志：`PASS_CMP50HX_ALL_TARGETS_FULL_SPEED`
-
-
-
-#### **恢复原状**：
-
-```sh
-sudo ./cmpunlocker-rs compute50hx-v534 stockflow-restore \
---backup-dir <安装时打印的 BACKUP_DIR> \
---acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
-```
-
-
-
-## 2.2 CMP 170HX 持久解锁
-
-把每张卡的可见显存从 8 GiB 变成 64 GiB，重启后仍生效。
+解锁被限制的可见显存容量，重启后仍生效。实测机器上每张卡从 `8192 MiB` 提升到
+`65536 MiB`；实际容量以你自己的卡为准。
 
 环境：**只支持 stock `610.43.03` open kernel module**，必须在目标机现场编译，不能复用别的机器编好的 `.ko`。
 
@@ -204,8 +148,15 @@ sudo ./cmpunlocker-rs compute50hx-v534 stockflow-restore \
 
 ```sh
 cd /var/tmp
-wget -c https://download.nvidia.com/XFree86/Linux-x86_64/610.43.03/NVIDIA-Linux-x86_64-610.43.03.run \
-&& /hive/sbin/nvidia-driver-update /var/tmp/NVIDIA-Linux-x86_64-610.43.03.run
+
+# 下载 NVIDIA 官方驱动 runfile
+wget -c https://download.nvidia.com/XFree86/Linux-x86_64/610.43.03/NVIDIA-Linux-x86_64-610.43.03.run
+
+# 用 HiveOS 自带工具升级驱动；非 HiveOS 用你系统自己的驱动安装方式
+/hive/sbin/nvidia-driver-update /var/tmp/NVIDIA-Linux-x86_64-610.43.03.run
+
+# 升级完确认版本是 610.43.03
+modinfo -F version nvidia
 ```
 
 
@@ -215,11 +166,19 @@ wget -c https://download.nvidia.com/XFree86/Linux-x86_64/610.43.03/NVIDIA-Linux-
 **编译必须用普通用户跑，用 root 会被拒绝：**
 
 ```sh
+# 建一个专门用来编译的普通用户（已存在就跳过）
 id cmpbuild >/dev/null 2>&1 || useradd -m -s /bin/bash cmpbuild
+
 cd /home/cmpbuild
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-170hx-64g.tar.gz \
-&& tar vxzf cmpunlocker-v0.1.23-linux-x64-170hx-64g.tar.gz \
-&& chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+
+# 下载显存解锁专用包
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-170hx-64g.tar.gz
+
+# 解压
+tar vxzf cmpunlocker-v0.1.23-linux-x64-170hx-64g.tar.gz
+
+# 把目录交给编译用户，否则下一步没有写权限
+chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
 ```
 
 包内已自带 NVIDIA 官方 610.43.03 open kernel 源码，不用另外下载。
@@ -229,15 +188,19 @@ wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cm
 #### **第三步，编译（普通用户）+ 安装（root）+ 重启**：
 
 ```sh
+# 用普通用户编译内核模块，耗时几分钟
 su -s /bin/bash cmpbuild -c '
 cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
 ./build.sh --all-supported-cmp170hx \
 --acknowledge I-ACCEPT-UNVERIFIED-610-MEMORY-KERNEL-BUILD'
 
 cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+
+# 用 root 安装模块，会写 /lib/modules 并更新 initramfs
 sudo ./install.sh --all-supported-cmp170hx \
 --acknowledge I-ACCEPT-UNVERIFIED-610-MEMORY-KERNEL-INSTALL
 
+# 必须重启才生效
 sudo reboot
 ```
 
@@ -246,20 +209,26 @@ sudo reboot
 #### **第四步，重启后验证**：
 
 ```sh
-nvidia-smi           # 每张卡应显示 65536 MiB
-modinfo -n nvidia    # 应指向 updates/cmpunlocker-610-memory/nvidia.ko
+# 每张卡的显存容量应该变大
+nvidia-smi
+
+# 确认加载的是解锁后的模块，不是原厂模块
+modinfo -n nvidia
 ```
 
-成功标志：`65536 MiB`
+成功标志：`nvidia-smi` 显示的显存容量高于解锁前，且 `modinfo` 输出里包含
+`updates/cmpunlocker-610-memory/nvidia.ko`。
 
 
 
 #### **恢复原状**
 
-分两阶段。第一阶段只移除模块目录并重建 initramfs：
+分两阶段。第一阶段只移除模块目录并重建 initramfs，不会热卸载当前驱动：
 
 ```sh
 cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+
+# 第一阶段：移除模块
 sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
 ```
 
@@ -269,6 +238,8 @@ sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
 
 ```sh
 cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+
+# 第二阶段：冷启动后确认已回到原厂状态
 sudo ./remove.sh --confirm-cold-cycle \
 --acknowledge I-CONFIRM-FULL-AC-POWER-CYCLE-AFTER-610-MEMORY-REMOVAL
 ```
@@ -279,10 +250,10 @@ sudo ./remove.sh --confirm-cold-cycle \
 
 ## 说明
 
-- 单卡解锁：把 `--all-cmp170hx` / `--all-cmp90hx` / `--all-cmp50hx` 换成 `--target-bdf 0000:01:00.0`。
+- 单卡解锁：把 `--all-cmp170hx` / `--all-cmp90hx` 换成 `--target-bdf 0000:01:00.0`，BDF 用第一步 `lspci` 查到的。
 - 运行时会卸载并重新加载 NVIDIA 驱动、停掉 miner，别在生产窗口跑。
 - 出错时看 `/var/lib/cmpunlocker-rs/transactions/` 下的 JSON 报告，里面有完整失败原因。
-- 完整参数：`./cmpunlocker-rs compute590 help`（`compute90hx-v67` / `compute50hx-v534` 同理）。
+- 完整参数：`./cmpunlocker-rs compute590 help`（`compute90hx-v67` 同理）。
 
 
 
