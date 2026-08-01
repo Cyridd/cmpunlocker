@@ -52,19 +52,19 @@ time** so you can see exactly which step fails.
 cd /var/tmp
 
 # Download the binary bundle
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-cli.tar.gz
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.25/cmpunlocker-v0.1.25-linux-x64-cli.tar.gz
 
 # Download the checksum file
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/SHA256SUMS
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.25/SHA256SUMS
 
 # Verify the download; you must see OK. Anything else means an incomplete file - delete and retry
 sha256sum -c SHA256SUMS --ignore-missing
 
 # Extract
-tar vxzf cmpunlocker-v0.1.23-linux-x64-cli.tar.gz
+tar vxzf cmpunlocker-v0.1.25-linux-x64-cli.tar.gz
 
 # Enter the extracted directory; every later command runs from here
-cd cmpunlocker-v0.1.23-linux-x64-cli
+cd cmpunlocker-v0.1.25-linux-x64-cli
 
 # Confirm it runs - this prints the version
 ./cmpunlocker-rs --version
@@ -132,13 +132,127 @@ Success: `PASS_CMP90HX_ALL_TARGETS_FULL_SPEED`
 Survives reboots. Kernel modules must be **built on the target host**, using a
 separate bundle. You must rebuild and reinstall after any kernel or driver change.
 
-Requirements: `/lib/modules/$(uname -r)/build`, `make`, `gcc`, `patch`, and Secure Boot off.
+Requirements: `/lib/modules/$(uname -r)/build`, `make`, `gcc`, `patch`, `binutils`, and Secure Boot off.
 
-CMP 90HX currently has no persistent path — temporary unlock only.
+## 2.1 CMP 90HX persistent compute unlock
+
+CMP 90HX persistence is currently a **610.43.03 engineering preview**. It has
+passed three reboot cycles on one 8021/hive2222 card with VBIOS
+`94.02.74.00.01`, and 8024/xinxitong has validated installing a prebuilt
+artifact directly to full-speed. It does not create a systemd service. Kernel
+changes, driver changes, VBIOS `94.02.74.00.05`, and multi-card persistence
+still need separate validation.
+
+Environment: **NVIDIA Open `610.43.03` + kernel `6.10.0-hiveos` + CMP 90HX
+`10de:220d` / `10de:1555` + VBIOS `94.02.74.00.01` only**.
+
+#### **Step 1 — confirm the current environment**
+
+```sh
+# The kernel must be 6.10.0-hiveos
+uname -r
+
+# The NVIDIA driver must be 610.43.03
+modinfo -F version nvidia
+
+# This must be the open kernel module; Dual MIT/GPL is expected
+modinfo -F license nvidia
+
+# Confirm that CMP 90HX is visible
+nvidia-smi -L
+```
+
+#### **Step 2 — download and verify the 90HX stockflow bundle**
+
+```sh
+VERSION=v0.1.25
+ASSET="cmpunlocker-${VERSION}-linux-x64-90hx-stockflow"
+BASE="https://github.com/pearlfortune/cmpunlocker/releases/download/${VERSION}"
+
+cd /var/tmp
+
+# Download the 90HX persistence bundle
+wget -c "${BASE}/${ASSET}.tar.gz"
+
+# Download the checksum file and verify the bundle; you must see OK
+wget -c "${BASE}/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing
+
+# Extract and enter the 90HX stockflow directory
+tar vxzf "${ASSET}.tar.gz"
+cd "${ASSET}/stockflow/610.43.03"
+```
+
+#### **Step 3 — prepare NVIDIA's official source and build the artifact**
+
+```sh
+# Prepare NVIDIA's official open kernel source, or replace SOURCE with your local file
+wget -c https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-610.43.03.tar.xz
+SOURCE="${PWD}/NVIDIA-kernel-module-source-610.43.03.tar.xz"
+
+# Build the validated rejoin13-open-retry artifact
+CMP90_STOCKFLOW_VARIANT=rejoin13 ./build-candidate.sh --source-tarball "${SOURCE}"
+ART="artifacts/610.43.03-$(uname -r)-rejoin13-open-retry"
+
+# Confirm the artifact matches the current driver and kernel
+modinfo -F version "${ART}/nvidia.ko"
+modinfo -F vermagic "${ART}/nvidia.ko"
+strings "${ART}/nvidia.ko" | grep -E 'CMP90_STOCKFLOW_REJOIN12|CMP90_STOCKFLOW_REJOIN13'
+```
+
+#### **Step 4 — install and reboot**
+
+```sh
+# Install into an isolated updates directory. This does not hot-unload the driver.
+sudo ./stockflow-install.sh \
+--artifact "${ART}" \
+--acknowledge I-ACCEPT-90HX-STOCKFLOW-PERSISTENT-INSTALL
+sudo reboot
+```
+
+#### **Step 5 — verify after reboot**
+
+```sh
+cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-90hx-stockflow/stockflow/610.43.03
+
+# Re-check after reboot
+BIN=../../cmpunlocker-rs
+sudo "$BIN" compute90hx-v67 verify --all-cmp90hx --expect full
+
+# Confirm that module resolution points to the stockflow directory
+modinfo -n nvidia
+```
+
+Success: `PASS_CMP90HX_FULL_SPEED` or `PASS_CMP90HX_ALL_TARGETS_FULL_SPEED`.
+
+Since v0.1.25, the installer writes
+`/etc/depmod.d/cmpunlocker-90hx-stockflow.conf` so reboot-time module resolution
+prefers `updates/cmpunlocker-90hx-stockflow` instead of the DKMS stock modules.
+If a repeated install returns `PASS_CMP90HX_STOCKFLOW_ALREADY_INSTALLED`, the
+host is already on the persistent stockflow resolution path.
+
+#### **Restore the stock module resolution path**
+
+```sh
+cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-90hx-stockflow/stockflow/610.43.03
+
+# The restore script only removes the persistent module resolution path.
+# It does not hot-unload the running driver; reboot after it completes.
+sudo ./stockflow-restore.sh --acknowledge I-ACCEPT-90HX-STOCKFLOW-RESTORE
+sudo reboot
+
+# Confirm that the host is back on the stock module path
+modinfo -n nvidia
+
+# Optional: confirm that the card is back to locked state
+cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-90hx-stockflow/stockflow/610.43.03
+BIN=../../cmpunlocker-rs
+sudo "$BIN" compute90hx-v67 verify --all-cmp90hx --expect locked
+```
 
 
 
-## 2.1 CMP 170HX persistent VRAM unlock
+## 2.2 CMP 170HX persistent VRAM unlock
 
 Unlocks the capped visible VRAM and survives reboots. On the machines tested here
 each card went from `8192 MiB` to `65536 MiB`; what you actually get depends on your card.
@@ -175,13 +289,13 @@ id cmpbuild >/dev/null 2>&1 || useradd -m -s /bin/bash cmpbuild
 cd /home/cmpbuild
 
 # Download the VRAM unlock bundle
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.23/cmpunlocker-v0.1.23-linux-x64-170hx-64g.tar.gz
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.25/cmpunlocker-v0.1.25-linux-x64-170hx-64g.tar.gz
 
 # Extract
-tar vxzf cmpunlocker-v0.1.23-linux-x64-170hx-64g.tar.gz
+tar vxzf cmpunlocker-v0.1.25-linux-x64-170hx-64g.tar.gz
 
 # Hand the directory to the build user, otherwise the next step cannot write to it
-chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
 ```
 
 The bundle already ships NVIDIA's official 610.43.03 open kernel source, so nothing else needs downloading.
@@ -193,11 +307,11 @@ The bundle already ships NVIDIA's official 610.43.03 open kernel source, so noth
 ```sh
 # Build the kernel modules as the normal user; takes a few minutes
 su -s /bin/bash cmpbuild -c '
-cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
 ./build.sh --all-supported-cmp170hx \
 --acknowledge I-ACCEPT-UNVERIFIED-610-MEMORY-KERNEL-BUILD'
 
-cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
 
 # Install as root; this writes /lib/modules and updates the initramfs
 sudo ./install.sh --all-supported-cmp170hx \
@@ -229,7 +343,7 @@ path containing `updates/cmpunlocker-610-memory/nvidia.ko`.
 Two stages. The first only removes the module directory and rebuilds the initramfs; it does not hot-unload the running driver:
 
 ```sh
-cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
 
 # Stage one: remove the modules
 sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
@@ -240,7 +354,7 @@ sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
 Then shut down, pull AC power, cold boot, and run the second stage to confirm:
 
 ```sh
-cd /home/cmpbuild/cmpunlocker-v0.1.23-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
 
 # Stage two: confirm the card is back to stock after the cold boot
 sudo ./remove.sh --confirm-cold-cycle \
