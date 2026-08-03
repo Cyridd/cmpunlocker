@@ -4,7 +4,7 @@
 
 Github: https://github.com/pearlfortune/cmpunlocker
 
-解锁自有 NVIDIA CMP 170HX / 90HX 的算力限制。Linux x86-64，需要 root。
+解锁自有 NVIDIA CMP 170HX / 90HX / 50HX 的算力限制。Linux x86-64，需要 root。
 
 不刷 VBIOS，刷不坏卡。驱动 / 内核 / VBIOS 不在下表内时，程序直接拒绝执行，不会写入。
 
@@ -18,6 +18,9 @@ Github: https://github.com/pearlfortune/cmpunlocker
 | CMP 170HX | `10de:20c2` | `610.43.03` | 不限 | 不限 |
 | CMP 90HX | `10de:220d` | Open `580.159.03` | `6.10.0-hiveos` | `94.02.74.00.01` |
 | CMP 90HX | `10de:220d` | Open `610.43.03` | `6.10.0-hiveos` | `94.02.74.00.01` / `94.02.74.00.05` |
+| CMP 50HX | `10de:1e09` | Open `580.159.03` | `6.8.0-136-generic` | 不限 |
+| CMP 50HX | `10de:1e09` | Open `580.173.02` | `6.1.0-hiveos` | 不限 |
+| CMP 50HX | `10de:1e09` | Open `610.43.03`（持久 stockflow） | `6.1.0-hiveos` | 不限 |
 
 查看自己的环境：
 
@@ -120,6 +123,30 @@ sudo ./cmpunlocker-rs compute90hx-v67 verify --all-cmp90hx --expect full
 
 成功标志：`PASS_CMP90HX_ALL_TARGETS_FULL_SPEED`
 
+
+
+#### CMP 50HX
+
+用的是上面同一个 `cmpunlocker-rs` 二进制，不用另外下载。程序会按当前驱动 / 内核自动选内嵌方案（`580.159.03` + `6.8.0-136-generic` 或 `580.173.02` + `6.1.0-hiveos`）。
+
+```sh
+# 先做只读预检
+sudo ./cmpunlocker-rs compute50hx-v534 preflight --all-cmp50hx
+
+# 解锁全部 50HX。--probe-unsupported-subsystems 会顺带探测 OEM 卡，但只激活通过 full-speed 门的卡
+sudo ./cmpunlocker-rs compute50hx-v534 run \
+--all-cmp50hx \
+--probe-unsupported-subsystems \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+
+# 复查状态，这一步是只读的，随时可以单独跑
+sudo ./cmpunlocker-rs compute50hx-v534 verify --all-cmp50hx --expect full
+```
+
+成功标志：`PASS_CMP50HX_ALL_TARGETS_V534_HANDOFF_FULL_SPEED`，`verify` 后 `PASS_CMP50HX_ALL_TARGETS_FULL_SPEED`。
+
+OEM / ID=4 卡（subsystem `1462:371f`）这条 V534 路径激活不了，走下面的 **2.3 CMP 50HX 持久算力解锁**。运行会停掉 miner / watchdog，别在生产窗口跑。
+
 ---
 
 
@@ -131,6 +158,8 @@ sudo ./cmpunlocker-rs compute90hx-v67 verify --all-cmp90hx --expect full
 
 前置依赖：`/lib/modules/$(uname -r)/build`、`make`、`gcc`、`patch`、`binutils`，并关闭 Secure Boot。
 
+
+
 ## 2.1 CMP 90HX 持久算力解锁
 
 CMP 90HX 的持久算力当前是 **610.43.03 工程预览**。已在 8021/hive2222 单卡
@@ -140,6 +169,8 @@ full-speed；不创建 systemd 服务。换内核、换驱动、`94.02.74.00.05`
 
 环境：**只支持 NVIDIA Open `610.43.03` + kernel `6.10.0-hiveos` + CMP 90HX
 `10de:220d` / `10de:1555` + VBIOS `94.02.74.00.01`**。
+
+
 
 #### **第一步，确认当前环境**
 
@@ -156,6 +187,8 @@ modinfo -F license nvidia
 # 确认能看到 CMP 90HX
 nvidia-smi -L
 ```
+
+
 
 #### **第二步，下载并校验 90HX stockflow 包**
 
@@ -178,6 +211,8 @@ tar vxzf "${ASSET}.tar.gz"
 cd "${ASSET}/stockflow/610.43.03"
 ```
 
+
+
 #### **第三步，准备 NVIDIA 官方源码并构建 artifact**
 
 ```sh
@@ -195,6 +230,8 @@ modinfo -F vermagic "${ART}/nvidia.ko"
 strings "${ART}/nvidia.ko" | grep -E 'CMP90_STOCKFLOW_REJOIN12|CMP90_STOCKFLOW_REJOIN13'
 ```
 
+
+
 #### **第四步，安装并重启**
 
 ```sh
@@ -204,6 +241,8 @@ sudo ./stockflow-install.sh \
 --acknowledge I-ACCEPT-90HX-STOCKFLOW-PERSISTENT-INSTALL
 sudo reboot
 ```
+
+
 
 #### **第五步，重启后验证**
 
@@ -223,6 +262,8 @@ modinfo -n nvidia
 v0.1.25 起，安装脚本会写 `/etc/depmod.d/cmpunlocker-90hx-stockflow.conf`，确保重启时优先加载
 `updates/cmpunlocker-90hx-stockflow` 里的模块，而不是 DKMS stock 模块。重复执行安装命令如果返回
 `PASS_CMP90HX_STOCKFLOW_ALREADY_INSTALLED`，说明当前已经是持久 stockflow 解析路径。
+
+
 
 #### **恢复 stock 解析路径**
 
@@ -357,12 +398,130 @@ sudo ./remove.sh --confirm-cold-cycle \
 
 
 
+## 2.3 CMP 50HX 持久算力解锁
+
+把 50HX 的算力解锁做成 patched open driver，重启后仍然生效，也是唯一能覆盖 OEM / ID=4
+卡（subsystem `1462:371f`）的路径。必须在目标机**现场编译**，换内核或换驱动后必须重新编译。
+
+环境：**只支持 NVIDIA Open `580.173.02` 或 `610.43.03` + kernel `6.1.0-hiveos` + CMP 50HX
+`10de:1e09`**（subsystem `10de:1554` 或 `1462:371f`）。
+
+前置依赖同上：`/lib/modules/$(uname -r)/build`、`make`、`gcc`、`patch`、`binutils`，并关闭 Secure Boot。
+
+
+
+#### **第一步，下载并校验 50HX stockflow 包**
+
+```sh
+VERSION=v0.1.25
+ASSET="cmpunlocker-${VERSION}-linux-x64-50hx-stockflow"
+BASE="https://github.com/pearlfortune/cmpunlocker/releases/download/${VERSION}"
+
+cd /var/tmp
+
+# 下载 50HX 持久解锁包
+wget -c "${BASE}/${ASSET}.tar.gz"
+
+# 下载校验文件并校验，必须看到 OK
+wget -c "${BASE}/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing
+
+# 解压并进入包顶层，包顶层自带 ./cmpunlocker-rs
+tar vxzf "${ASSET}.tar.gz"
+cd "${ASSET}"
+BIN=./cmpunlocker-rs
+```
+
+
+
+#### **第二步，按当前驱动取官方源码并现场编译 artifact**
+
+```sh
+# 按当前 NVIDIA 驱动选择源码和构建目录
+DRIVER="$(modinfo -F version nvidia)"
+case "${DRIVER}" in
+  580.173.02) SOURCE="NVIDIA-kernel-module-source-580.173.02.tar.xz"; WORK="stockflow/580.173.02" ;;
+  610.43.03)  SOURCE="NVIDIA-kernel-module-source-610.43.03.tar.xz";  WORK="stockflow/610.43.03"  ;;
+  *) echo "unsupported 50HX stockflow driver: ${DRIVER}" >&2; exit 2 ;;
+esac
+
+# 下载 NVIDIA 官方 open kernel source（公开地址，目标机可直接下）
+wget -c "https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/${SOURCE}"
+
+# 现场编译 stock-flow artifact，耗时几分钟
+cd "${WORK}"
+./build-candidate.sh --source-tarball "../../${SOURCE}"
+cd ../..
+
+# 编好的 artifact 路径
+ART="${WORK}/artifacts/${DRIVER}-$(uname -r)-v551-stockflow"
+```
+
+
+
+#### **第三步，先非持久探测，再持久安装并重启**
+
+```sh
+# 先非持久探测，确认 artifact 能进入 full-speed；成功后会自动恢复原 stock driver
+sudo "$BIN" compute50hx-v534 stockflow-probe \
+--all-cmp50hx \
+--stockflow-candidate "${ART}" \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+
+# 持久安装：备份当前模块 + 安装 artifact 里的 5 个 .ko；不自动重启
+sudo "$BIN" compute50hx-v534 stockflow-install \
+--stockflow-candidate "${ART}" \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+
+# 记下上一条命令输出里的 BACKUP_DIR=，恢复时要用，然后重启
+sudo reboot
+```
+
+
+
+#### **第四步，重启后验证**
+
+```sh
+cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-50hx-stockflow
+BIN=./cmpunlocker-rs
+
+# 确认能看到全部 50HX
+nvidia-smi -L
+
+# 只读复查，每张卡都应 full-speed
+sudo "$BIN" compute50hx-v534 verify --all-cmp50hx --expect full
+```
+
+成功标志：`PASS_CMP50HX_ALL_TARGETS_FULL_SPEED`。换内核或换驱动后必须重新执行第二步的 `build-candidate.sh`。
+
+
+
+#### **恢复安装前模块**
+
+用第三步 `stockflow-install` 输出里打印的 `BACKUP_DIR`（形如
+`/var/lib/cmpunlocker-rs/transactions/compute50hx-v534-stockflow-install-<时间戳>/installed-module-backup`）：
+
+```sh
+cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-50hx-stockflow
+BIN=./cmpunlocker-rs
+
+# 恢复安装前的 stock 模块；执行后重启
+sudo "$BIN" compute50hx-v534 stockflow-restore \
+--backup-dir /var/lib/cmpunlocker-rs/transactions/compute50hx-v534-stockflow-install-<时间戳>/installed-module-backup \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+sudo reboot
+```
+
+---
+
+
+
 ## 说明
 
-- 单卡解锁：把 `--all-cmp170hx` / `--all-cmp90hx` 换成 `--target-bdf 0000:01:00.0`，BDF 用第一步 `lspci` 查到的。
+- 单卡解锁：把 `--all-cmp170hx` / `--all-cmp90hx` / `--all-cmp50hx` 换成 `--target-bdf 0000:01:00.0`，BDF 用第一步 `lspci` 查到的。
 - 运行时会卸载并重新加载 NVIDIA 驱动、停掉 miner，别在生产窗口跑。
 - 出错时看 `/var/lib/cmpunlocker-rs/transactions/` 下的 JSON 报告，里面有完整失败原因。
-- 完整参数：`./cmpunlocker-rs compute590 help`（`compute90hx-v67` 同理）。
+- 完整参数：`./cmpunlocker-rs compute590 help`（`compute90hx-v67`、`compute50hx-v534` 同理）。
 
 
 
