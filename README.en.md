@@ -4,7 +4,7 @@
 
 Github: https://github.com/pearlfortune/cmpunlocker
 
-Unlocks the compute limiter on NVIDIA CMP 170HX / 90HX cards you own.
+Unlocks the compute limiter on NVIDIA CMP 170HX / 90HX / 50HX cards you own.
 Linux x86-64, root required.
 
 It does not flash the VBIOS and cannot brick the card. If your driver / kernel /
@@ -20,6 +20,9 @@ VBIOS is not in the table below, the tool refuses to run rather than writing any
 | CMP 170HX | `10de:20c2` | `610.43.03` | any | any |
 | CMP 90HX | `10de:220d` | Open `580.159.03` | `6.10.0-hiveos` | `94.02.74.00.01` |
 | CMP 90HX | `10de:220d` | Open `610.43.03` | `6.10.0-hiveos` | `94.02.74.00.01` / `94.02.74.00.05` |
+| CMP 50HX | `10de:1e09` | Open `580.159.03` | `6.8.0-136-generic` | any |
+| CMP 50HX | `10de:1e09` | Open `580.173.02` | `6.1.0-hiveos` | any |
+| CMP 50HX | `10de:1e09` | Open `610.43.03` (persistent stockflow) | `6.1.0-hiveos` | any |
 
 Check what you have:
 
@@ -122,6 +125,30 @@ sudo ./cmpunlocker-rs compute90hx-v67 verify --all-cmp90hx --expect full
 ```
 
 Success: `PASS_CMP90HX_ALL_TARGETS_FULL_SPEED`
+
+
+
+#### CMP 50HX
+
+This uses the same `cmpunlocker-rs` binary as above — nothing extra to download. The tool auto-selects the embedded tuple by live driver / kernel (`580.159.03` + `6.8.0-136-generic` or `580.173.02` + `6.1.0-hiveos`).
+
+```sh
+# Read-only preflight first
+sudo ./cmpunlocker-rs compute50hx-v534 preflight --all-cmp50hx
+
+# Unlock every 50HX. --probe-unsupported-subsystems also probes OEM cards but only activates those that pass the full-speed gate
+sudo ./cmpunlocker-rs compute50hx-v534 run \
+--all-cmp50hx \
+--probe-unsupported-subsystems \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+
+# Re-check the state. This is read-only and can be run on its own at any time
+sudo ./cmpunlocker-rs compute50hx-v534 verify --all-cmp50hx --expect full
+```
+
+Success: `PASS_CMP50HX_ALL_TARGETS_V534_HANDOFF_FULL_SPEED`, then `PASS_CMP50HX_ALL_TARGETS_FULL_SPEED` after `verify`.
+
+OEM / ID=4 cards (subsystem `1462:371f`) cannot be activated by this V534 path — use **2.3 CMP 50HX persistent compute unlock** below. Running it stops the miner / watchdog, so do not run it during a production window.
 
 ---
 
@@ -365,12 +392,121 @@ sudo ./remove.sh --confirm-cold-cycle \
 
 
 
+## 2.3 CMP 50HX persistent compute unlock
+
+Turns the 50HX compute unlock into a patched open driver that survives reboots. It
+is also the only path that covers OEM / ID=4 cards (subsystem `1462:371f`). It must
+be **built on the target host**, and rebuilt after any kernel or driver change.
+
+Environment: **NVIDIA Open `580.173.02` or `610.43.03` + kernel `6.1.0-hiveos` + CMP
+50HX `10de:1e09`** (subsystem `10de:1554` or `1462:371f`) only.
+
+Requirements, as above: `/lib/modules/$(uname -r)/build`, `make`, `gcc`, `patch`, `binutils`, and Secure Boot off.
+
+#### **Step 1 — download and verify the 50HX stockflow bundle**
+
+```sh
+VERSION=v0.1.25
+ASSET="cmpunlocker-${VERSION}-linux-x64-50hx-stockflow"
+BASE="https://github.com/pearlfortune/cmpunlocker/releases/download/${VERSION}"
+
+cd /var/tmp
+
+# Download the 50HX persistence bundle
+wget -c "${BASE}/${ASSET}.tar.gz"
+
+# Download the checksum file and verify the bundle; you must see OK
+wget -c "${BASE}/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing
+
+# Extract and enter the bundle root; it ships ./cmpunlocker-rs at the top level
+tar vxzf "${ASSET}.tar.gz"
+cd "${ASSET}"
+BIN=./cmpunlocker-rs
+```
+
+#### **Step 2 — fetch NVIDIA's source for the live driver and build the artifact**
+
+```sh
+# Select the source and build directory by the current NVIDIA driver
+DRIVER="$(modinfo -F version nvidia)"
+case "${DRIVER}" in
+  580.173.02) SOURCE="NVIDIA-kernel-module-source-580.173.02.tar.xz"; WORK="stockflow/580.173.02" ;;
+  610.43.03)  SOURCE="NVIDIA-kernel-module-source-610.43.03.tar.xz";  WORK="stockflow/610.43.03"  ;;
+  *) echo "unsupported 50HX stockflow driver: ${DRIVER}" >&2; exit 2 ;;
+esac
+
+# Download NVIDIA's official open kernel source (public; the target host can fetch it directly)
+wget -c "https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/${SOURCE}"
+
+# Build the stock-flow artifact on the target host; takes a few minutes
+cd "${WORK}"
+./build-candidate.sh --source-tarball "../../${SOURCE}"
+cd ../..
+
+# Path to the built artifact
+ART="${WORK}/artifacts/${DRIVER}-$(uname -r)-v551-stockflow"
+```
+
+#### **Step 3 — probe non-persistently, then install persistently and reboot**
+
+```sh
+# Non-persistent probe first: confirm the artifact reaches full-speed; it restores the stock driver on success
+sudo "$BIN" compute50hx-v534 stockflow-probe \
+--all-cmp50hx \
+--stockflow-candidate "${ART}" \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+
+# Persistent install: backs up the current modules and installs the 5 .ko from the artifact. It does not reboot automatically
+sudo "$BIN" compute50hx-v534 stockflow-install \
+--stockflow-candidate "${ART}" \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+
+# Note the BACKUP_DIR= printed by the command above (needed to revert), then reboot
+sudo reboot
+```
+
+#### **Step 4 — verify after reboot**
+
+```sh
+cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-50hx-stockflow
+BIN=./cmpunlocker-rs
+
+# Confirm all 50HX are visible
+nvidia-smi -L
+
+# Read-only re-check; every card should be full-speed
+sudo "$BIN" compute50hx-v534 verify --all-cmp50hx --expect full
+```
+
+Success: `PASS_CMP50HX_ALL_TARGETS_FULL_SPEED`. Rerun Step 2's `build-candidate.sh` after any kernel or driver change.
+
+#### **Restore the pre-install modules**
+
+Use the `BACKUP_DIR` printed by `stockflow-install` in Step 3 (looks like
+`/var/lib/cmpunlocker-rs/transactions/compute50hx-v534-stockflow-install-<timestamp>/installed-module-backup`):
+
+```sh
+cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-50hx-stockflow
+BIN=./cmpunlocker-rs
+
+# Restore the pre-install stock modules; reboot after it completes
+sudo "$BIN" compute50hx-v534 stockflow-restore \
+--backup-dir /var/lib/cmpunlocker-rs/transactions/compute50hx-v534-stockflow-install-<timestamp>/installed-module-backup \
+--acknowledge I-ACCEPT-50HX-V534-COMPUTE-UNLOCK
+sudo reboot
+```
+
+---
+
+
+
 ## Notes
 
-- Single card: replace `--all-cmp170hx` / `--all-cmp90hx` with `--target-bdf 0000:01:00.0`, using the BDF from the `lspci` output above.
+- Single card: replace `--all-cmp170hx` / `--all-cmp90hx` / `--all-cmp50hx` with `--target-bdf 0000:01:00.0`, using the BDF from the `lspci` output above.
 - Running it unloads and reloads the NVIDIA driver and stops your miner — do not run it during a production window.
 - On failure, read the JSON transaction report under `/var/lib/cmpunlocker-rs/transactions/`; it contains the full reason.
-- Full flags: `./cmpunlocker-rs compute590 help` (same for `compute90hx-v67`).
+- Full flags: `./cmpunlocker-rs compute590 help` (same for `compute90hx-v67` and `compute50hx-v534`).
 
 
 
