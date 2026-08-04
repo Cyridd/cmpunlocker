@@ -55,19 +55,19 @@ time** so you can see exactly which step fails.
 cd /var/tmp
 
 # Download the binary bundle
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.25/cmpunlocker-v0.1.25-linux-x64-cli.tar.gz
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.26/cmpunlocker-v0.1.26-linux-x64-cli.tar.gz
 
 # Download the checksum file
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.25/SHA256SUMS
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.26/SHA256SUMS
 
 # Verify the download; you must see OK. Anything else means an incomplete file - delete and retry
 sha256sum -c SHA256SUMS --ignore-missing
 
 # Extract
-tar vxzf cmpunlocker-v0.1.25-linux-x64-cli.tar.gz
+tar vxzf cmpunlocker-v0.1.26-linux-x64-cli.tar.gz
 
 # Enter the extracted directory; every later command runs from here
-cd cmpunlocker-v0.1.25-linux-x64-cli
+cd cmpunlocker-v0.1.26-linux-x64-cli
 
 # Confirm it runs - this prints the version
 ./cmpunlocker-rs --version
@@ -192,7 +192,7 @@ nvidia-smi -L
 #### **Step 2 — download and verify the 90HX stockflow bundle**
 
 ```sh
-VERSION=v0.1.25
+VERSION=v0.1.26
 ASSET="cmpunlocker-${VERSION}-linux-x64-90hx-stockflow"
 BASE="https://github.com/pearlfortune/cmpunlocker/releases/download/${VERSION}"
 
@@ -240,7 +240,7 @@ sudo reboot
 #### **Step 5 — verify after reboot**
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-90hx-stockflow/stockflow/610.43.03
+cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-90hx-stockflow/stockflow/610.43.03
 
 # Re-check after reboot
 BIN=../../cmpunlocker-rs
@@ -252,7 +252,7 @@ modinfo -n nvidia
 
 Success: `PASS_CMP90HX_FULL_SPEED` or `PASS_CMP90HX_ALL_TARGETS_FULL_SPEED`.
 
-Since v0.1.25, the installer writes
+Since v0.1.26, the installer writes
 `/etc/depmod.d/cmpunlocker-90hx-stockflow.conf` so reboot-time module resolution
 prefers `updates/cmpunlocker-90hx-stockflow` instead of the DKMS stock modules.
 If a repeated install returns `PASS_CMP90HX_STOCKFLOW_ALREADY_INSTALLED`, the
@@ -261,7 +261,7 @@ host is already on the persistent stockflow resolution path.
 #### **Restore the stock module resolution path**
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-90hx-stockflow/stockflow/610.43.03
+cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-90hx-stockflow/stockflow/610.43.03
 
 # The restore script only removes the persistent module resolution path.
 # It does not hot-unload the running driver; reboot after it completes.
@@ -272,7 +272,7 @@ sudo reboot
 modinfo -n nvidia
 
 # Optional: confirm that the card is back to locked state
-cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-90hx-stockflow/stockflow/610.43.03
+cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-90hx-stockflow/stockflow/610.43.03
 BIN=../../cmpunlocker-rs
 sudo "$BIN" compute90hx-v67 verify --all-cmp90hx --expect locked
 ```
@@ -316,13 +316,13 @@ id cmpbuild >/dev/null 2>&1 || useradd -m -s /bin/bash cmpbuild
 cd /home/cmpbuild
 
 # Download the VRAM unlock bundle
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.25/cmpunlocker-v0.1.25-linux-x64-170hx-64g.tar.gz
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.26/cmpunlocker-v0.1.26-linux-x64-170hx-64g.tar.gz
 
 # Extract
-tar vxzf cmpunlocker-v0.1.25-linux-x64-170hx-64g.tar.gz
+tar vxzf cmpunlocker-v0.1.26-linux-x64-170hx-64g.tar.gz
 
 # Hand the directory to the build user, otherwise the next step cannot write to it
-chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
+chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
 ```
 
 The bundle already ships NVIDIA's official 610.43.03 open kernel source, so nothing else needs downloading.
@@ -334,11 +334,11 @@ The bundle already ships NVIDIA's official 610.43.03 open kernel source, so noth
 ```sh
 # Build the kernel modules as the normal user; takes a few minutes
 su -s /bin/bash cmpbuild -c '
-cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
 ./build.sh --all-supported-cmp170hx \
 --acknowledge I-ACCEPT-UNVERIFIED-610-MEMORY-KERNEL-BUILD'
 
-cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
 
 # Install as root; this writes /lib/modules and updates the initramfs
 sudo ./install.sh --all-supported-cmp170hx \
@@ -370,7 +370,7 @@ path containing `updates/cmpunlocker-610-memory/nvidia.ko`.
 Two stages. The first only removes the module directory and rebuilds the initramfs; it does not hot-unload the running driver:
 
 ```sh
-cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
 
 # Stage one: remove the modules
 sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
@@ -381,7 +381,7 @@ sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
 Then shut down, pull AC power, cold boot, and run the second stage to confirm:
 
 ```sh
-cd /home/cmpbuild/cmpunlocker-v0.1.25-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
 
 # Stage two: confirm the card is back to stock after the cold boot
 sudo ./remove.sh --confirm-cold-cycle \
@@ -406,7 +406,7 @@ Requirements, as above: `/lib/modules/$(uname -r)/build`, `make`, `gcc`, `patch`
 #### **Step 1 — download and verify the 50HX stockflow bundle**
 
 ```sh
-VERSION=v0.1.25
+VERSION=v0.1.26
 ASSET="cmpunlocker-${VERSION}-linux-x64-50hx-stockflow"
 BASE="https://github.com/pearlfortune/cmpunlocker/releases/download/${VERSION}"
 
@@ -469,7 +469,7 @@ sudo reboot
 #### **Step 4 — verify after reboot**
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-50hx-stockflow
+cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-50hx-stockflow
 BIN=./cmpunlocker-rs
 
 # Confirm all 50HX are visible
@@ -487,7 +487,7 @@ Use the `BACKUP_DIR` printed by `stockflow-install` in Step 3 (looks like
 `/var/lib/cmpunlocker-rs/transactions/compute50hx-v534-stockflow-install-<timestamp>/installed-module-backup`):
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.25-linux-x64-50hx-stockflow
+cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-50hx-stockflow
 BIN=./cmpunlocker-rs
 
 # Restore the pre-install stock modules; reboot after it completes
