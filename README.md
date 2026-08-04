@@ -20,7 +20,7 @@ Github: https://github.com/pearlfortune/cmpunlocker
 | CMP 90HX | `10de:220d` | Open `610.43.03` | `6.10.0-hiveos` | `94.02.74.00.01` / `94.02.74.00.05` |
 | CMP 50HX | `10de:1e09` | Open `580.159.03` | `6.8.0-136-generic` | 不限 |
 | CMP 50HX | `10de:1e09` | Open `580.173.02` | `6.1.0-hiveos` | 不限 |
-| CMP 50HX | `10de:1e09` | Open `610.43.03`（持久 stockflow） | `6.1.0-hiveos` | 不限 |
+| CMP 50HX | `10de:1e09` | Open `610.43.03`（持久 stockflow） | `6.1.0-hiveos` / `6.10.0-hiveos` | 不限 |
 
 查看自己的环境：
 
@@ -52,19 +52,19 @@ uname -r
 cd /var/tmp
 
 # 下载二进制包
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.26/cmpunlocker-v0.1.26-linux-x64-cli.tar.gz
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.27/cmpunlocker-v0.1.27-linux-x64-cli.tar.gz
 
 # 下载校验文件
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.26/SHA256SUMS
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.27/SHA256SUMS
 
 # 校验完整性，必须看到 OK；不 OK 就是没下全，删掉重下
 sha256sum -c SHA256SUMS --ignore-missing
 
 # 解压
-tar vxzf cmpunlocker-v0.1.26-linux-x64-cli.tar.gz
+tar vxzf cmpunlocker-v0.1.27-linux-x64-cli.tar.gz
 
 # 进入解压出来的目录，后面所有命令都在这里执行
-cd cmpunlocker-v0.1.26-linux-x64-cli
+cd cmpunlocker-v0.1.27-linux-x64-cli
 
 # 确认能跑起来，会打印版本号
 ./cmpunlocker-rs --version
@@ -164,8 +164,8 @@ OEM / ID=4 卡（subsystem `1462:371f`）这条 V534 路径激活不了，走下
 
 CMP 90HX 的持久算力当前是 **610.43.03 工程预览**。已在 8021/hive2222 单卡
 `94.02.74.00.01` 上通过 3 次重启验证，8024/xinxitong 已验证现成 artifact 直接安装后
-full-speed；不创建 systemd 服务。换内核、换驱动、`94.02.74.00.05` 或多卡持久化仍需
-重新验证。
+full-speed；不创建 systemd 服务。v0.1.26 的 rejoin14 修复多卡状态隔离，但多卡持久安装、
+换内核、换驱动或 `94.02.74.00.05` 仍需重新验证。
 
 环境：**只支持 NVIDIA Open `610.43.03` + kernel `6.10.0-hiveos` + CMP 90HX
 `10de:220d` / `10de:1555` + VBIOS `94.02.74.00.01`**。
@@ -193,7 +193,7 @@ nvidia-smi -L
 #### **第二步，下载并校验 90HX stockflow 包**
 
 ```sh
-VERSION=v0.1.26
+VERSION=v0.1.27
 ASSET="cmpunlocker-${VERSION}-linux-x64-90hx-stockflow"
 BASE="https://github.com/pearlfortune/cmpunlocker/releases/download/${VERSION}"
 
@@ -220,14 +220,14 @@ cd "${ASSET}/stockflow/610.43.03"
 wget -c https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-610.43.03.tar.xz
 SOURCE="${PWD}/NVIDIA-kernel-module-source-610.43.03.tar.xz"
 
-# 构建已验证的 rejoin13-open-retry artifact
-CMP90_STOCKFLOW_VARIANT=rejoin13 ./build-candidate.sh --source-tarball "${SOURCE}"
-ART="artifacts/610.43.03-$(uname -r)-rejoin13-open-retry"
+# 构建 rejoin14-multigpu-state artifact
+CMP90_STOCKFLOW_VARIANT=rejoin14 ./build-candidate.sh --source-tarball "${SOURCE}"
+ART="artifacts/610.43.03-$(uname -r)-rejoin14-multigpu-state"
 
 # 确认 artifact 和当前驱动、内核匹配
 modinfo -F version "${ART}/nvidia.ko"
 modinfo -F vermagic "${ART}/nvidia.ko"
-strings "${ART}/nvidia.ko" | grep -E 'CMP90_STOCKFLOW_REJOIN12|CMP90_STOCKFLOW_REJOIN13'
+strings "${ART}/nvidia.ko" | grep -E 'CMP90_STOCKFLOW_REJOIN12|CMP90_STOCKFLOW_REJOIN14'
 ```
 
 
@@ -247,7 +247,7 @@ sudo reboot
 #### **第五步，重启后验证**
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-90hx-stockflow/stockflow/610.43.03
+cd /var/tmp/cmpunlocker-v0.1.27-linux-x64-90hx-stockflow/stockflow/610.43.03
 
 # 重启后只读复查
 BIN=../../cmpunlocker-rs
@@ -259,7 +259,7 @@ modinfo -n nvidia
 
 成功标志：`PASS_CMP90HX_FULL_SPEED` 或 `PASS_CMP90HX_ALL_TARGETS_FULL_SPEED`。
 
-v0.1.26 起，安装脚本会写 `/etc/depmod.d/cmpunlocker-90hx-stockflow.conf`，确保重启时优先加载
+v0.1.25 起，安装脚本会写 `/etc/depmod.d/cmpunlocker-90hx-stockflow.conf`，确保重启时优先加载
 `updates/cmpunlocker-90hx-stockflow` 里的模块，而不是 DKMS stock 模块。重复执行安装命令如果返回
 `PASS_CMP90HX_STOCKFLOW_ALREADY_INSTALLED`，说明当前已经是持久 stockflow 解析路径。
 
@@ -268,7 +268,7 @@ v0.1.26 起，安装脚本会写 `/etc/depmod.d/cmpunlocker-90hx-stockflow.conf`
 #### **恢复 stock 解析路径**
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-90hx-stockflow/stockflow/610.43.03
+cd /var/tmp/cmpunlocker-v0.1.27-linux-x64-90hx-stockflow/stockflow/610.43.03
 
 # 恢复脚本只移除持久模块解析路径，不热卸载当前驱动；执行后重启
 sudo ./stockflow-restore.sh --acknowledge I-ACCEPT-90HX-STOCKFLOW-RESTORE
@@ -278,7 +278,7 @@ sudo reboot
 modinfo -n nvidia
 
 # 可选：确认已经回到 locked 状态
-cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-90hx-stockflow/stockflow/610.43.03
+cd /var/tmp/cmpunlocker-v0.1.27-linux-x64-90hx-stockflow/stockflow/610.43.03
 BIN=../../cmpunlocker-rs
 sudo "$BIN" compute90hx-v67 verify --all-cmp90hx --expect locked
 ```
@@ -322,13 +322,13 @@ id cmpbuild >/dev/null 2>&1 || useradd -m -s /bin/bash cmpbuild
 cd /home/cmpbuild
 
 # 下载显存解锁专用包
-wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.26/cmpunlocker-v0.1.26-linux-x64-170hx-64g.tar.gz
+wget -c https://github.com/pearlfortune/cmpunlocker/releases/download/v0.1.27/cmpunlocker-v0.1.27-linux-x64-170hx-64g.tar.gz
 
 # 解压
-tar vxzf cmpunlocker-v0.1.26-linux-x64-170hx-64g.tar.gz
+tar vxzf cmpunlocker-v0.1.27-linux-x64-170hx-64g.tar.gz
 
 # 把目录交给编译用户，否则下一步没有写权限
-chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
+chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.27-linux-x64-170hx-64g
 ```
 
 包内已自带 NVIDIA 官方 610.43.03 open kernel 源码，不用另外下载。
@@ -340,11 +340,11 @@ chown -R cmpbuild:cmpbuild /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64
 ```sh
 # 用普通用户编译内核模块，耗时几分钟
 su -s /bin/bash cmpbuild -c '
-cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.27-linux-x64-170hx-64g
 ./build.sh --all-supported-cmp170hx \
 --acknowledge I-ACCEPT-UNVERIFIED-610-MEMORY-KERNEL-BUILD'
 
-cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.27-linux-x64-170hx-64g
 
 # 用 root 安装模块，会写 /lib/modules 并更新 initramfs
 sudo ./install.sh --all-supported-cmp170hx \
@@ -376,7 +376,7 @@ modinfo -n nvidia
 分两阶段。第一阶段只移除模块目录并重建 initramfs，不会热卸载当前驱动：
 
 ```sh
-cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.27-linux-x64-170hx-64g
 
 # 第一阶段：移除模块
 sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
@@ -387,7 +387,7 @@ sudo ./remove.sh --acknowledge REMOVE-CMPUNLOCKER-610-MEMORY-WITHOUT-HOT-UNLOAD
 然后关机、拔 AC 电、冷启动，再跑第二阶段确认：
 
 ```sh
-cd /home/cmpbuild/cmpunlocker-v0.1.26-linux-x64-170hx-64g
+cd /home/cmpbuild/cmpunlocker-v0.1.27-linux-x64-170hx-64g
 
 # 第二阶段：冷启动后确认已回到原厂状态
 sudo ./remove.sh --confirm-cold-cycle \
@@ -403,8 +403,14 @@ sudo ./remove.sh --confirm-cold-cycle \
 把 50HX 的算力解锁做成 patched open driver，重启后仍然生效，也是唯一能覆盖 OEM / ID=4
 卡（subsystem `1462:371f`）的路径。必须在目标机**现场编译**，换内核或换驱动后必须重新编译。
 
-环境：**只支持 NVIDIA Open `580.173.02` 或 `610.43.03` + kernel `6.1.0-hiveos` + CMP 50HX
-`10de:1e09`**（subsystem `10de:1554` 或 `1462:371f`）。
+环境：**只支持 NVIDIA Open `580.173.02` + kernel `6.1.0-hiveos`，或 NVIDIA Open
+`610.43.03` + kernel `6.1.0-hiveos` / `6.10.0-hiveos`，搭配 CMP 50HX `10de:1e09`**
+（subsystem `10de:1554` 或 `1462:371f`）。
+
+v0.1.27 修复了部分 warm/FLR 热切换路径返回 Booter `mailbox1=4` 时被误判失败的问题；只有
+WPR、FECS、RESET 和速度状态全部精确匹配时才接受该返回值。`610.43.03 + 6.10.0-hiveos`
+已在 6 张 `1462:371f` 上通过单卡探测、六卡探测、持久安装及连续 3 轮重启验证，每轮均为
+6/6 full-speed，且无 Booter、GSP、`RmInitAdapter` 或 Xid 硬错误。
 
 前置依赖同上：`/lib/modules/$(uname -r)/build`、`make`、`gcc`、`patch`、`binutils`，并关闭 Secure Boot。
 
@@ -413,11 +419,11 @@ sudo ./remove.sh --confirm-cold-cycle \
 #### **第一步，下载并校验 50HX stockflow 包**
 
 ```sh
-VERSION=v0.1.26
+VERSION=v0.1.27
 ASSET="cmpunlocker-${VERSION}-linux-x64-50hx-stockflow"
 BASE="https://github.com/pearlfortune/cmpunlocker/releases/download/${VERSION}"
 
-cd /var/tmp
+cd "$HOME"
 
 # 下载 50HX 持久解锁包
 wget -c "${BASE}/${ASSET}.tar.gz"
@@ -482,7 +488,7 @@ sudo reboot
 #### **第四步，重启后验证**
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-50hx-stockflow
+cd "$HOME/cmpunlocker-v0.1.27-linux-x64-50hx-stockflow"
 BIN=./cmpunlocker-rs
 
 # 确认能看到全部 50HX
@@ -502,7 +508,7 @@ sudo "$BIN" compute50hx-v534 verify --all-cmp50hx --expect full
 `/var/lib/cmpunlocker-rs/transactions/compute50hx-v534-stockflow-install-<时间戳>/installed-module-backup`）：
 
 ```sh
-cd /var/tmp/cmpunlocker-v0.1.26-linux-x64-50hx-stockflow
+cd "$HOME/cmpunlocker-v0.1.27-linux-x64-50hx-stockflow"
 BIN=./cmpunlocker-rs
 
 # 恢复安装前的 stock 模块；执行后重启
