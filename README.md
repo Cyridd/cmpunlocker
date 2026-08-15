@@ -4,7 +4,7 @@
 
 Github: https://github.com/pearlfortune/cmpunlocker //原作，偏移基本相同
 
-40hx算力解锁，Linux版本等下传，先上Windows(WDDM)
+40hx算力解锁)
 
 
 
