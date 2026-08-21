@@ -1,0 +1,1907 @@
+diff --git a/src/nvidia/generated/g_kernel_gsp_nvoc.h b/src/nvidia/generated/g_kernel_gsp_nvoc.h
+index bd39d03..1fd410a 100644
+--- a/src/nvidia/generated/g_kernel_gsp_nvoc.h
++++ b/src/nvidia/generated/g_kernel_gsp_nvoc.h
+@@ -525,6 +525,8 @@ struct KernelGsp {
+     RM_RISCV_UCODE_DESC *pGspRmBootUcodeDesc;
+     MEMORY_DESCRIPTOR *pGspUCodeRadix3Descriptor;
+     MEMORY_DESCRIPTOR *pSignatureMemdesc;
++    NvU8 *pStockSignatureData;
++    NvU64 stockSignatureSize;
+     LIBOS_LOG_DECODE logDecode;
+     LIBOS_LOG_DECODE logDecodeVgpuPartition[48];
+     RM_LIBOS_LOG_MEM rmLibosLogMem[7];
+@@ -2099,3 +2101,4 @@ void kgspLogRpcDebugInfoToProtobuf(struct OBJGPU *pGpu, OBJRPC *pRpc, struct Ker
+ #endif
+ 
+ #endif // _G_KERNEL_GSP_NVOC_H_
++
+diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c
+index 20f8441..c9fcc55 100644
+--- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c
++++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c
+@@ -24,11 +24,208 @@
+ #include "gpu/gsp/kernel_gsp.h"
+ 
+ #include "gpu/gpu.h"
++#include "gpu/mem_mgr/mem_mgr.h"
+ #include "gpu/falcon/kernel_falcon.h"
+ #include "gpu/sec2/kernel_sec2.h"
+ 
+ #include "published/turing/tu102/dev_falcon_v4.h"
+ 
++#define CMP40_FALCON_TRACEIDX      0x00000148U
++#define CMP40_FALCON_TRACEPC       0x0000014cU
++#define CMP40_FALCON_ICD_CMD       0x00000200U
++#define CMP40_FALCON_ICD_RDATA     0x0000020cU
++#define CMP40_FALCON_ICD_RREG      0x00000008U
++#define CMP40_FALCON_ICD_STOP      0x00000000U
++#define CMP40_FALCON_REG_SP        20U
++#define CMP40_FALCON_REG_PC        21U
++#define CMP40_FALCON_IMEMC_AINCR   0x02000000U
++#define CMP40_FECS_SPEED_PLM         0x00409650U
++#define CMP40_FECS_SPEED_PLM_OPEN    0xFFFFFFFFU
++#define CMP40_FECS_SPEED_PLM_STAGED  0xFFFFFF8FU
++#define CMP40_FECS_SPEED0            0x00409664U
++#define CMP40_FECS_SPEED1            0x0040966CU
++#define CMP40_FECS_SPEED0_STAGED     0x88888888U
++#define CMP40_FECS_SPEED1_STAGED     0x00000008U
++#define CMP40_WPR2_ADDR_LO           0x001FA824U
++#define CMP40_WPR2_ADDR_HI           0x001FA828U
++#define CMP40_WPR2_ADDR_LO_DOWN      0x1FFFFE00U
++#define CMP40_WPR2_ADDR_HI_DOWN      0x00000000U
++#define CMP40_WPR2_ADDR_LO_RESTORED  0x027FE000U
++#define CMP40_SEC2_RESET_PLM          0x008403C4U
++#define CMP40_SEC2_RESET_PLM_FWSEC    0x000000FFU
++#define CMP40_SEC2_RESET_PLM_POSTEXIT 0x000000FFU
++#define CMP40_SEC2_DMEM_CLEAR_START   0x00000000U
++#define CMP40_SEC2_DMEM_CLEAR_END     0x00010000U
++
++NvBool kgspCmp40GetExploitMode(OBJGPU *pGpu);
++
++static NvBool
++s_isCmp40Device
++(
++    OBJGPU *pGpu
++)
++{
++    return (pGpu->idInfo.PCIDeviceID == 0x1F0B10DEU) &&
++           (1);
++}
++
++static NvBool
++s_isCmp40NativeBooterProbe
++(
++    OBJGPU *pGpu
++)
++{
++    return s_isCmp40Device(pGpu) && kgspCmp40GetExploitMode(pGpu);
++}
++
++static void
++s_clearCmp40Sec2ExploitDmem
++(
++    OBJGPU *pGpu,
++    KernelFalcon *pKernelFlcn
++)
++{
++    NvU32 dmemc;
++    NvU32 offset;
++
++    dmemc = kflcnMaskDmemAddr_HAL(
++        pGpu, pKernelFlcn, CMP40_SEC2_DMEM_CLEAR_START);
++    dmemc = FLD_SET_DRF_NUM(
++        _PFALCON, _FALCON_DMEMC, _AINCW, 1U, dmemc);
++    kflcnRegWrite_HAL(
++        pGpu, pKernelFlcn, NV_PFALCON_FALCON_DMEMC(0), dmemc);
++
++    for (offset = CMP40_SEC2_DMEM_CLEAR_START;
++         offset < CMP40_SEC2_DMEM_CLEAR_END;
++         offset += sizeof(NvU32))
++    {
++        kflcnRegWrite_HAL(
++            pGpu, pKernelFlcn, NV_PFALCON_FALCON_DMEMD(0), 0U);
++    }
++
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_COMPUTE_UNLOCK_V526: FULL_DMEM_ZERO_PASS "
++              "[0x%08x,0x%08x)\n",
++              CMP40_SEC2_DMEM_CLEAR_START, CMP40_SEC2_DMEM_CLEAR_END);
++}
++
++NV_STATUS
++kgspCmp40SanitizeSec2AfterExploit
++(
++    OBJGPU *pGpu,
++    KernelGsp *pKernelGsp
++)
++{
++    KernelSec2 *pKernelSec2 = GPU_GET_KERNEL_SEC2(pGpu);
++    KernelFalcon *pKernelFlcn;
++
++    (void)pKernelGsp;
++    NV_ASSERT_OR_RETURN(pKernelSec2 != NULL, NV_ERR_INVALID_STATE);
++    pKernelFlcn = staticCast(pKernelSec2, KernelFalcon);
++
++    /*
++     * V401's signed ROP tail installs both WPR2 down sentinels, clears both
++     * SEC2 mailboxes, leaves RESET_PLM=0xff for the bounded stock reset, and
++     * enters
++     * NVIDIA's native booterCleanupAndHalt() at runtime PC 0x7c43.  That
++     * function restores the saved stock RESET mask, scrubs DMEM, clears the
++     * Falcon GPRs, and halts without overwriting MAILBOX0 with the synthetic
++     * stack-protection error. Reset only SEC2 once more and verify the exact
++     * handoff state. FECS selectors and WPR bounds are external to SEC2 and
++     * are verified again by the caller.
++     */
++    NV_ASSERT_OK_OR_RETURN(kflcnWaitForHalt_HAL(
++        pGpu, pKernelFlcn, 100000U, 0));
++    NV_ASSERT_OR_RETURN(
++        GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM) ==
++            CMP40_SEC2_RESET_PLM_POSTEXIT,
++        NV_ERR_INVALID_STATE);
++    NV_ASSERT_OK_OR_RETURN(ksec2ResetHw_HAL(pGpu, pKernelSec2));
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_COMPUTE_UNLOCK_V534: "
++              "NATIVE_CLEANUP_DMEM_PRESERVED_PASS\n");
++    NV_ASSERT_OR_RETURN(
++        (GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM) == 0x000000FFU) &&
++        (kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                          NV_PFALCON_FALCON_MAILBOX0) == 0U) &&
++        (kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                          NV_PFALCON_FALCON_MAILBOX1) == 0U),
++        NV_ERR_INVALID_STATE);
++
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_COMPUTE_UNLOCK_V534: TOKEN_RELEASE_NATIVE_CLEANUP_PASS "
++              "RESET=%08x CPUCTL=%08x mailbox0=%08x mailbox1=%08x "
++              "tracepc=%08x\n",
++              GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                               NV_PFALCON_FALCON_CPUCTL),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                               NV_PFALCON_FALCON_MAILBOX0),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                               NV_PFALCON_FALCON_MAILBOX1),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn, CMP40_FALCON_TRACEPC));
++    return NV_OK;
++}
++
++static void
++s_captureCmp40NativeBooterState
++(
++    OBJGPU *pGpu,
++    KernelFalcon *pKernelFlcn,
++    NV_STATUS booterStatus
++)
++{
++    NvU32 pcCmd;
++    NvU32 pcData;
++    NvU32 spCmd;
++    NvU32 spData;
++    NvU32 imemc;
++    NvU32 imem[8];
++    NvU32 i;
++
++    kflcnRegWrite_HAL(pGpu, pKernelFlcn, CMP40_FALCON_ICD_CMD,
++                      CMP40_FALCON_ICD_RREG | (CMP40_FALCON_REG_PC << 8));
++    pcCmd = kflcnRegRead_HAL(pGpu, pKernelFlcn, CMP40_FALCON_ICD_CMD);
++    pcData = kflcnRegRead_HAL(pGpu, pKernelFlcn, CMP40_FALCON_ICD_RDATA);
++
++    kflcnRegWrite_HAL(pGpu, pKernelFlcn, CMP40_FALCON_ICD_CMD,
++                      CMP40_FALCON_ICD_RREG | (CMP40_FALCON_REG_SP << 8));
++    spCmd = kflcnRegRead_HAL(pGpu, pKernelFlcn, CMP40_FALCON_ICD_CMD);
++    spData = kflcnRegRead_HAL(pGpu, pKernelFlcn, CMP40_FALCON_ICD_RDATA);
++
++    imemc = kflcnMaskImemAddr_HAL(pGpu, pKernelFlcn, 0U);
++    imemc |= CMP40_FALCON_IMEMC_AINCR;
++    kflcnRegWrite_HAL(pGpu, pKernelFlcn,
++                      NV_PFALCON_FALCON_IMEMC(0), imemc);
++    for (i = 0; i < NV_ARRAY_ELEMENTS(imem); i++)
++    {
++        imem[i] = kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                                   NV_PFALCON_FALCON_IMEMD(0));
++    }
++
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_NATIVE_BOOTER_STATE: status=0x%x cpuctl=0x%08x "
++              "irqstat=0x%08x debuginfo=0x%08x traceidx=0x%08x "
++              "tracepc=0x%08x\n",
++              booterStatus,
++              kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                               NV_PFALCON_FALCON_CPUCTL),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                               NV_PFALCON_FALCON_IRQSTAT),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn,
++                               NV_PFALCON_FALCON_DEBUGINFO),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn, CMP40_FALCON_TRACEIDX),
++              kflcnRegRead_HAL(pGpu, pKernelFlcn, CMP40_FALCON_TRACEPC));
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_NATIVE_BOOTER_ICD: pc_cmd=0x%08x pc=0x%08x "
++              "sp_cmd=0x%08x sp=0x%08x\n",
++              pcCmd, pcData, spCmd, spData);
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_NATIVE_BOOTER_IMEM0: %08x %08x %08x %08x "
++              "%08x %08x %08x %08x\n",
++              imem[0], imem[1], imem[2], imem[3],
++              imem[4], imem[5], imem[6], imem[7]);
++}
+ 
+ static NV_STATUS
+ s_executeBooterUcode_TU102
+@@ -92,6 +289,9 @@ kgspExecuteBooterLoad_TU102
+ {
+     NV_STATUS status;
+     NvU32 mailbox0 = 0, mailbox1 = 0;
++    NvU32 plmBefore;
++    NvU32 plmAfter;
++    NvU32 plmRestored;
+ 
+     KernelSec2 *pKernelSec2 = GPU_GET_KERNEL_SEC2(pGpu);
+ 
+@@ -110,14 +310,131 @@ kgspExecuteBooterLoad_TU102
+     NV_PRINTF(LEVEL_INFO, "executing Booter Load, sysmemAddrOfData 0x%llx\n",
+               sysmemAddrOfData);
+ 
++    if (s_isCmp40NativeBooterProbe(pGpu))
++    {
++        plmBefore = GPU_REG_RD32(pGpu, CMP40_FECS_SPEED_PLM);
++
++        /*
++         * FWSEC left SEC2 halted with its stock RESET_PLM=0xff.  A software
++         * engine reset here changes that protection register to 0x8f and is
++         * the remaining observable difference from the passing V275 control.
++         * Reuse the already-halted engine and fail closed if that precondition
++         * is not true.
++         */
++        if (GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM) !=
++            CMP40_SEC2_RESET_PLM_FWSEC)
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: PRE_RESET_PLM_MISMATCH "
++                      "RESET=%08x WPR=%08x:%08x FECS=%08x "
++                      "SS0=%08x SS1=%08x\n",
++                      GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM),
++                      GPU_REG_RD32(pGpu, CMP40_WPR2_ADDR_HI),
++                      GPU_REG_RD32(pGpu, CMP40_WPR2_ADDR_LO),
++                      GPU_REG_RD32(pGpu, CMP40_FECS_SPEED_PLM),
++                      GPU_REG_RD32(pGpu, CMP40_FECS_SPEED0),
++                      GPU_REG_RD32(pGpu, CMP40_FECS_SPEED1));
++            return NV_ERR_INVALID_STATE;
++        }
++        NV_ASSERT_OK_OR_RETURN(kflcnWaitForHalt_HAL(
++            pGpu, staticCast(pKernelSec2, KernelFalcon), 100000U, 0));
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V526: PRE_RESET_SKIPPED_HALTED_PASS "
++                  "RESET=%08x\n",
++                  GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM));
++
++        status = s_executeBooterUcode_TU102(
++            pGpu, pKernelGsp, pKernelGsp->pBooterLoadUcode,
++            staticCast(pKernelSec2, KernelFalcon), mailbox0, mailbox1);
++
++        mailbox0 = kflcnRegRead_HAL(
++            pGpu, staticCast(pKernelSec2, KernelFalcon),
++            NV_PFALCON_FALCON_MAILBOX0);
++        mailbox1 = kflcnRegRead_HAL(
++            pGpu, staticCast(pKernelSec2, KernelFalcon),
++            NV_PFALCON_FALCON_MAILBOX1);
++        plmAfter = GPU_REG_RD32(pGpu, CMP40_FECS_SPEED_PLM);
++
++        plmRestored = GPU_REG_RD32(pGpu, CMP40_FECS_SPEED_PLM);
++
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_FECS_FEATURE_PLM_V140_RESULT: status=0x%x "
++                  "mailbox0=0x%08x tracepc=0x%08x wpr2_lo=0x%08x "
++                  "plm_before=0x%08x plm_after=0x%08x "
++                  "plm_restored=0x%08x\n",
++                  status, mailbox0,
++                  kflcnRegRead_HAL(
++                      pGpu, staticCast(pKernelSec2, KernelFalcon),
++                      CMP40_FALCON_TRACEPC),
++                  GPU_REG_RD32(pGpu, CMP40_WPR2_ADDR_LO),
++                  plmBefore, plmAfter, plmRestored);
++
++        if ((status == NV_OK) &&
++            (plmAfter == CMP40_FECS_SPEED_PLM_STAGED) &&
++            (GPU_REG_RD32(pGpu, CMP40_WPR2_ADDR_LO) ==
++             CMP40_WPR2_ADDR_LO_DOWN) &&
++            (GPU_REG_RD32(pGpu, CMP40_WPR2_ADDR_HI) == 0x00000000U) &&
++            (GPU_REG_RD32(pGpu, CMP40_FECS_SPEED0) ==
++             CMP40_FECS_SPEED0_STAGED) &&
++            (GPU_REG_RD32(pGpu, CMP40_FECS_SPEED1) ==
++             CMP40_FECS_SPEED1_STAGED) &&
++            (GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM) ==
++             CMP40_SEC2_RESET_PLM_POSTEXIT) &&
++            (mailbox0 == 0U) &&
++            ((mailbox1 == 0U) || (mailbox1 == 1U)))
++        {
++            if (mailbox1 != 0U)
++            {
++                NV_PRINTF(LEVEL_ERROR,
++                          "CMP40_STOCKFLOW_V551: MAILBOX1_ACCEPTED "
++                          "mailbox1=0x%08x\n",
++                          mailbox1);
++            }
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V526: SIGNED_FULLSPEED_STOCK_RELOCK_WPR_DOWN_PASS\n");
++            return NV_OK;
++        }
++
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_STOCKFLOW_V551: SIGNED_EXACT_STATE_MISMATCH "
++                  "status=0x%x mailbox0=0x%08x mailbox1=0x%08x "
++                  "tracepc=0x%08x WPR=%08x:%08x FECS=%08x "
++                  "SS0=%08x SS1=%08x RESET=%08x\n",
++                  status, mailbox0, mailbox1,
++                  kflcnRegRead_HAL(
++                      pGpu, staticCast(pKernelSec2, KernelFalcon),
++                      CMP40_FALCON_TRACEPC),
++                  GPU_REG_RD32(pGpu, CMP40_WPR2_ADDR_HI),
++                  GPU_REG_RD32(pGpu, CMP40_WPR2_ADDR_LO),
++                  GPU_REG_RD32(pGpu, CMP40_FECS_SPEED_PLM),
++                  GPU_REG_RD32(pGpu, CMP40_FECS_SPEED0),
++                  GPU_REG_RD32(pGpu, CMP40_FECS_SPEED1),
++                  GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM));
++        return NV_ERR_INVALID_STATE;
++    }
++
+     NV_ASSERT_OK_OR_RETURN(kflcnReset_HAL(pGpu, staticCast(pKernelSec2, KernelFalcon)));
+ 
++    // Remove the oversized signature above the stock 0x1000-byte payload,
++    // while preserving the global stack canary initialized by the first run.
++    if (s_isCmp40Device(pGpu))
++    {
++        s_clearCmp40Sec2ExploitDmem(
++            pGpu, staticCast(pKernelSec2, KernelFalcon));
++    }
++
+     status = s_executeBooterUcode_TU102(pGpu, pKernelGsp,
+                                         pKernelGsp->pBooterLoadUcode,
+                                         staticCast(pKernelSec2, KernelFalcon),
+                                         mailbox0, mailbox1);
++
+     if (status != NV_OK)
+     {
++        if (s_isCmp40Device(pGpu))
++        {
++            s_captureCmp40NativeBooterState(
++                pGpu, staticCast(pKernelSec2, KernelFalcon), status);
++        }
+         NV_PRINTF(LEVEL_ERROR, "failed to execute Booter Load: 0x%x\n", status);
+         return status;
+     }
+diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c
+index 7760352..4336e0c 100644
+--- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c
++++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c
+@@ -36,6 +36,36 @@
+ #include "published/turing/tu102/dev_falcon_v4.h"
+ #include "published/turing/tu102/dev_fbif_v4.h"
+ 
++static NvBool s_cmp40ExploitMode[8192U];
++static NvU32
++s_cmp40ExploitModeIndex
++(
++    OBJGPU *pGpu
++)
++{
++    NvU32 idx = (gpuGetBus(pGpu) * 32U) + gpuGetDevice(pGpu);
++    return (idx < 8192U) ? idx : 0U;
++}
++
++void
++kgspCmp40SetExploitMode
++(
++    OBJGPU *pGpu,
++    NvBool bEnabled
++)
++{
++    s_cmp40ExploitMode[s_cmp40ExploitModeIndex(pGpu)] = bEnabled;
++}
++
++NvBool
++kgspCmp40GetExploitMode
++(
++    OBJGPU *pGpu
++)
++{
++    return s_cmp40ExploitMode[s_cmp40ExploitModeIndex(pGpu)];
++}
++
+ /*!
+  * Copy sizeBytes from pSrc to DMEM offset dmemDest using DMEM access port 0.
+  *
+@@ -351,8 +381,23 @@ kgspExecuteHsFalcon_TU102
+     // Start CPU now
+     kflcnStartCpu_HAL(pGpu, pKernelFlcn);
+ 
+-    // Wait for completion
+-    status = kflcnWaitForHalt_HAL(pGpu, pKernelFlcn, GPU_TIMEOUT_DEFAULT, 0);
++    // Wait for completion. Limit only the exact CMP 50HX research target so
++    // V34 can test a bounded set of safe-loop stack positions quickly.
++    if ((pGpu->idInfo.PCIDeviceID == 0x1F0B10DEU) &&
++        (1) &&
++        kgspCmp40GetExploitMode(pGpu) &&
++        (pFlcnUcode == pKernelGsp->pBooterLoadUcode))
++    {
++        status = kflcnWaitForHalt_HAL(pGpu, pKernelFlcn, 250000U, 0);
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V520: exploit Booter-only bounded "
++                  "halt wait status=0x%x\n", status);
++    }
++    else
++    {
++        status = kflcnWaitForHalt_HAL(pGpu, pKernelFlcn,
++                                      GPU_TIMEOUT_DEFAULT, 0);
++    }
+ 
+     // Read mailboxes if requested
+     if (pMailbox0 != NULL)
+diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
+index 2ddf527..f3eb031 100644
+--- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
++++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
+@@ -39,6 +39,67 @@
+ #include "crashcat/crashcat_report.h"
+ 
+ #include "published/turing/tu102/dev_gsp.h"
++
++#define CMP40_PC_CANARY_PCI_DEVICE_ID       0x1F0B10DEU
++#define CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(id) (1)
++#define CMP40_FECS_FEATURE_PLM               0x00409650U
++#define CMP40_FECS_FEATURE_PLM_OPEN          0xFFFFFFFFU
++#define CMP40_FECS_FEATURE_PLM_POSTLOCK      0xFFFFFF8FU
++#define CMP40_FECS_SM_SPEED_OVERRIDE_0       0x00409664U
++#define CMP40_FECS_SM_SPEED_OVERRIDE_1       0x0040966CU
++#define CMP40_FECS_SM_SPEED_FULL_0           0x88888888U
++#define CMP40_FECS_SM_SPEED_FULL_1           0x00000008U
++#define CMP40_WPR2_ADDR_LO_INVALID           0x027FE000U
++#define CMP40_WPR2_ADDR_HI_INVALID           0x00000000U
++#define CMP40_WPR2_ADDR_LO_STOCK             0x027FE000U /* 10GB 实测值；40HX 8GB 断言用 range 检查 */
++#define CMP40_WPR2_ADDR_HI_STOCK             0x027FEE00U
++#define CMP40_WPR2_ADDR_LO_FULL              0x02776000U
++#define CMP40_WPR2_ADDR_LO_DOWN              0x1FFFFE00U
++#define CMP40_SEC2_RESET_PLM                  0x008403C4U
++#define CMP40_SEC2_RESET_PLM_LEVEL0_ALLOWED  0x00000010U
++#define CMP40_SEC2_RESET_PLM_STOCK            0x0000008FU
++#define CMP40_WPR_COMMON_PLM                 0x001FA7CCU
++#define CMP40_WPR_COMMON_PLM_OPEN            0xFFFFFFFFU
++
++void kgspCmp40SetExploitMode(OBJGPU *pGpu, NvBool bEnabled);
++NV_STATUS kgspCmp40RebuildStockSignature(OBJGPU *pGpu, KernelGsp *pKernelGsp);
++NV_STATUS kgspCmp40SanitizeSec2AfterExploit(OBJGPU *pGpu,
++                                            KernelGsp *pKernelGsp);
++NV_STATUS kgspCmp40ReplaceSignature(OBJGPU *pGpu, KernelGsp *pKernelGsp,
++                                    NvBool bSecondExploit);
++
++// Keep RM's automatic init retry from rebuilding FRTS/WPR after the bounded
++// V140 handoff transaction has committed. This is deliberately module-lifetime
++// only and keyed by stable PCI identity: RM can recycle gpuInstance values
++// across retry attempts in a multi-card module probe or boot.
++#define CMP40_STOCKFLOW_BDF_SLOTS 8192U
++static NvBool g_cmp40V274PhaseCommitted[CMP40_STOCKFLOW_BDF_SLOTS] = { NV_FALSE };
++static NvBool g_cmp40V274FwsecReady[CMP40_STOCKFLOW_BDF_SLOTS] = { NV_FALSE };
++static NvBool g_cmp40V274GspReady[CMP40_STOCKFLOW_BDF_SLOTS] = { NV_FALSE };
++
++static NvBool
++s_isCmp40ComputeUnlock
++(
++    OBJGPU *pGpu
++)
++{
++    return (pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID) &&
++           CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(pGpu->idInfo.PCISubDeviceID);
++}
++
++static NvU32
++s_cmp40StockflowGpuIndex
++(
++    OBJGPU *pGpu
++)
++{
++    NvU32 slot = ((NvU32)gpuGetBus(pGpu) * 32U) +
++                 (NvU32)gpuGetDevice(pGpu);
++
++    if (slot < CMP40_STOCKFLOW_BDF_SLOTS)
++        return slot;
++    return pGpu->gpuInstance % CMP40_STOCKFLOW_BDF_SLOTS;
++}
+ #include "published/turing/tu102/dev_gsp_addendum.h"
+ #include "published/turing/tu102/dev_riscv_pri.h"
+ #include "published/turing/tu102/dev_fbif_v4.h"
+@@ -54,6 +115,11 @@
+ #include "g_all_dcl_pb.h"
+ #include "lib/protobuf/prb.h"
+ 
++#define CMP40_FECS_FEATURE_READOUT                  0x00409660U
++#define CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT 0x00409664U
++#define CMP40_FECS_FEATURE_READOUT_SM_SPEED_SELECT  0x00409668U
++#define CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT_1 0x0040966CU
++
+ static NvBool _kgspIsProcessorSuspended(OBJGPU *pGpu, void *pVoid);
+ 
+ void
+@@ -302,6 +368,12 @@ kgspFreeBootArgs_TU102
+         memdescDestroy(pKernelGsp->pSignatureMemdesc);
+         pKernelGsp->pSignatureMemdesc = NULL;
+     }
++    if (pKernelGsp->pStockSignatureData != NULL)
++    {
++        portMemFree(pKernelGsp->pStockSignatureData);
++        pKernelGsp->pStockSignatureData = NULL;
++        pKernelGsp->stockSignatureSize = 0;
++    }
+ 
+     // Release sysmem heap memory
+     if (pKernelGsp->pSysmemHeapDescriptor != NULL)
+@@ -467,6 +539,86 @@ _kgspGetBooterLoadArgs
+     return 0;
+ }
+ 
++/*
++ * SEC2 can retain the first WPR-metadata DMA page across consecutive Booter
++ * launches.  Merely moving the signature therefore does not make the second
++ * launch consume the updated signature address.  Give every CMP40 launch a
++ * distinct physical metadata page, then copy Booter's mutations back to the
++ * canonical RM metadata before releasing the temporary page.
++ */
++static NV_STATUS
++_kgspCmp40ExecuteBooterFreshMeta
++(
++    OBJGPU *pGpu,
++    KernelGsp *pKernelGsp
++)
++{
++    NV_STATUS status = NV_OK;
++    NV_STATUS bootStatus = NV_OK;
++    MEMORY_DESCRIPTOR *pFreshMeta = NULL;
++    NvU8 *pFreshVa = NULL;
++    NvU64 freshPhys;
++    NvU64 flags = MEMDESC_FLAGS_ALLOC_IN_UNPROTECTED_MEMORY;
++
++    if ((pKernelGsp->pWprMeta == NULL) ||
++        (pKernelGsp->pWprMetaDescriptor == NULL))
++    {
++        return NV_ERR_INVALID_STATE;
++    }
++
++    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
++        memdescCreate(&pFreshMeta, pGpu, 0x1000, 0x1000,
++            NV_TRUE, ADDR_SYSMEM, NV_MEMORY_CACHED, flags), cleanup);
++    memdescTagAlloc(status, NV_FB_ALLOC_RM_INTERNAL_OWNER_WPR_METADATA,
++                    pFreshMeta);
++    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR, status, cleanup);
++
++    pFreshVa = memdescMapInternal(pGpu, pFreshMeta, TRANSFER_FLAGS_NONE);
++    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
++        (pFreshVa != NULL) ? NV_OK : NV_ERR_INSUFFICIENT_RESOURCES,
++        cleanup);
++    portMemSet(pFreshVa, 0, 0x1000);
++    portMemCopy(pFreshVa, 0x1000, pKernelGsp->pWprMeta,
++                sizeof(*pKernelGsp->pWprMeta));
++    memdescUnmapInternal(pGpu, pFreshMeta, 0);
++    pFreshVa = NULL;
++    memdescFlushCpuCaches(pGpu, pFreshMeta);
++
++    freshPhys = memdescGetPhysAddr(pFreshMeta, AT_GPU, 0);
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_COMPUTE_UNLOCK_V140: fresh WPR metadata "
++              "phys=0x%llx signature=0x%llx size=0x%llx\n",
++              freshPhys,
++              pKernelGsp->pWprMeta->sysmemAddrOfSignature,
++              pKernelGsp->pWprMeta->sizeOfSignature);
++
++    bootStatus = kgspExecuteBooterLoad_HAL(pGpu, pKernelGsp, freshPhys);
++
++    pFreshVa = memdescMapInternal(pGpu, pFreshMeta, TRANSFER_FLAGS_NONE);
++    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
++        (pFreshVa != NULL) ? NV_OK : NV_ERR_INSUFFICIENT_RESOURCES,
++        cleanup);
++    portMemCopy(pKernelGsp->pWprMeta,
++                sizeof(*pKernelGsp->pWprMeta),
++                pFreshVa, sizeof(*pKernelGsp->pWprMeta));
++    memdescUnmapInternal(pGpu, pFreshMeta, 0);
++    pFreshVa = NULL;
++    memdescFlushCpuCaches(pGpu, pKernelGsp->pWprMetaDescriptor);
++    status = bootStatus;
++
++cleanup:
++    if (pFreshVa != NULL)
++    {
++        memdescUnmapInternal(pGpu, pFreshMeta, 0);
++    }
++    if (pFreshMeta != NULL)
++    {
++        memdescFree(pFreshMeta);
++        memdescDestroy(pFreshMeta);
++    }
++    return status;
++}
++
+ /*!
+  * Boot GSP-RM.
+  *
+@@ -499,6 +651,366 @@ kgspBootstrap_TU102
+ {
+     NV_STATUS status;
+     KernelFalcon *pKernelFalcon = staticCast(pKernelGsp, KernelFalcon);
++    NvU32 cmp40StateIndex = s_cmp40StockflowGpuIndex(pGpu);
++    NvBool bCmp40RetryRejoin = NV_FALSE;
++
++    if ((bootMode == KGSP_BOOT_MODE_NORMAL) &&
++        s_isCmp40ComputeUnlock(pGpu) &&
++        g_cmp40V274PhaseCommitted[cmp40StateIndex])
++    {
++        NvU32 retryWprLo =
++            GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        NvU32 retryWprHi =
++            GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        NvBool bRetryWprDown =
++            (retryWprHi == 0U) &&
++            (retryWprLo == CMP40_WPR2_ADDR_LO_DOWN);
++        NvBool bRetryWprRange =
++            (retryWprLo != 0U) && (retryWprLo < retryWprHi);
++
++        if (!(bRetryWprDown || bRetryWprRange) ||
++            (GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM) !=
++             CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++            (GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0) !=
++             CMP40_FECS_SM_SPEED_FULL_0) ||
++            (GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1) !=
++             CMP40_FECS_SM_SPEED_FULL_1))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: "
++                      "RETRY_REJOIN_STATE_MISMATCH idx=%u "
++                      "WPR=%08x:%08x FECS=%08x SS0=%08x SS1=%08x\n",
++                      cmp40StateIndex, retryWprHi, retryWprLo,
++                      GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM),
++                      GPU_REG_RD32(pGpu,
++                          CMP40_FECS_SM_SPEED_OVERRIDE_0),
++                      GPU_REG_RD32(pGpu,
++                          CMP40_FECS_SM_SPEED_OVERRIDE_1));
++            return NV_ERR_INVALID_STATE;
++        }
++
++        if (g_cmp40V274GspReady[cmp40StateIndex])
++        {
++            NvU32 plm;
++            NvU32 speed0;
++            NvU32 speed1;
++
++            if (pKernelGsp->pPreparedFwsecCmd == NULL)
++            {
++                NV_PRINTF(LEVEL_ERROR,
++                          "CMP40_STOCKFLOW_V551: "
++                          "PERSISTENT_READY_NO_FWSEC idx=%u "
++                          "WPR=%08x:%08x\n",
++                          cmp40StateIndex, retryWprHi, retryWprLo);
++                return NV_ERR_INVALID_STATE;
++            }
++
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: "
++                      "PERSISTENT_READY_REFWSEC idx=%u "
++                      "WPR=%08x:%08x\n",
++                      cmp40StateIndex, retryWprHi, retryWprLo);
++            NV_ASSERT_OK_OR_RETURN(kflcnReset_HAL(pGpu, pKernelFalcon));
++            status = kgspExecuteFwsec_HAL(
++                pGpu, pKernelGsp, pKernelGsp->pPreparedFwsecCmd);
++            portMemFree(pKernelGsp->pPreparedFwsecCmd);
++            pKernelGsp->pPreparedFwsecCmd = NULL;
++            if (status != NV_OK)
++            {
++                NV_PRINTF(LEVEL_ERROR,
++                          "CMP40_STOCKFLOW_V551: "
++                          "PERSISTENT_READY_REFWSEC_FAIL status=0x%x "
++                          "idx=%u\n",
++                          status, cmp40StateIndex);
++                return status;
++            }
++
++            retryWprLo =
++                GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++            retryWprHi =
++                GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++            plm = GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM);
++            speed0 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0);
++            speed1 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1);
++            if (!((retryWprLo != 0U) && (retryWprLo < retryWprHi)) ||
++                (plm != CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++                (speed0 != CMP40_FECS_SM_SPEED_FULL_0) ||
++                (speed1 != CMP40_FECS_SM_SPEED_FULL_1))
++            {
++                NV_PRINTF(LEVEL_ERROR,
++                          "CMP40_STOCKFLOW_V551: "
++                          "PERSISTENT_READY_REFWSEC_STATE_MISMATCH "
++                          "idx=%u WPR=%08x:%08x FECS=%08x "
++                          "SS0=%08x SS1=%08x\n",
++                          cmp40StateIndex, retryWprHi, retryWprLo,
++                          plm, speed0, speed1);
++                return NV_ERR_INVALID_STATE;
++            }
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: "
++                      "PERSISTENT_READY_REFWSEC_STOCK_WPR_PASS "
++                      "idx=%u WPR=%08x:%08x FECS=%08x "
++                      "SS0=%08x SS1=%08x\n",
++                      cmp40StateIndex, retryWprHi, retryWprLo,
++                      plm, speed0, speed1);
++
++            status = kgspCmp40RebuildStockSignature(pGpu, pKernelGsp);
++            if (status != NV_OK)
++            {
++                NV_PRINTF(LEVEL_ERROR,
++                          "CMP40_STOCKFLOW_V551: "
++                          "PERSISTENT_READY_STOCK_SIGNATURE_FAIL "
++                          "status=0x%x idx=%u\n",
++                          status, cmp40StateIndex);
++                return status;
++            }
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: "
++                      "PERSISTENT_READY_STOCK_SIGNATURE_PASS idx=%u\n",
++                      cmp40StateIndex);
++        }
++        kgspCmp40SetExploitMode(pGpu, NV_FALSE);
++        NV_ASSERT_OK_OR_RETURN(kflcnResetIntoRiscv_HAL(pGpu, pKernelFalcon));
++        kgspProgramLibosBootArgsAddr_HAL(pGpu, pKernelGsp);
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_STOCKFLOW_V551: RETRY_REJOIN_STOCK_BOOTER "
++                  "idx=%u WPR=%08x:%08x\n",
++                  cmp40StateIndex, GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI), GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO));
++        bCmp40RetryRejoin = NV_TRUE;
++        goto cmp40_v525_stock_booter;
++    }
++
++cmp40_v274_commit:
++    // V274 commits after FWSEC/FRTS but before switching GSP into RISC-V mode.
++    if ((bootMode == KGSP_BOOT_MODE_NORMAL) &&
++        s_isCmp40ComputeUnlock(pGpu) &&
++        g_cmp40V274FwsecReady[cmp40StateIndex])
++    {
++        NvU32 wpr2Lo = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        NvU32 wpr2Hi = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        NvU32 plm;
++        NvU32 handoffWprLo;
++        NvU32 handoffWprHi;
++        NvU32 speed0;
++        NvU32 speed1;
++
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V274: POST_FWSEC_PRE_GSP_ENTRY "
++                  "WPR=%08x:%08x FECS=%08x RESET=%08x\n",
++                  wpr2Hi, wpr2Lo,
++                  GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM),
++                  GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM));
++
++        // At this point a cold function normally has WPR down.  Also accept
++        // the valid range form so the test remains bounded across RM retries.
++        if (!((wpr2Hi == 0U) ||
++              ((wpr2Lo != 0U) && (wpr2Lo < wpr2Hi))))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V274: unexpected post-FWSEC WPR "
++                      "%08x:%08x\n", wpr2Hi, wpr2Lo);
++            return NV_ERR_INVALID_STATE;
++        }
++
++        kgspCmp40SetExploitMode(pGpu, NV_TRUE);
++        status = _kgspCmp40ExecuteBooterFreshMeta(pGpu, pKernelGsp);
++        kgspCmp40SetExploitMode(pGpu, NV_FALSE);
++        plm = GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM);
++        handoffWprLo = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        handoffWprHi = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        speed0 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0);
++        speed1 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1);
++        if ((status != NV_OK) ||
++            (plm != CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++            (handoffWprLo != CMP40_WPR2_ADDR_LO_DOWN) ||
++            (handoffWprHi != 0U) ||
++            (speed0 != CMP40_FECS_SM_SPEED_FULL_0) ||
++            (speed1 != CMP40_FECS_SM_SPEED_FULL_1))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V274: POST_FWSEC_COMMIT_FAIL "
++                      "status=%x WPR=%08x:%08x FECS=%08x "
++                      "SS0=%08x SS1=%08x\n",
++                      status, handoffWprHi, handoffWprLo, plm,
++                      speed0, speed1);
++            return NV_ERR_INVALID_STATE;
++        }
++
++        status = kgspCmp40RebuildStockSignature(pGpu, pKernelGsp);
++        if (status != NV_OK)
++            return status;
++
++        /*
++         * The signed verifier tail marks this metadata verified and advances
++         * bootCount before the protected cleanup drops WPR2. Reusing those
++         * output flags makes the next stock Booter return NV_OK without
++         * rebuilding WPR2 or starting GSP-RM. Restore only the two cold-input
++         * fields initialized by kgspPopulateWprMeta_TU102; keep every layout
++         * address and firmware pointer produced by the stock path.
++         */
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V523: WPR_META_BEFORE_RESET "
++                  "bootCount=0x%016llx verified=0x%016llx\n",
++                  pKernelGsp->pWprMeta->bootCount,
++                  pKernelGsp->pWprMeta->verified);
++        pKernelGsp->pWprMeta->bootCount = 0;
++        pKernelGsp->pWprMeta->verified = 0;
++        memdescFlushCpuCaches(pGpu, pKernelGsp->pWprMetaDescriptor);
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V523: "
++                  "WPR_META_INPUT_RESET_PASS bootCount=0 verified=0\n");
++
++        status = kgspCmp40SanitizeSec2AfterExploit(pGpu, pKernelGsp);
++        if (status != NV_OK)
++            return status;
++
++        plm = GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM);
++        handoffWprLo = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        handoffWprHi = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        speed0 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0);
++        speed1 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1);
++        if ((plm != CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++            (handoffWprLo != CMP40_WPR2_ADDR_LO_DOWN) ||
++            (handoffWprHi != 0U) ||
++            (speed0 != CMP40_FECS_SM_SPEED_FULL_0) ||
++            (speed1 != CMP40_FECS_SM_SPEED_FULL_1))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V276: SANITIZE_STATE_LOST "
++                      "WPR=%08x:%08x FECS=%08x SS0=%08x SS1=%08x\n",
++                      handoffWprHi, handoffWprLo, plm, speed0, speed1);
++            return NV_ERR_INVALID_STATE;
++        }
++
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V526: "
++                  "FULLSPEED_STOCK_RELOCK_WPR_DOWN_HANDOFF_PASS "
++                  "WPR=%08x:%08x FECS=%08x RESET=%08x "
++                  "SS0=%08x SS1=%08x\n",
++                  handoffWprHi, handoffWprLo, plm,
++                  GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM),
++                  speed0, speed1);
++
++        /*
++         * V551 single-module stock-flow experiment. V534 stopped here so an
++         * external transaction could unload this module and hand the preserved
++         * WPR-down/full-speed state to a separately hashed V529 stock path.
++         * For the patched-driver lane, keep the same exact handoff gate, then
++         * continue into the already staged V524/V525 stock FWSEC/RISCV/Booter
++         * continuation below.
++         */
++        if (GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM) != 0x000000FFU)
++            return NV_ERR_INVALID_STATE;
++        g_cmp40V274PhaseCommitted[cmp40StateIndex] = NV_TRUE;
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V534: "
++                  "TOKEN_RELEASE_RESETPLM_FF_PHASE_BOUNDARY_PASS "
++                  "idx=%u WPR=%08x:%08x FECS=%08x RESET=%08x "
++                  "SS0=%08x SS1=%08x retry_guard=armed\n",
++                  cmp40StateIndex,
++                  handoffWprHi, handoffWprLo, plm,
++                  GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM),
++                  speed0, speed1);
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_STOCKFLOW_V551: BDF_STATE "
++                  "idx=%u bus=%u device=%u gpuInstance=%u "
++                  "from_v534_phase_boundary\n",
++                  cmp40StateIndex, gpuGetBus(pGpu), gpuGetDevice(pGpu),
++                  pGpu->gpuInstance);
++
++        /*
++         * Stock TU102 establishes the FRTS/WPR2 range with FWSEC before
++         * Booter Load. V522/V523 skipped directly from signed WPR-down
++         * cleanup to Booter, which returned NV_OK without raising WPR2.
++         * Replay the untouched driver-prepared FWSEC command and require the
++         * exact stock range while retaining the protected full-speed state.
++         */
++        if (pKernelGsp->pPreparedFwsecCmd == NULL)
++            return NV_ERR_INVALID_STATE;
++        NV_ASSERT_OK_OR_RETURN(kflcnReset_HAL(pGpu, pKernelFalcon));
++        status = kgspExecuteFwsec_HAL(
++            pGpu, pKernelGsp, pKernelGsp->pPreparedFwsecCmd);
++        portMemFree(pKernelGsp->pPreparedFwsecCmd);
++        pKernelGsp->pPreparedFwsecCmd = NULL;
++        if (status != NV_OK)
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V524: REFWSEC_FAIL status=0x%x\n",
++                      status);
++            return status;
++        }
++
++        plm = GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM);
++        handoffWprLo = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        handoffWprHi = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        speed0 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0);
++        speed1 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1);
++        if (!((handoffWprLo != 0U) && (handoffWprLo < handoffWprHi)) ||
++            (plm != CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++            (speed0 != CMP40_FECS_SM_SPEED_FULL_0) ||
++            (speed1 != CMP40_FECS_SM_SPEED_FULL_1))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V524: REFWSEC_STATE_MISMATCH "
++                      "status=0x%x WPR=%08x:%08x FECS=%08x "
++                      "SS0=%08x SS1=%08x\n",
++                      status, handoffWprHi, handoffWprLo, plm,
++                      speed0, speed1);
++            return NV_ERR_INVALID_STATE;
++        }
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V524: REFWSEC_STOCK_WPR_PASS "
++                  "WPR=%08x:%08x FECS=%08x SS0=%08x SS1=%08x\n",
++                  handoffWprHi, handoffWprLo, plm, speed0, speed1);
++
++        /*
++         * Rejoin the two stock instructions that normally run immediately
++         * after FWSEC and before Booter Load. V524 jumped over both when it
++         * entered the in-place Booter label, leaving GSP in Falcon mode with
++         * no LibOS boot-argument address even though FWSEC and Booter passed.
++         */
++        NV_ASSERT_OK_OR_RETURN(
++            kflcnResetIntoRiscv_HAL(pGpu, pKernelFalcon));
++        kgspProgramLibosBootArgsAddr_HAL(pGpu, pKernelGsp);
++        if ((GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO) == 0U) ||
++            (GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO) >=
++             GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI)) ||
++            (GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM) !=
++             CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++            (GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0) !=
++             CMP40_FECS_SM_SPEED_FULL_0) ||
++            (GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1) !=
++             CMP40_FECS_SM_SPEED_FULL_1))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V525: "
++                      "RISCV_BOOTARGS_STATE_MISMATCH\n");
++            return NV_ERR_INVALID_STATE;
++        }
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V525: "
++                  "RISCV_MODE_BOOTARGS_PASS WPR=%08x:%08x "
++                  "FECS=%08x SS0=%08x SS1=%08x\n",
++                  GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI),
++                  GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO),
++                  GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM),
++                  GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0),
++                  GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1));
++
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V274: POST_FWSEC_PRE_GSP_HANDOFF_PASS "
++                  "WPR=%08x:%08x FECS=%08x RESET=%08x "
++                  "SS0=%08x SS1=%08x\n",
++                  handoffWprHi, handoffWprLo, plm,
++                  GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM),
++                  speed0, speed1);
++        g_cmp40V274PhaseCommitted[cmp40StateIndex] = NV_TRUE;
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V525: INPLACE_STOCK_BOOTER_COMMIT "
++                  "idx=%u retry_guard=armed\n",
++                  cmp40StateIndex);
++        goto cmp40_v525_stock_booter;
++    }
+ 
+     // Execute Scrubber if needed
+     if (((bootMode == KGSP_BOOT_MODE_SR_RESUME) || (bootMode == KGSP_BOOT_MODE_NORMAL)) &&
+@@ -521,27 +1033,170 @@ kgspBootstrap_TU102
+             NV_ASSERT_OK_OR_RETURN(kflcnReset_HAL(pGpu, pKernelFalcon));
+ 
+             status = kgspExecuteFwsec_HAL(pGpu, pKernelGsp, pKernelGsp->pPreparedFwsecCmd);
+-            portMemFree(pKernelGsp->pPreparedFwsecCmd);
+-            pKernelGsp->pPreparedFwsecCmd = NULL;
++            /*
++             * Retain the stock prepared FRTS command on the exact CMP40
++             * target for one bounded replay after the signed WPR-down
++             * transaction. Other devices keep the stock lifetime.
++             */
++            if (!s_isCmp40ComputeUnlock(pGpu))
++            {
++                portMemFree(pKernelGsp->pPreparedFwsecCmd);
++                pKernelGsp->pPreparedFwsecCmd = NULL;
++            }
+ 
+             NV_ASSERT_OK_OR_RETURN(status);
+         }
+ 
++        if (s_isCmp40ComputeUnlock(pGpu))
++        {
++            g_cmp40V274FwsecReady[cmp40StateIndex] = NV_TRUE;
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V274: "
++                      "FWSEC_COMPLETE_GSP_UNTOUCHED idx=%u\n",
++                      cmp40StateIndex);
++            goto cmp40_v274_commit;
++        }
++
+         NV_ASSERT_OK_OR_RETURN(kflcnResetIntoRiscv_HAL(pGpu, pKernelFalcon));
+ 
+         // Load init args into mailbox regs
+         kgspProgramLibosBootArgsAddr_HAL(pGpu, pKernelGsp);
+     }
+ 
+-    // Execute Booter Load
+-    status = kgspExecuteBooterLoad_HAL(pGpu, pKernelGsp,
+-                                       _kgspGetBooterLoadArgs(pKernelGsp, bootMode));
++    if (NV_FALSE && (bootMode == KGSP_BOOT_MODE_NORMAL) &&
++        s_isCmp40ComputeUnlock(pGpu))
++    {
++        NvU32 wpr2Lo = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        NvU32 wpr2Hi = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        NvU32 plm;
++        NvU32 handoffWprLo;
++        NvU32 handoffWprHi;
++        NvU32 speed0;
++        NvU32 speed1;
++
++        if (!((wpr2Lo != 0U) && (wpr2Lo < wpr2Hi)))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V140: unexpected initial WPR "
++                      "%08x:%08x\n", wpr2Hi, wpr2Lo);
++            return NV_ERR_INVALID_STATE;
++        }
++
++        kgspCmp40SetExploitMode(pGpu, NV_TRUE);
++        status = _kgspCmp40ExecuteBooterFreshMeta(pGpu, pKernelGsp);
++        kgspCmp40SetExploitMode(pGpu, NV_FALSE);
++        plm = GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM);
++        handoffWprLo = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        handoffWprHi = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        if ((status != NV_OK) ||
++            (plm != CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++            (handoffWprLo != 0x1FFFFE00U) ||
++            (handoffWprHi != 0x00000000U))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V272: signed phase mismatch "
++                      "mismatch status=0x%x FECS=0x%08x "
++                      "savedWPR=%08x:%08x readWPR=%08x:%08x\n",
++                      status, plm, wpr2Hi, wpr2Lo,
++                      handoffWprHi, handoffWprLo);
++            return NV_ERR_INVALID_STATE;
++        }
++
++        speed0 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0);
++        speed1 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1);
++        if ((speed0 != CMP40_FECS_SM_SPEED_FULL_0) ||
++            (speed1 != CMP40_FECS_SM_SPEED_FULL_1))
++        {
++            return NV_ERR_INVALID_STATE;
++        }
++
++        status = kgspCmp40RebuildStockSignature(pGpu, pKernelGsp);
++        if (status != NV_OK)
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V140: stock signature restore "
++                      "failed: 0x%x\n", status);
++            return status;
++        }
++
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V272: SIGNED_HANDOFF_READY "
++                  "FECS=0x%08x "
++                  "WPR=%08x:%08x SS0=0x%08x SS1=0x%08x "
++                  "NEXT=UNLOAD_NO_FLR_THEN_OFFICIAL\n",
++                  plm, handoffWprHi, handoffWprLo, speed0, speed1);
++
++        g_cmp40V274PhaseCommitted[cmp40StateIndex] = NV_TRUE;
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V272: "
++                  "PHASE_COMMIT_RETRY_GUARD_ARMED idx=%u\n",
++                  cmp40StateIndex);
++
++        // Intentional phase boundary: module probe must fail here.  The
++        // transaction script unloads this candidate without FLR and loads the
++        // untouched official module against the legally down WPR state.
++        return NV_ERR_INVALID_STATE;
++    }
++
++cmp40_v525_stock_booter:
++    // Execute stock Booter Load in the same RM/WPR-metadata context.
++    if ((bootMode == KGSP_BOOT_MODE_NORMAL) &&
++        s_isCmp40ComputeUnlock(pGpu) &&
++        !bCmp40RetryRejoin)
++    {
++        status = _kgspCmp40ExecuteBooterFreshMeta(pGpu, pKernelGsp);
++    }
++    else
++    {
++        status = kgspExecuteBooterLoad_HAL(
++            pGpu, pKernelGsp,
++            _kgspGetBooterLoadArgs(pKernelGsp, bootMode));
++    }
+     if (status != NV_OK)
+     {
+         NV_PRINTF(LEVEL_ERROR, "failed to execute Booter Load (ucode for initial boot): 0x%x\n", status);
+         return status;
+     }
+ 
++    if ((bootMode == KGSP_BOOT_MODE_NORMAL) &&
++        s_isCmp40ComputeUnlock(pGpu))
++    {
++        NvU32 postWprLo = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_LO);
++        NvU32 postWprHi = GPU_REG_RD32(pGpu, NV_PFB_PRI_MMU_WPR2_ADDR_HI);
++        NvU32 postSpeed0 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_0);
++        NvU32 postSpeed1 = GPU_REG_RD32(pGpu, CMP40_FECS_SM_SPEED_OVERRIDE_1);
++        NvU32 postPlm = GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_PLM);
++        NvU32 postResetPlm =
++            GPU_REG_RD32(pGpu, CMP40_SEC2_RESET_PLM);
++        if ((postWprLo >= postWprHi) ||
++            (postSpeed0 != CMP40_FECS_SM_SPEED_FULL_0) ||
++            (postSpeed1 != CMP40_FECS_SM_SPEED_FULL_1) ||
++            (postPlm != CMP40_FECS_FEATURE_PLM_POSTLOCK) ||
++            ((postResetPlm != CMP40_SEC2_RESET_PLM_STOCK) &&
++             (postResetPlm != 0x000000FFU)))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V525: stock Booter mismatch "
++                      "WPR=%08x:%08x SS0=0x%08x SS1=0x%08x "
++                      "FECS=0x%08x RESET=0x%08x\n",
++                      postWprHi, postWprLo, postSpeed0, postSpeed1,
++                      postPlm, postResetPlm);
++            return NV_ERR_INVALID_STATE;
++        }
++        if (postResetPlm == 0x000000FFU)
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: "
++                      "STOCK_BOOTER_RESET_FF_ACCEPTED\n");
++        }
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V525: INPLACE_STOCK_BOOTER_AFTER_UNLOCK_PASS "
++                  "WPR=%08x:%08x SS0=0x%08x SS1=0x%08x "
++                  "FECS_PLM=0x%08x RESET_PLM=0x%08x\n",
++                  postWprHi, postWprLo, postSpeed0, postSpeed1,
++                  postPlm, postResetPlm);
++    }
++
+     // Program FALCON_OS
+     RM_RISCV_UCODE_DESC *pRiscvDesc = pKernelGsp->pGspRmBootUcodeDesc;
+     kflcnRegWrite_HAL(pGpu, pKernelFalcon, NV_PFALCON_FALCON_OS, pRiscvDesc->appVersion);
+@@ -574,6 +1229,22 @@ kgspBootstrap_TU102
+ 
+     NV_PRINTF(LEVEL_INFO, "GSP FW RM ready.\n");
+ 
++    if ((pGpu->idInfo.PCIDeviceID == 0x1F0B10DEU) &&
++        (1))
++    {
++        g_cmp40V274GspReady[cmp40StateIndex] = NV_TRUE;
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_GSP_READY_V551: feature=0x%08x ss0=0x%08x "
++                  "readout=0x%08x ss1=0x%08x\n",
++                  GPU_REG_RD32(pGpu, CMP40_FECS_FEATURE_READOUT),
++                  GPU_REG_RD32(pGpu,
++                      CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT),
++                  GPU_REG_RD32(pGpu,
++                      CMP40_FECS_FEATURE_READOUT_SM_SPEED_SELECT),
++                  GPU_REG_RD32(pGpu,
++                      CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT_1));
++    }
++
+     return NV_OK;
+ }
+ 
+@@ -674,6 +1345,18 @@ kgspGetGspRmBootUcodeStorage_TU102
+ {
+     const BINDATA_ARCHIVE *pBinArchive = kgspGetBinArchiveGspRmBoot_HAL(pKernelGsp);
+ 
++    if (pBinArchive == NULL)
++    {
++        if (s_isCmp40ComputeUnlock(pGpu))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: GSP_RM_BOOT_ARCHIVE_NULL\n");
++        }
++        *ppBinStorageImage = NULL;
++        *ppBinStorageDesc = NULL;
++        return;
++    }
++
+     *ppBinStorageImage = (BINDATA_STORAGE *) bindataArchiveGetStorage(pBinArchive, BINDATA_LABEL_UCODE_IMAGE);
+     *ppBinStorageDesc  = (BINDATA_STORAGE *) bindataArchiveGetStorage(pBinArchive, BINDATA_LABEL_UCODE_DESC);
+ }
+diff --git a/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c b/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c
+index 775b0f7..6347b59 100644
+--- a/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c
++++ b/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c
+@@ -97,6 +97,15 @@
+ 
+ #include "crashcat/crashcat_report.h"
+ 
++#define CMP40_PC_CANARY_PCI_DEVICE_ID       0x1F0B10DEU
++#define CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(id) (1)
++#define CMP40_PC_CANARY_SIGNATURE_SIZE      0x0000FA00ULL
++#define CMP40_PC_CANARY_UNIFORM_DWORD       0x00000CBDU
++
++NV_STATUS kgspCmp40RebuildStockSignature(OBJGPU *pGpu, KernelGsp *pKernelGsp);
++NV_STATUS kgspCmp40ReplaceSignature(OBJGPU *pGpu, KernelGsp *pKernelGsp,
++                                    NvBool bSecondExploit);
++
+ #define RPC_HDR  ((rpc_message_header_v*)(pRpc->message_buffer))
+ 
+ struct MIG_CI_UPDATE_CALLBACK_PARAMS
+@@ -3772,8 +3781,35 @@ _kgspPrepareScrubberImageIfNeeded(OBJGPU *pGpu, KernelGsp *pKernelGsp)
+ 
+     // WAR for Bug 5016200 - Always run scrubber from kernel RM for ADA config
+     if ((neededSize > prescrubbedSize) || kgspIsScrubberImageSupported(pGpu, pKernelGsp))
+-        NV_CHECK_OK_OR_RETURN(LEVEL_ERROR,
+-            kgspAllocateScrubberUcodeImage(pGpu, pKernelGsp, &pKernelGsp->pScrubberUcode));
++    {
++        NV_STATUS scrubberStatus = kgspAllocateScrubberUcodeImage(
++            pGpu, pKernelGsp, &pKernelGsp->pScrubberUcode);
++        if (scrubberStatus != NV_OK)
++        {
++            if ((pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID) &&
++                CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(pGpu->idInfo.PCISubDeviceID))
++            {
++                NV_PRINTF(LEVEL_ERROR,
++                          "CMP40_STOCKFLOW_V551: SCRUBBER_ALLOC_FAIL "
++                          "status=0x%x needed=0x%llx prescrubbed=0x%llx "
++                          "supported=%u\n",
++                          scrubberStatus, neededSize, prescrubbedSize,
++                          kgspIsScrubberImageSupported(pGpu, pKernelGsp));
++                if ((scrubberStatus == NV_ERR_NOT_SUPPORTED) &&
++                    !kgspIsScrubberImageSupported(pGpu, pKernelGsp))
++                {
++                    pKernelGsp->pScrubberUcode = NULL;
++                    NV_PRINTF(LEVEL_ERROR,
++                              "CMP40_STOCKFLOW_V551: "
++                              "SCRUBBER_UNSUPPORTED_SKIP "
++                              "needed=0x%llx prescrubbed=0x%llx\n",
++                              neededSize, prescrubbedSize);
++                    return NV_OK;
++                }
++            }
++            return scrubberStatus;
++        }
++    }
+ 
+     return NV_OK;
+ }
+@@ -3911,9 +3947,19 @@ _kgspBootGspRm(OBJGPU *pGpu, KernelGsp *pKernelGsp, GSP_FIRMWARE *pGspFw, GPU_MA
+     if (kgspIsWpr2Up_HAL(pGpu, pKernelGsp) &&
+         (!pGpu->getProperty(pGpu, PDB_PROP_GPU_PREINITIALIZED_WPR_REGION)))
+     {
+-        NV_PRINTF(LEVEL_ERROR, "unexpected WPR2 already up, cannot proceed with booting GSP\n");
+-        NV_PRINTF(LEVEL_ERROR, "(the GPU is likely in a bad state and may need to be reset)\n");
+-        return NV_ERR_INVALID_STATE;
++        if ((pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID) &&
++            CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(pGpu->idInfo.PCISubDeviceID))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_COMPUTE_UNLOCK_V132: continuing final FECS "
++                      "pass with cumulative WPR PLMs active\n");
++        }
++        else
++        {
++            NV_PRINTF(LEVEL_ERROR, "unexpected WPR2 already up, cannot proceed with booting GSP\n");
++            NV_PRINTF(LEVEL_ERROR, "(the GPU is likely in a bad state and may need to be reset)\n");
++            return NV_ERR_INVALID_STATE;
++        }
+     }
+ 
+     // Populate WPR meta structure (requires knowing FB size on dGPU, which depends on GFW_BOOT)
+@@ -4587,8 +4633,8 @@ kgspPrepareBootBinaryImage_IMPL
+ )
+ {
+     NV_STATUS status;
+-    BINDATA_STORAGE *pBinStorageImage;
+-    BINDATA_STORAGE *pBinStorageDesc;
++    BINDATA_STORAGE *pBinStorageImage = NULL;
++    BINDATA_STORAGE *pBinStorageDesc = NULL;
+     NvU32 bufSize;
+     NvU32 bufSizeAligned;
+     RM_RISCV_UCODE_DESC *pDesc = NULL;
+@@ -4601,6 +4647,18 @@ kgspPrepareBootBinaryImage_IMPL
+ 
+     // get the bindata storage for the image/descriptor
+     kgspGetGspRmBootUcodeStorage_HAL(pGpu, pKernelGsp, &pBinStorageImage, &pBinStorageDesc);
++    if ((pBinStorageImage == NULL) || (pBinStorageDesc == NULL))
++    {
++        if ((pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID) &&
++            CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(pGpu->idInfo.PCISubDeviceID))
++        {
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_STOCKFLOW_V551: GSP_RM_BOOT_STORAGE_NULL "
++                      "image=%p desc=%p\n",
++                      pBinStorageImage, pBinStorageDesc);
++        }
++        return NV_ERR_NOT_SUPPORTED;
++    }
+ 
+     // copy the image to sysmem
+     bufSize = bindataGetBufferSize(pBinStorageImage);
+@@ -4680,6 +4738,20 @@ _kgspFreeBootBinaryImage
+     pKernelGsp->gspRmBootUcodeSize   = 0;
+ }
+ 
++static void
++_kgspCmp40PutU32
++(
++    NvU8 *pBuffer,
++    NvU32 offset,
++    NvU32 value
++)
++{
++    pBuffer[offset + 0] = (NvU8)(value >> 0);
++    pBuffer[offset + 1] = (NvU8)(value >> 8);
++    pBuffer[offset + 2] = (NvU8)(value >> 16);
++    pBuffer[offset + 3] = (NvU8)(value >> 24);
++}
++
+ static NV_STATUS
+ _kgspCreateSignatureMemdesc
+ (
+@@ -4690,6 +4762,13 @@ _kgspCreateSignatureMemdesc
+ {
+     NV_STATUS status = NV_OK;
+     NvU8 *pSignatureVa = NULL;
++    NvU64 i;
++    NvBool bCmp40PcCanary =
++        (pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID) &&
++        CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(pGpu->idInfo.PCISubDeviceID);
++    NvU64 signatureMemdescSize = bCmp40PcCanary ?
++        CMP40_PC_CANARY_SIGNATURE_SIZE :
++        NV_ALIGN_UP(pGspFw->signatureSize, 256);
+     NvU64 flags = MEMDESC_FLAGS_NONE;
+ 
+     flags |= MEMDESC_FLAGS_ALLOC_IN_UNPROTECTED_MEMORY;
+@@ -4697,7 +4776,7 @@ _kgspCreateSignatureMemdesc
+     // NOTE: align to 256 because that's the alignment needed for Booter DMA
+     NV_CHECK_OK_OR_RETURN(LEVEL_ERROR,
+         memdescCreate(&pKernelGsp->pSignatureMemdesc, pGpu,
+-            NV_ALIGN_UP(pGspFw->signatureSize, 256), 256,
++            signatureMemdescSize, 256,
+             NV_TRUE, ADDR_SYSMEM, NV_MEMORY_CACHED, flags));
+ 
+     memdescTagAlloc(status,
+@@ -4709,15 +4788,313 @@ _kgspCreateSignatureMemdesc
+         (pSignatureVa != NULL) ? NV_OK : NV_ERR_INSUFFICIENT_RESOURCES,
+         fail_alloc);
+ 
+-    portMemCopy(pSignatureVa, memdescGetSize(pKernelGsp->pSignatureMemdesc),
+-        pGspFw->pSignatureData, pGspFw->signatureSize);
++    if (bCmp40PcCanary)
++    {
++        if ((pGspFw->pSignatureData == NULL) ||
++            (pGspFw->signatureSize == 0) ||
++            (pKernelGsp->pStockSignatureData != NULL))
++        {
++            status = NV_ERR_INVALID_STATE;
++            goto fail_alloc;
++        }
++
++        pKernelGsp->pStockSignatureData =
++            portMemAllocNonPaged(pGspFw->signatureSize);
++        if (pKernelGsp->pStockSignatureData == NULL)
++        {
++            status = NV_ERR_INSUFFICIENT_RESOURCES;
++            goto fail_alloc;
++        }
++        pKernelGsp->stockSignatureSize = pGspFw->signatureSize;
++        portMemCopy(pKernelGsp->pStockSignatureData,
++                    pGspFw->signatureSize,
++                    pGspFw->pSignatureData,
++                    pGspFw->signatureSize);
++
++        for (i = 0; i + sizeof(NvU32) <= signatureMemdescSize;
++             i += sizeof(NvU32))
++        {
++            _kgspCmp40PutU32(pSignatureVa, (NvU32)i,
++                             CMP40_PC_CANARY_UNIFORM_DWORD);
++        }
++
++        /*
++         * V151 keeps execution inside the original signed Booter.  The first
++         * native BAR0 write opens FECS FEATURE_OVERRIDE_PLM.  The second clears
++         * SEC2 MAILBOX0 so a direct, successful Booter halt is reported as
++         * BOOTER_OK after the normal post-verification path has run.
++         *
++         * Runtime PC addresses use the Booter's +0x100 code base.  Gadget
++         * 0x64ec is an unaligned `mov sp, r6` stack pivot followed by a bounded
++         * error return.  We first pivot to controlled DMEM 0xc100, use 0x0c1d
++         * to rewrite the already-consumed saved return slot at 0xff4c with the
++         * normal caller continuation 0x277b.  V244 then rebuilds the vulnerable
++         * verifier's frame at 0xff14 and resumes at runtime PC 0x3988, just
++         * after the overflowing DMA helper.  Signed Booter therefore executes
++         * its two remaining secure checks and returns naturally through
++         * 0xff4c instead of skipping the verifier tail.
++         *
++         * The verifier tail first requires generic descriptor version 2 at
++         * offset 0, then reads commands 0x12 and 0x13 from the signature
++         * descriptor at offsets 0x880 and 0x884.  V244 preserves the exact
++         * 580.159.03 TU10x values (LS ucode version 0x344, ucode id 1), so the
++         * signed revocation check can complete and populate WprMeta offset
++         * 0xec before GSP-RM starts.
++         *
++         * Booter then marks WprMeta verified, prepares GSP, writes handoffs,
++         * and starts GSP-RM.  Its epilogue sees the controlled canary at
++         * 0xff94 and returns to the real EXIT at runtime PC 0x7d34.  Uniform
++         * 0x0cbd is intentional: it is both the global/saved canary and the
++         * first-writer continuation at 0xff94.
++         */
++        _kgspCmp40PutU32(pSignatureVa, 0x0000, 0x00020001U); /* stock generic header/version 2 */
++        _kgspCmp40PutU32(pSignatureVa, 0x0880, 0x00000344U); /* stock LS ucode version */
++        _kgspCmp40PutU32(pSignatureVa, 0x0884, 0x00000001U); /* stock LS ucode id */
++        /*
++         * Signature offset 0x1100 lands at SEC2 DMEM 0x1700.  NVIDIA's
++         * booterCleanupAndHalt() restores RESET_PRIV_LEVEL_MASK[7:4] from
++         * this saved nibble immediately before scrubbing DMEM and halting.
++         * Keep all write levels enabled only across the bounded second stock
++         * Booter launch; that stock path must restore the final 0x8f mask.
++         */
++        _kgspCmp40PutU32(pSignatureVa, 0x1100, 0x0000000FU); /* temporary host-reset window */
++        _kgspCmp40PutU32(pSignatureVa, 0xF90C, 0x00000CBDU); /* tail-pivot guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF910, 0x00003988U); /* verifier tail */
++        _kgspCmp40PutU32(pSignatureVa, 0xF93C, 0x00000CBDU); /* pivot guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF940, 0x00001D62U); /* clear r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF944, 0x00000000U); /* clear-pop r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF948, 0x00000CBDU); /* saved guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF94C, 0x00000CC8U); /* first RA */
++        _kgspCmp40PutU32(pSignatureVa, 0xF950, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF954, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF958, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF95C, 0xFFFFFFFFU); /* open PLM */
++        _kgspCmp40PutU32(pSignatureVa, 0xF960, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF964, 0x00000CBDU); /* move r0->r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF968, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF96C, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF970, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF974, 0x00409650U); /* FECS PLM */
++        _kgspCmp40PutU32(pSignatureVa, 0xF978, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF97C, 0x00001F89U); /* form args */
++        _kgspCmp40PutU32(pSignatureVa, 0xF980, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF984, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF988, 0x88888888U); /* full-speed SS0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF98C, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF990, 0x000010AAU); /* BAR0 writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xF994, 0x00000CBDU); /* r0->r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF998, 0x00007D34U); /* pop r3 / exit */
++        _kgspCmp40PutU32(pSignatureVa, 0xF99C, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9A0, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9A4, 0x00409664U); /* SS0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9A8, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9AC, 0x00001F89U); /* form args */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9B0, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9B4, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9B8, 0x00000000U); /* r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9BC, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9C0, 0x000010AAU); /* writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9C4, 0x000005FFU); /* pop r0-r6 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9C8, 0x0000C100U); /* r6/pivot */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9CC, 0x00000000U); /* r5 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9D0, 0x00000000U); /* r4 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9D4, 0x00000000U); /* r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9D8, 0x00000000U); /* r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9DC, 0x00000000U); /* r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9E0, 0x00000000U); /* r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9E4, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xF9E8, 0x000064ECU); /* stack-safe pivot */
++
++        /*
++         * Secondary stack at DMEM 0xc100.  Booter Load enforces a hardware
++         * stack-underflow boundary at 0xc000, so the historical 0x7d34 stack
++         * could never reach the native continuation.
++         */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB00, 0x00000CBDU); /* canary */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB04, 0x000005FFU); /* pop r0-r6 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB08, 0x0000FF3CU); /* r6 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB0C, 0x00000000U); /* r5 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB10, 0x00000000U); /* r4 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB14, 0x00000000U); /* r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB18, 0x00000000U); /* r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB1C, 0x00000000U); /* r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB20, 0x00000008U); /* full-speed SS1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB24, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB28, 0x00000CBDU); /* r0->r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB2C, 0x00000000U); /* r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB30, 0x00000000U); /* r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB34, 0x00000000U); /* r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB38, 0x0040966CU); /* SS1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB3C, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB40, 0x00001F89U); /* form args */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB44, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB48, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB4C, 0xFFFFFF8FU); /* exact stock FECS PLM */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB50, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB54, 0x000010AAU); /* SS1 writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB58, 0x00000CBDU); /* postlock r0->r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB5C, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB60, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB64, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB68, 0x00409650U); /* FECS PLM */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB6C, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB70, 0x00001F89U); /* form postlock args */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB74, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB78, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB7C, 0x00000000U); /* next: disable WPR2 via HI=0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB80, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB84, 0x000010AAU); /* FECS postlock writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB88, 0x00000CBDU); /* WPR2 HI value -> r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB8C, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB90, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB94, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB98, 0x001FA828U); /* WPR2 HI */
++        _kgspCmp40PutU32(pSignatureVa, 0xBB9C, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBA0, 0x00001F89U); /* form WPR2 HI args */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBA4, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBA8, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBAC, 0x000000FFU); /* next: open RESET_PLM */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBB0, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBB4, 0x000010AAU); /* WPR2 HI writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBB8, 0x00000CBDU); /* RESET_PLM value -> r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBBC, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBC0, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBC4, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBC8, 0x008403C4U); /* SEC2 RESET_PLM */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBCC, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBD0, 0x00001F89U); /* form RESET_PLM args */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBD4, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBD8, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBDC, 0x1FFFFE00U); /* next: WPR2 LO */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBE0, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBE4, 0x000010AAU); /* RESET_PLM writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBE8, 0x00000CBDU); /* WPR2 LO value -> r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBEC, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBF0, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBF4, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBF8, 0x001FA824U); /* WPR2 LO */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBFC, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC00, 0x00001F89U); /* form WPR2 LO args */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC04, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC08, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC0C, 0x000000FFU); /* next: host-reset window */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC10, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC14, 0x000010AAU); /* WPR2 LO writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC18, 0x00000CBDU); /* RESET_PLM value -> r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC1C, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC20, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC24, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC28, 0x008403C4U); /* SEC2 RESET_PLM */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC2C, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC30, 0x00001F89U); /* form RESET_PLM args */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC34, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC38, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC3C, 0x00000000U); /* pop r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC40, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC44, 0x000010AAU); /* RESET_PLM writer */
++
++        /*
++         * The exploit exits booterInit() through the ROP tail, bypassing the
++         * normal done path that releases
++         * SEC2_MUTEX_ACR_ALLOW_ONLY_ONE_ACR_BINARY_AT_ANY_TIME.  A second
++         * pristine Booter otherwise loops forever while trying to acquire
++         * that still-owned mutex and leaves its startup sentinel (0x31) in
++         * MAILBOX0.  Reuse V235's hardware-proven token-aware release path:
++         * group-0 mutex-3 owner is at secure-bus address 0x8e18 and the
++         * observed owner token is 0xc2.
++         */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC48, 0x000005FFU); /* pop r0-r6 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC4C, 0x00000000U); /* r6 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC50, 0x00000000U); /* r5 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC54, 0x00000000U); /* r4 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC58, 0x00008E18U); /* r3 / owner address */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC5C, 0x000000C2U); /* r2 / owner token */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC60, 0x00000000U); /* r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC64, 0x00000000U); /* r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC68, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC6C, 0x00000D27U); /* owner/token release tail */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC70, 0x00000000U); /* pop r5 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC74, 0x00000000U); /* pop r4 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC78, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC7C, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC80, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC84, 0x00000000U); /* pop r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC88, 0x00000000U); /* add8 padding */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC8C, 0x00000CBDU); /* guard */
++
++        /* Clear the startup sentinel and enter NVIDIA's native cleanup. */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC90, 0x00000CBDU); /* r0->r10=0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC94, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC98, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC9C, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBCA0, 0x00000000U); /* pop r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBCA4, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBCA8, 0x00001CDDU); /* native CSB MAILBOX0 writer */
++        _kgspCmp40PutU32(pSignatureVa, 0xBCAC, 0x00007C43U); /* native cleanup-and-halt */
++#if 0
++        /* V249's native-GSP continuation is intentionally disabled in V272. */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBAC, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBB0, 0x00000CBDU); /* r0->r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBB4, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBB8, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBBC, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBC0, 0x00000454U); /* WprMeta size high */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBC4, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBC8, 0x00000C1DU); /* DMEM store */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBCC, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBD0, 0x0000277BU); /* continuation */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBD4, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBD8, 0x00000CBDU); /* r0->r10 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBDC, 0x00000000U); /* pop r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBE0, 0x00000000U); /* pop r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBE4, 0x00000000U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBE8, 0x0000FF4CU); /* saved RA */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBEC, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBF0, 0x00000C1DU); /* DMEM store */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBF4, 0x00000400U); /* pop r1 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBF8, 0x00000000U); /* pop r0 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBBFC, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC00, 0x000005FFU); /* pop r0-r6 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC04, 0x0000FF0CU); /* r6/pivot */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC08, 0x00000000U); /* r5 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC0C, 0x00000000U); /* r4 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC10, 0x00000000U); /* r3 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC14, 0x00000000U); /* r2 */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC18, 0x00000400U); /* r1/meta */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC1C, 0x00000000U); /* r0/status */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC20, 0x00000CBDU); /* guard */
++        _kgspCmp40PutU32(pSignatureVa, 0xBC24, 0x000064ECU); /* tail pivot */
++#endif
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V526: signed fullspeed stock-relock WPR-down commit "
++                  "FECS=0xffffff8f SS0=0x88888888 SS1=8 "
++                  "WPR2=0:0x1ffffe00 RESET_PLM=0xff ACR_TOKEN=0xc2 MB0=0 MB1=0 "
++                  "header=0x00020001 ls_version=0x344 ls_id=1 tail=0x3988 "
++                  "mutex_release=0x0d27 mailbox=0x1cdd cleanup=0x7c43@0xbcac "
++                  "g_resetPLM=f stack=0xff14 "
++                  "stage=0xc100 gadgets=0x0cc8,0x0cbd,0x0c1d,"
++                  "0x1d62,0x1f89,0x5ff,0x64ec\n");
++    }
++    else
++    {
++        portMemCopy(pSignatureVa,
++                    memdescGetSize(pKernelGsp->pSignatureMemdesc),
++                    pGspFw->pSignatureData, pGspFw->signatureSize);
++    }
+ 
+     memdescUnmapInternal(pGpu, pKernelGsp->pSignatureMemdesc, 0);
+     pSignatureVa = NULL;
++    memdescFlushCpuCaches(pGpu, pKernelGsp->pSignatureMemdesc);
+ 
+     return status;
+ 
+ fail_alloc:
++    if (bCmp40PcCanary && pKernelGsp->pStockSignatureData != NULL)
++    {
++        portMemFree(pKernelGsp->pStockSignatureData);
++        pKernelGsp->pStockSignatureData = NULL;
++        pKernelGsp->stockSignatureSize = 0;
++    }
+     memdescFree(pKernelGsp->pSignatureMemdesc);
+ 
+ fail_create:
+@@ -4727,6 +5104,194 @@ fail_create:
+     return status;
+ }
+ 
++NV_STATUS
++kgspCmp40RebuildStockSignature
++(
++    OBJGPU *pGpu,
++    KernelGsp *pKernelGsp
++)
++{
++    NvU8 *pSignatureVa = NULL;
++    NvU64 backingSize;
++    NvU64 stockAdvertisedSize;
++
++    if ((pKernelGsp->pSignatureMemdesc == NULL) ||
++        (pKernelGsp->pStockSignatureData == NULL) ||
++        (pKernelGsp->stockSignatureSize == 0))
++    {
++        return NV_ERR_INVALID_STATE;
++    }
++
++    backingSize = memdescGetSize(pKernelGsp->pSignatureMemdesc);
++    stockAdvertisedSize =
++        NV_ALIGN_UP(pKernelGsp->stockSignatureSize, 256);
++    if (stockAdvertisedSize > backingSize)
++    {
++        return NV_ERR_INSUFFICIENT_RESOURCES;
++    }
++
++    pSignatureVa = memdescMapInternal(
++        pGpu, pKernelGsp->pSignatureMemdesc, TRANSFER_FLAGS_NONE);
++    if (pSignatureVa == NULL)
++    {
++        return NV_ERR_INSUFFICIENT_RESOURCES;
++    }
++
++    portMemSet(pSignatureVa, 0, backingSize);
++    portMemCopy(pSignatureVa, backingSize,
++                pKernelGsp->pStockSignatureData,
++                pKernelGsp->stockSignatureSize);
++    memdescUnmapInternal(pGpu, pKernelGsp->pSignatureMemdesc, 0);
++    pSignatureVa = NULL;
++    memdescFlushCpuCaches(pGpu, pKernelGsp->pSignatureMemdesc);
++
++    if (pKernelGsp->pWprMeta != NULL)
++    {
++        pKernelGsp->pWprMeta->sysmemAddrOfSignature =
++            memdescGetPhysAddr(pKernelGsp->pSignatureMemdesc, AT_GPU, 0);
++        pKernelGsp->pWprMeta->sizeOfSignature = stockAdvertisedSize;
++    }
++    if (pKernelGsp->pWprMetaDescriptor != NULL)
++    {
++        memdescFlushCpuCaches(pGpu, pKernelGsp->pWprMetaDescriptor);
++    }
++
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_COMPUTE_UNLOCK_V132: restored stock signature in-place "
++              "phys=0x%llx backing=0x%llx advertised=0x%llx\n",
++              memdescGetPhysAddr(
++                  pKernelGsp->pSignatureMemdesc, AT_GPU, 0),
++              backingSize, stockAdvertisedSize);
++    return NV_OK;
++}
++
++NV_STATUS
++kgspCmp40ReplaceSignature
++(
++    OBJGPU *pGpu,
++    KernelGsp *pKernelGsp,
++    NvBool bSecondExploit
++)
++{
++    NV_STATUS status = NV_OK;
++    MEMORY_DESCRIPTOR *pOldMemdesc = pKernelGsp->pSignatureMemdesc;
++    MEMORY_DESCRIPTOR *pNewMemdesc = NULL;
++    NvU8 *pSignatureVa = NULL;
++    NvU64 newSize;
++    NvU64 i;
++    NvU64 flags = MEMDESC_FLAGS_ALLOC_IN_UNPROTECTED_MEMORY;
++
++    if ((pOldMemdesc == NULL) ||
++        (pKernelGsp->pStockSignatureData == NULL) ||
++        (pKernelGsp->stockSignatureSize == 0) ||
++        (pKernelGsp->pWprMeta == NULL))
++    {
++        return NV_ERR_INVALID_STATE;
++    }
++
++    newSize = bSecondExploit ? CMP40_PC_CANARY_SIGNATURE_SIZE :
++        NV_ALIGN_UP(pKernelGsp->stockSignatureSize, 256);
++    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
++        memdescCreate(&pNewMemdesc, pGpu, newSize, 256,
++            NV_TRUE, ADDR_SYSMEM, NV_MEMORY_CACHED, flags), fail);
++    memdescTagAlloc(status,
++        NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_16, pNewMemdesc);
++    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR, status, fail);
++
++    pSignatureVa = memdescMapInternal(
++        pGpu, pNewMemdesc, TRANSFER_FLAGS_NONE);
++    NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
++        (pSignatureVa != NULL) ? NV_OK : NV_ERR_INSUFFICIENT_RESOURCES,
++        fail);
++
++    if (!bSecondExploit)
++    {
++        portMemSet(pSignatureVa, 0, newSize);
++        portMemCopy(pSignatureVa, newSize,
++                    pKernelGsp->pStockSignatureData,
++                    pKernelGsp->stockSignatureSize);
++    }
++    else
++    {
++        for (i = 0; i + sizeof(NvU32) <= newSize; i += sizeof(NvU32))
++        {
++            _kgspCmp40PutU32(pSignatureVa, (NvU32)i,
++                             CMP40_PC_CANARY_UNIFORM_DWORD);
++        }
++        _kgspCmp40PutU32(pSignatureVa, 0xF94C, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF950, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF954, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF958, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF95C, 0xFFFFFFFFU);
++        _kgspCmp40PutU32(pSignatureVa, 0xF960, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF964, 0x00000CBDU);
++        _kgspCmp40PutU32(pSignatureVa, 0xF968, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF96C, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF970, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF974, 0x00409650U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF978, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF97C, 0x00001F89U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF980, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF984, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF988, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF98C, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF990, 0x000010AAU);
++        _kgspCmp40PutU32(pSignatureVa, 0xF994, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF998, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF99C, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9A0, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9A4, 0xFFFFFFFFU);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9A8, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9AC, 0x00000CBDU);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9B0, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9B4, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9B8, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9BC, 0x008403C4U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9C0, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9C4, 0x00001F89U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9C8, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9CC, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9D0, 0x00000000U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9D4, 0x00000CC8U);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9D8, 0x000010AAU);
++        _kgspCmp40PutU32(pSignatureVa, 0xF9DC, 0x00007C34U);
++    }
++
++    memdescUnmapInternal(pGpu, pNewMemdesc, 0);
++    pSignatureVa = NULL;
++    memdescFlushCpuCaches(pGpu, pNewMemdesc);
++
++    pKernelGsp->pSignatureMemdesc = pNewMemdesc;
++    pKernelGsp->pWprMeta->sysmemAddrOfSignature =
++        memdescGetPhysAddr(pNewMemdesc, AT_GPU, 0);
++    pKernelGsp->pWprMeta->sizeOfSignature = newSize;
++    if (pKernelGsp->pWprMetaDescriptor != NULL)
++    {
++        memdescFlushCpuCaches(pGpu, pKernelGsp->pWprMetaDescriptor);
++    }
++
++    memdescFree(pOldMemdesc);
++    memdescDestroy(pOldMemdesc);
++    NV_PRINTF(LEVEL_ERROR,
++              "CMP40_COMPUTE_UNLOCK_V132: signature buffer replaced "
++              "mode=%s phys=0x%llx size=0x%llx\n",
++              bSecondExploit ? "second-exploit" : "stock",
++              memdescGetPhysAddr(pNewMemdesc, AT_GPU, 0), newSize);
++    return NV_OK;
++
++fail:
++    if (pSignatureVa != NULL)
++    {
++        memdescUnmapInternal(pGpu, pNewMemdesc, 0);
++    }
++    if (pNewMemdesc != NULL)
++    {
++        memdescFree(pNewMemdesc);
++        memdescDestroy(pNewMemdesc);
++    }
++    return status;
++}
++
+ /*!
+  * Verify that the version embedded in the .fwversion section of the ELF given
+  * by pElfData and elfDataSize matches our NV_VERSION_STRING.
+@@ -5270,7 +5835,30 @@ kgspWaitForRmInitDone_IMPL
+     // Now check if RPC really succeeded (NV_VGPU_MSG_RESULT_* are defined to
+     // equivalent NV_STATUS codes in RM).
+     //
+-    NV_ASSERT_OK_OR_RETURN(RPC_HDR->rpc_result);
++    if ((RPC_HDR->rpc_result == NV_ERR_TIMEOUT) &&
++        (pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID) &&
++        CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(pGpu->idInfo.PCISubDeviceID))
++    {
++        /*
++         * The signed-Booter native-continuation path has already produced a
++         * valid INIT_DONE event and a running GSP RISC-V, but GSP reports its
++         * own bounded initialization timeout.  Continue only for the exact
++         * CMP 50HX identity so the caller can run the normal RM, RPC and
++         * measured-compute health gates.  This is not itself an acceptance
++         * condition; any unusable GSP state fails those gates and is reset by
++         * the hot-load harness.
++         */
++        NV_PRINTF(LEVEL_ERROR,
++                  "CMP40_COMPUTE_UNLOCK_V240: BOUNDED_INIT_TIMEOUT_CONTINUE "
++                  "function=0x%x sequence=0x%x length=0x%x result=0x%x\n",
++                  RPC_HDR->function, RPC_HDR->sequence,
++                  RPC_HDR->length, RPC_HDR->rpc_result);
++        RPC_HDR->rpc_result = NV_OK;
++    }
++    else
++    {
++        NV_ASSERT_OK_OR_RETURN(RPC_HDR->rpc_result);
++    }
+ 
+     pGpu->gspRmInitialized = NV_TRUE;
+     if (hypervisorIsVgxHyper() && pGpu->getProperty(pGpu, PDB_PROP_GPU_EXTENDED_GSP_RM_INITIALIZATION_TIMEOUT_FOR_VGX))
