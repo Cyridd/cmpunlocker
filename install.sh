@@ -22,6 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCH_FILES=(
     "${SCRIPT_DIR}/0001-cmp40hx-unlock.patch"
     "${SCRIPT_DIR}/0002-cmp40hx-pcie2-unlock.patch"
+    "${SCRIPT_DIR}/0003-cmp40hx-rebar-unlock.patch"
 )
 DRIVER_VERSION="580.173.02"
 # SHA256 of the official NVIDIA open-gpu-kernel-modules 580.173.02 source archive

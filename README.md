@@ -1,11 +1,12 @@
-# CMP 40HX — Compute & PCIe Unlock (NVIDIA Linux Driver 580.173.02)
+# CMP 40HX — Compute, PCIe & Resizable BAR Unlock (NVIDIA Linux Driver 580.173.02)
 
 Linux unlock project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`).
 
-The project currently provides two independent unlocks:
+The project currently provides three independent unlocks:
 
 - **Compute / SM performance unlock** — restores full SM issue rate and compute performance.
 - **PCIe Gen2 x16 unlock** — raises the link from the stock PCIe Gen1 x16 (2.5 GT/s) to PCIe Gen2 x16 (5 GT/s) using the GSP/RM policy path plus a real link retrain.
+- **Resizable BAR unlock** — enables an 8 GiB BAR1 aperture on the CMP 40HX.
 
 The unlock is implemented in the NVIDIA open kernel module driver and does not modify the VBIOS or video memory.
 
@@ -65,6 +66,19 @@ This is a genuine PCIe Gen2 x16 link.
 
 > PCIe Gen3 is **not** currently implemented by this project. Work on higher CMP models may provide a future reference for a Gen3 port.
 
+### Resizable BAR unlock
+
+The CMP 40HX exposes a restricted Resizable BAR configuration. The patch unlocks the required XVE registers, configures the BAR1 size selector, and enables the ReBAR state before the NVIDIA driver performs its normal PCI BAR resizing.
+
+The current configuration uses selector 7, corresponding to an 8 GiB BAR1 aperture.
+
+The resulting hardware and driver state is:
+
+```text
+BAR 1: current size: 8GB
+BAR1 Memory Usage
+    Total : 8192 MiB
+```
 ---
 
 ## Quick Start
@@ -126,6 +140,7 @@ The installer applies:
 
 - `0001-cmp40hx-unlock.patch`
 - `0002-cmp40hx-pcie2-unlock.patch`
+- `0003-cmp40hx-rebar-unlock.patch`
 
 ### 4. Cold reboot (required)
 
@@ -201,6 +216,7 @@ sudo ./install.sh --no-download
 |---|---|
 | `0001-cmp40hx-unlock.patch` | Compute / SM unlock for NVIDIA 580.173.02 |
 | `0002-cmp40hx-pcie2-unlock.patch` | PCIe Gen2 x16 unlock |
+| `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
 | `install.sh` | Build and installation script |
 | `README.md` | This document |
 
@@ -244,8 +260,24 @@ Width x16
 
 The observed FurMark result improved from roughly 110 FPS to roughly 120 FPS on the same test setup.
 
+### Resizable BAR unlock
+
+Verified on real hardware:
+
+| Metric | Stock | After unlock |
+|---|---|---|
+| BAR1 size | 64 MiB | **8 GiB** |
+| `lspci` BAR 1 | 64 MB | **8 GB** |
+| NVIDIA `BAR1 Total` | 64 MiB | **8192 MiB** |
+
+The 8 GiB BAR1 aperture is exposed to the NVIDIA driver and is actively usable by applications. For example, War Thunder was observed using approximately 80 MiB of BAR1 memory in the main menu.
+
+A FurMark test showed a small performance improvement from approximately 120 FPS to **~122 FPS** with ReBAR enabled.
+
+
 ## Disclaimer
-- Original compute unlock by @sbccc1888. I added the PCIe Gen2 x16 unlock.
+- Original compute unlock by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
+- The PCIe Gen2 and Resizable BAR unlocks were ported to the CMP 40HX from the CMP 50HX unlock work by @xrip (https://github.com/xrip/cmp50hx-unlock).
 - This project is intended for hardware research and experimentation.
 - Use it at your own risk.
 - Modified kernel modules may cause driver initialization failures or system instability.
