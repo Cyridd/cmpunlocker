@@ -1,23 +1,5 @@
-diff --git a/src/nvidia/generated/g_kernel_gsp_nvoc.h b/src/nvidia/generated/g_kernel_gsp_nvoc.h
-index bd39d03..1fd410a 100644
---- a/src/nvidia/generated/g_kernel_gsp_nvoc.h
-+++ b/src/nvidia/generated/g_kernel_gsp_nvoc.h
-@@ -525,6 +525,8 @@ struct KernelGsp {
-     RM_RISCV_UCODE_DESC *pGspRmBootUcodeDesc;
-     MEMORY_DESCRIPTOR *pGspUCodeRadix3Descriptor;
-     MEMORY_DESCRIPTOR *pSignatureMemdesc;
-+    NvU8 *pStockSignatureData;
-+    NvU64 stockSignatureSize;
-     LIBOS_LOG_DECODE logDecode;
-     LIBOS_LOG_DECODE logDecodeVgpuPartition[48];
-     RM_LIBOS_LOG_MEM rmLibosLogMem[7];
-@@ -2099,3 +2101,4 @@ void kgspLogRpcDebugInfoToProtobuf(struct OBJGPU *pGpu, OBJRPC *pRpc, struct Ker
- #endif
- 
- #endif // _G_KERNEL_GSP_NVOC_H_
-+
 diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c
-index 20f8441..c9fcc55 100644
+index 208d551..2c353d1 100644
 --- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c
 +++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c
 @@ -24,11 +24,208 @@
@@ -229,7 +211,7 @@ index 20f8441..c9fcc55 100644
  
  static NV_STATUS
  s_executeBooterUcode_TU102
-@@ -92,6 +289,9 @@ kgspExecuteBooterLoad_TU102
+@@ -88,6 +285,9 @@ kgspExecuteBooterLoad_TU102
  {
      NV_STATUS status;
      NvU32 mailbox0 = 0, mailbox1 = 0;
@@ -239,7 +221,7 @@ index 20f8441..c9fcc55 100644
  
      KernelSec2 *pKernelSec2 = GPU_GET_KERNEL_SEC2(pGpu);
  
-@@ -110,14 +310,131 @@ kgspExecuteBooterLoad_TU102
+@@ -106,14 +306,131 @@ kgspExecuteBooterLoad_TU102
      NV_PRINTF(LEVEL_INFO, "executing Booter Load, sysmemAddrOfData 0x%llx\n",
                sysmemAddrOfData);
  
@@ -372,13 +354,14 @@ index 20f8441..c9fcc55 100644
          return status;
      }
 diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c
-index 7760352..4336e0c 100644
+index 587b508..978f27e 100644
 --- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c
 +++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_falcon_tu102.c
-@@ -36,6 +36,36 @@
- #include "published/turing/tu102/dev_falcon_v4.h"
- #include "published/turing/tu102/dev_fbif_v4.h"
+@@ -39,6 +39,37 @@
+ #include "published/turing/tu102/dev_gc6_island.h"
+ #include "published/turing/tu102/dev_gc6_island_addendum.h"
  
++
 +static NvBool s_cmp40ExploitMode[8192U];
 +static NvU32
 +s_cmp40ExploitModeIndex
@@ -412,7 +395,7 @@ index 7760352..4336e0c 100644
  /*!
   * Copy sizeBytes from pSrc to DMEM offset dmemDest using DMEM access port 0.
   *
-@@ -351,8 +381,23 @@ kgspExecuteHsFalcon_TU102
+@@ -422,8 +453,23 @@ kgspExecuteHsFalcon_TU102
      // Start CPU now
      kflcnStartCpu_HAL(pGpu, pKernelFlcn);
  
@@ -439,10 +422,10 @@ index 7760352..4336e0c 100644
      // Read mailboxes if requested
      if (pMailbox0 != NULL)
 diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
-index 2ddf527..f3eb031 100644
+index 0ee595f..8b2de68 100644
 --- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
 +++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
-@@ -39,6 +39,67 @@
+@@ -40,6 +40,67 @@
  #include "crashcat/crashcat_report.h"
  
  #include "published/turing/tu102/dev_gsp.h"
@@ -510,19 +493,20 @@ index 2ddf527..f3eb031 100644
  #include "published/turing/tu102/dev_gsp_addendum.h"
  #include "published/turing/tu102/dev_riscv_pri.h"
  #include "published/turing/tu102/dev_fbif_v4.h"
-@@ -54,6 +115,11 @@
+@@ -57,6 +118,12 @@
  #include "g_all_dcl_pb.h"
  #include "lib/protobuf/prb.h"
  
++
 +#define CMP40_FECS_FEATURE_READOUT                  0x00409660U
 +#define CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT 0x00409664U
 +#define CMP40_FECS_FEATURE_READOUT_SM_SPEED_SELECT  0x00409668U
 +#define CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT_1 0x0040966CU
 +
- static NvBool _kgspIsProcessorSuspended(OBJGPU *pGpu, void *pVoid);
- 
  void
-@@ -302,6 +368,12 @@ kgspFreeBootArgs_TU102
+ kgspConfigureFalcon_TU102
+ (
+@@ -306,6 +373,12 @@ kgspFreeBootArgs_TU102
          memdescDestroy(pKernelGsp->pSignatureMemdesc);
          pKernelGsp->pSignatureMemdesc = NULL;
      }
@@ -535,7 +519,7 @@ index 2ddf527..f3eb031 100644
  
      // Release sysmem heap memory
      if (pKernelGsp->pSysmemHeapDescriptor != NULL)
-@@ -467,6 +539,86 @@ _kgspGetBooterLoadArgs
+@@ -496,6 +569,86 @@ _kgspGetBooterLoadArgs
      return 0;
  }
  
@@ -622,7 +606,7 @@ index 2ddf527..f3eb031 100644
  /*!
   * Boot GSP-RM.
   *
-@@ -499,6 +651,366 @@ kgspBootstrap_TU102
+@@ -528,6 +681,366 @@ kgspBootstrap_TU102
  {
      NV_STATUS status;
      KernelFalcon *pKernelFalcon = staticCast(pKernelGsp, KernelFalcon);
@@ -989,7 +973,7 @@ index 2ddf527..f3eb031 100644
  
      // Execute Scrubber if needed
      if (((bootMode == KGSP_BOOT_MODE_SR_RESUME) || (bootMode == KGSP_BOOT_MODE_NORMAL)) &&
-@@ -521,27 +1033,170 @@ kgspBootstrap_TU102
+@@ -550,27 +1063,170 @@ kgspBootstrap_TU102
              NV_ASSERT_OK_OR_RETURN(kflcnReset_HAL(pGpu, pKernelFalcon));
  
              status = kgspExecuteFwsec_HAL(pGpu, pKernelGsp, pKernelGsp->pPreparedFwsecCmd);
@@ -1162,10 +1146,10 @@ index 2ddf527..f3eb031 100644
 +                  postPlm, postResetPlm);
 +    }
 +
-     // Program FALCON_OS
-     RM_RISCV_UCODE_DESC *pRiscvDesc = pKernelGsp->pGspRmBootUcodeDesc;
-     kflcnRegWrite_HAL(pGpu, pKernelFalcon, NV_PFALCON_FALCON_OS, pRiscvDesc->appVersion);
-@@ -574,6 +1229,22 @@ kgspBootstrap_TU102
+     // Send init RPCs necessary for GSP-RM booting, before creating OBJGPU.
+     // Skips for suspend/resume as GSP saves/restores context
+     if (bootMode == KGSP_BOOT_MODE_NORMAL)
+@@ -615,6 +1271,22 @@ kgspBootstrap_TU102
  
      NV_PRINTF(LEVEL_INFO, "GSP FW RM ready.\n");
  
@@ -1188,7 +1172,7 @@ index 2ddf527..f3eb031 100644
      return NV_OK;
  }
  
-@@ -674,6 +1345,18 @@ kgspGetGspRmBootUcodeStorage_TU102
+@@ -715,6 +1387,18 @@ kgspGetGspRmBootUcodeStorage_TU102
  {
      const BINDATA_ARCHIVE *pBinArchive = kgspGetBinArchiveGspRmBoot_HAL(pKernelGsp);
  
@@ -1208,10 +1192,10 @@ index 2ddf527..f3eb031 100644
      *ppBinStorageDesc  = (BINDATA_STORAGE *) bindataArchiveGetStorage(pBinArchive, BINDATA_LABEL_UCODE_DESC);
  }
 diff --git a/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c b/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c
-index 775b0f7..6347b59 100644
+index 4da1151..0f44439 100644
 --- a/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c
 +++ b/src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c
-@@ -97,6 +97,15 @@
+@@ -102,6 +102,15 @@
  
  #include "crashcat/crashcat_report.h"
  
@@ -1224,10 +1208,10 @@ index 775b0f7..6347b59 100644
 +NV_STATUS kgspCmp40ReplaceSignature(OBJGPU *pGpu, KernelGsp *pKernelGsp,
 +                                    NvBool bSecondExploit);
 +
- #define RPC_HDR  ((rpc_message_header_v*)(pRpc->message_buffer))
  
  struct MIG_CI_UPDATE_CALLBACK_PARAMS
-@@ -3772,8 +3781,35 @@ _kgspPrepareScrubberImageIfNeeded(OBJGPU *pGpu, KernelGsp *pKernelGsp)
+ {
+@@ -4453,8 +4462,35 @@ _kgspPrepareScrubberImageIfNeeded(OBJGPU *pGpu, KernelGsp *pKernelGsp)
  
      // WAR for Bug 5016200 - Always run scrubber from kernel RM for ADA config
      if ((neededSize > prescrubbedSize) || kgspIsScrubberImageSupported(pGpu, pKernelGsp))
@@ -1265,7 +1249,7 @@ index 775b0f7..6347b59 100644
  
      return NV_OK;
  }
-@@ -3911,9 +3947,19 @@ _kgspBootGspRm(OBJGPU *pGpu, KernelGsp *pKernelGsp, GSP_FIRMWARE *pGspFw, GPU_MA
+@@ -4805,9 +4841,19 @@ _kgspBootGspRm(OBJGPU *pGpu, KernelGsp *pKernelGsp, GSP_FIRMWARE *pGspFw, GPU_MA
      if (kgspIsWpr2Up_HAL(pGpu, pKernelGsp) &&
          (!pGpu->getProperty(pGpu, PDB_PROP_GPU_PREINITIALIZED_WPR_REGION)))
      {
@@ -1288,7 +1272,7 @@ index 775b0f7..6347b59 100644
      }
  
      // Populate WPR meta structure (requires knowing FB size on dGPU, which depends on GFW_BOOT)
-@@ -4587,8 +4633,8 @@ kgspPrepareBootBinaryImage_IMPL
+@@ -5566,8 +5612,8 @@ kgspPrepareBootBinaryImage_IMPL
  )
  {
      NV_STATUS status;
@@ -1299,7 +1283,7 @@ index 775b0f7..6347b59 100644
      NvU32 bufSize;
      NvU32 bufSizeAligned;
      RM_RISCV_UCODE_DESC *pDesc = NULL;
-@@ -4601,6 +4647,18 @@ kgspPrepareBootBinaryImage_IMPL
+@@ -5580,6 +5626,18 @@ kgspPrepareBootBinaryImage_IMPL
  
      // get the bindata storage for the image/descriptor
      kgspGetGspRmBootUcodeStorage_HAL(pGpu, pKernelGsp, &pBinStorageImage, &pBinStorageDesc);
@@ -1318,7 +1302,7 @@ index 775b0f7..6347b59 100644
  
      // copy the image to sysmem
      bufSize = bindataGetBufferSize(pBinStorageImage);
-@@ -4680,6 +4738,20 @@ _kgspFreeBootBinaryImage
+@@ -5662,6 +5720,20 @@ _kgspFreeBootBinaryImage
      pKernelGsp->gspRmBootUcodeSize   = 0;
  }
  
@@ -1339,7 +1323,7 @@ index 775b0f7..6347b59 100644
  static NV_STATUS
  _kgspCreateSignatureMemdesc
  (
-@@ -4690,6 +4762,13 @@ _kgspCreateSignatureMemdesc
+@@ -5672,6 +5744,13 @@ _kgspCreateSignatureMemdesc
  {
      NV_STATUS status = NV_OK;
      NvU8 *pSignatureVa = NULL;
@@ -1352,8 +1336,8 @@ index 775b0f7..6347b59 100644
 +        NV_ALIGN_UP(pGspFw->signatureSize, 256);
      NvU64 flags = MEMDESC_FLAGS_NONE;
  
-     flags |= MEMDESC_FLAGS_ALLOC_IN_UNPROTECTED_MEMORY;
-@@ -4697,7 +4776,7 @@ _kgspCreateSignatureMemdesc
+     if (confComputeForceUnprotAlloc(pGpu))
+@@ -5682,7 +5761,7 @@ _kgspCreateSignatureMemdesc
      // NOTE: align to 256 because that's the alignment needed for Booter DMA
      NV_CHECK_OK_OR_RETURN(LEVEL_ERROR,
          memdescCreate(&pKernelGsp->pSignatureMemdesc, pGpu,
@@ -1362,7 +1346,7 @@ index 775b0f7..6347b59 100644
              NV_TRUE, ADDR_SYSMEM, NV_MEMORY_CACHED, flags));
  
      memdescTagAlloc(status,
-@@ -4709,15 +4788,313 @@ _kgspCreateSignatureMemdesc
+@@ -5694,15 +5773,313 @@ _kgspCreateSignatureMemdesc
          (pSignatureVa != NULL) ? NV_OK : NV_ERR_INSUFFICIENT_RESOURCES,
          fail_alloc);
  
@@ -1678,7 +1662,7 @@ index 775b0f7..6347b59 100644
      memdescFree(pKernelGsp->pSignatureMemdesc);
  
  fail_create:
-@@ -4727,6 +5104,194 @@ fail_create:
+@@ -5712,6 +6089,194 @@ fail_create:
      return status;
  }
  
@@ -1873,35 +1857,48 @@ index 775b0f7..6347b59 100644
  /*!
   * Verify that the version embedded in the .fwversion section of the ELF given
   * by pElfData and elfDataSize matches our NV_VERSION_STRING.
-@@ -5270,7 +5835,30 @@ kgspWaitForRmInitDone_IMPL
+@@ -6285,7 +6850,30 @@ kgspWaitForRmInitDone_IMPL
      // Now check if RPC really succeeded (NV_VGPU_MSG_RESULT_* are defined to
      // equivalent NV_STATUS codes in RM).
      //
--    NV_ASSERT_OK_OR_RETURN(RPC_HDR->rpc_result);
-+    if ((RPC_HDR->rpc_result == NV_ERR_TIMEOUT) &&
+-    NV_ASSERT_OK_OR_RETURN(rpcGetVgpuMessageHeader(pRpc)->rpc_result);
++    if ((rpcGetVgpuMessageHeader(pRpc)->rpc_result == NV_ERR_TIMEOUT) &&
 +        (pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID) &&
 +        CMP40_PC_CANARY_PCI_SUBDEVICE_MATCHES(pGpu->idInfo.PCISubDeviceID))
 +    {
 +        /*
 +         * The signed-Booter native-continuation path has already produced a
 +         * valid INIT_DONE event and a running GSP RISC-V, but GSP reports its
-+         * own bounded initialization timeout.  Continue only for the exact
-+         * CMP 50HX identity so the caller can run the normal RM, RPC and
-+         * measured-compute health gates.  This is not itself an acceptance
-+         * condition; any unusable GSP state fails those gates and is reset by
-+         * the hot-load harness.
++         * own bounded initialization timeout. Continue only for the exact
++         * CMP identity so the caller can run the normal RM, RPC and health
++         * gates.
 +         */
 +        NV_PRINTF(LEVEL_ERROR,
 +                  "CMP40_COMPUTE_UNLOCK_V240: BOUNDED_INIT_TIMEOUT_CONTINUE "
 +                  "function=0x%x sequence=0x%x length=0x%x result=0x%x\n",
-+                  RPC_HDR->function, RPC_HDR->sequence,
-+                  RPC_HDR->length, RPC_HDR->rpc_result);
-+        RPC_HDR->rpc_result = NV_OK;
++                  rpcGetVgpuMessageHeader(pRpc)->function,
++                  rpcGetVgpuMessageHeader(pRpc)->sequence,
++                  rpcGetVgpuMessageHeader(pRpc)->length,
++                  rpcGetVgpuMessageHeader(pRpc)->rpc_result);
++        rpcGetVgpuMessageHeader(pRpc)->rpc_result = NV_OK;
 +    }
 +    else
 +    {
-+        NV_ASSERT_OK_OR_RETURN(RPC_HDR->rpc_result);
++        NV_ASSERT_OK_OR_RETURN(rpcGetVgpuMessageHeader(pRpc)->rpc_result);
 +    }
  
      pGpu->gspRmInitialized = NV_TRUE;
-     if (hypervisorIsVgxHyper() && pGpu->getProperty(pGpu, PDB_PROP_GPU_EXTENDED_GSP_RM_INITIALIZATION_TIMEOUT_FOR_VGX))
+
+diff --git a/src/nvidia/generated/g_kernel_gsp_nvoc.h b/src/nvidia/generated/g_kernel_gsp_nvoc.h
+index bd39d03..1fd410a 100644
+--- a/src/nvidia/generated/g_kernel_gsp_nvoc.h
++++ b/src/nvidia/generated/g_kernel_gsp_nvoc.h
+@@ -544,6 +544,8 @@ struct KernelGsp {
+     RM_RISCV_UCODE_DESC *pGspRmBootUcodeDesc;
+     MEMORY_DESCRIPTOR *pGspUCodeRadix3Descriptor;
+     MEMORY_DESCRIPTOR *pSignatureMemdesc;
++    NvU8 *pStockSignatureData;
++    NvU64 stockSignatureSize;
+     GspSystemInfo *pSystemInfo;
+     NvU32 regTableSize;
+     PACKED_REGISTRY_TABLE *pRegTable;
