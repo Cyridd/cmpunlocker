@@ -119,7 +119,7 @@ If you do not want the script to download the source automatically, place one of
 
 SHA256 of the official source archive:
 
-`a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f`
+`619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681`
 
 ### 3. Install
 
