@@ -3,7 +3,7 @@
 # CMP 40HX — Compute + PCIe Gen2 Unlock Installer
 # Tested on Arch Linux / CachyOS
 #
-# Features: download NVIDIA open-gpu-kernel-modules 610.57.04 -> apply unlock
+# Features: download NVIDIA open-gpu-kernel-modules 580.173.02 -> apply unlock
 #           patches -> build -> install into updates/cmpunlocker
 #           -> cold-reboot instructions
 #
@@ -24,9 +24,9 @@ PATCH_FILES=(
     "${SCRIPT_DIR}/0002-cmp40hx-pcie2-unlock.patch"
     "${SCRIPT_DIR}/0003-cmp40hx-rebar-unlock.patch"
 )
-DRIVER_VERSION="610.57.04"
-# SHA256 of the official NVIDIA open-gpu-kernel-modules 610.57.04 source archive
-SRC_SHA256="619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681"
+DRIVER_VERSION="580.173.02"
+# SHA256 of the official NVIDIA open-gpu-kernel-modules 580.173.02 source archive
+SRC_SHA256="a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f"
 # Directory for built artifacts (.ko files)
 ARTIFACTS_DIR="${SCRIPT_DIR}/artifacts"
 
@@ -170,7 +170,7 @@ for patch in "${PATCH_FILES[@]}"; do
     info "Patch file: OK — $(basename "${patch}")"
 done
 
-# Check installed NVIDIA userspace version (expected: 610.57.04)
+# Check installed NVIDIA userspace version (expected: 580.173.02)
 NVIDIA_USERSPACE_VER=""
 if command -v nvidia-smi &>/dev/null; then
     NVIDIA_USERSPACE_VER="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || true)"
@@ -233,7 +233,7 @@ else
         fi
 
         OUT="${SCRIPT_DIR}/open-gpu-kernel-modules-${DRIVER_VERSION}.tar.gz"
-        info "Downloading from GitHub (~30 MB)..."
+        info "Downloading from GitHub (~20 MB)..."
 
         if command -v curl &>/dev/null; then
             curl -L --fail --retry 3 --progress-bar "${DOWNLOAD_URL}" -o "${OUT}" \
@@ -269,7 +269,7 @@ else
 
     # Find the extracted source directory (the name may differ)
     if [ ! -d "${SRC_DIR}" ]; then
-        found="$(find "${SCRIPT_DIR}" -maxdepth 1 -type d -name '*610.57.04*' | head -1)"
+        found="$(find "${SCRIPT_DIR}" -maxdepth 1 -type d -name '*580.173.02*' | head -1)"
         if [ -n "${found}" ]; then
             SRC_DIR="${found}"
         else

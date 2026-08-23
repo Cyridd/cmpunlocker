@@ -1,4 +1,4 @@
-# CMP 40HX — Compute, PCIe & Resizable BAR Unlock (NVIDIA Linux Driver 610.57.04)
+# CMP 40HX — Compute, PCIe & Resizable BAR Unlock (NVIDIA Linux Driver 580.173.02)
 
 Linux unlock project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`).
 
@@ -107,19 +107,19 @@ lspci -nn | grep -i nvidia   # expected: 10de:1f0b
 
 **Option A — automatic download (recommended):**
 
-`install.sh` downloads `open-gpu-kernel-modules` 610.57.04 from GitHub and verifies its SHA256.
+`install.sh` downloads `open-gpu-kernel-modules` 580.173.02 from GitHub and verifies its SHA256.
 
 **Option B — place a local archive:**
 
 If you do not want the script to download the source automatically, place one of the following archives next to `install.sh`:
 
-- `open-gpu-kernel-modules-610.57.04.tar.gz`
-- `NVIDIA-610.57.04.tar.xz`
-- `NVIDIA-kernel-module-source-610.57.04.tar.xz`
+- `open-gpu-kernel-modules-580.173.02.tar.gz`
+- `NVIDIA-580.173.02.tar.xz`
+- `NVIDIA-kernel-module-source-580.173.02.tar.xz`
 
 SHA256 of the official source archive:
 
-`619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681`
+`a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f`
 
 ### 3. Install
 
@@ -194,8 +194,8 @@ Then reinstall the official NVIDIA driver package if necessary.
 
 ## Compatibility and known issues
 
-- **NVIDIA open-gpu-kernel-modules 610.57.04 only.** Other driver versions require porting and revalidation.
-- The project has been tested on CachyOS system with 7.2.0-1-cachyos kernel.
+- **NVIDIA open-gpu-kernel-modules 580.173.02 only.** Other driver versions require porting and revalidation.
+- The project has been tested on CachyOS system with 7.1.8-1-cachyos kernel.
 - The compute unlock changes the GSP/SEC2 boot payload. The VBIOS and VRAM are not modified.
 - The PCIe patch changes the GSP/RM PCIe policy and retrains the link. It does not modify the VBIOS.
 - **PCIe Gen2 x16 is verified.**
@@ -214,7 +214,7 @@ sudo ./install.sh --no-download
 
 | File | Description |
 |---|---|
-| `0001-cmp40hx-unlock.patch` | Compute / SM unlock for NVIDIA 610.57.04 |
+| `0001-cmp40hx-unlock.patch` | Compute / SM unlock for NVIDIA 580.173.02 |
 | `0002-cmp40hx-pcie2-unlock.patch` | PCIe Gen2 x16 unlock |
 | `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
 | `install.sh` | Build and installation script |

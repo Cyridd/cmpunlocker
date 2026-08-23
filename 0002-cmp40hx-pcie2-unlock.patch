@@ -1,7 +1,7 @@
 diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
 --- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
 +++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
-@@ -1285,6 +1285,32 @@ cmp40_v525_stock_booter:
+@@ -1243,6 +1243,32 @@ cmp40_v525_stock_booter:
                        CMP40_FECS_FEATURE_READOUT_SM_SPEED_SELECT),
                    GPU_REG_RD32(pGpu,
                        CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT_1));
@@ -34,11 +34,10 @@ diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c b/src/
      }
  
      return NV_OK;
-
 diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
 --- a/kernel-open/nvidia/nv.c
 +++ b/kernel-open/nvidia/nv.c
-@@ -65,6 +65,10 @@
+@@ -66,6 +66,10 @@
  
  #include <linux/firmware.h>
  #include <linux/cdev.h>
@@ -49,7 +48,7 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
  
  #include <sound/core.h>             /* HDA struct snd_card */
  
-@@ -1365,7 +1369,107 @@ nv_schedule_uvm_resume_p2p(NvU8 *pUuid)
+@@ -1322,7 +1326,107 @@ nv_schedule_uvm_resume_p2p(NvU8 *pUuid)
      nv_uvm_resume_P2P(pUuid);
  #endif
  }
@@ -78,14 +77,14 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
 +    upstream = pci_upstream_bridge(gpu);
 +    if (!upstream) {
 +        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                      "CMP40_PCIE_GEN2_V2: no upstream bridge\n");
++                      "CMP Gen2: no upstream bridge\n");
 +        return;
 +    }
 +
 +    bar0 = ioremap(pci_resource_start(gpu, 0), 0x90000);
 +    if (!bar0) {
 +        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                      "CMP40_PCIE_GEN2_V2: BAR0 map failed\n");
++                      "CMP Gen2: BAR0 map failed\n");
 +        return;
 +    }
 +
@@ -94,7 +93,7 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
 +    pl_link_rate = readl(bar0 + 0x8c1c0);
  
 +    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                  "CMP40_PCIE_GEN2_V2: CYA=%08x(DIS_G2=%u) "
++                  "CMP Gen2: CYA=%08x(DIS_G2=%u) "
 +                  "CFG=%08x(bits[19:18]=%u) "
 +                  "PL=%08x(bits[18:17]=%u)\n",
 +                  cya0, (cya0 >> 2) & 1U,
@@ -106,7 +105,7 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
 +        (((pl_link_rate >> 17) & 3U) != 2U))
 +    {
 +        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                      "CMP40_PCIE_GEN2_V2: GSP policy not ready; retrain skipped\n");
++                      "CMP Gen2: GSP policy not ready; retrain skipped\n");
 +        iounmap(bar0);
 +        return;
 +    }
@@ -141,28 +140,28 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
 +            ((link_status & PCI_EXP_LNKSTA_CLS) >= PCI_EXP_LNKSTA_CLS_5_0GB))
 +        {
 +            NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                          "CMP40_PCIE_GEN2_V2: RETRAIN_PASS status=%04x attempt=%d\n",
++                          "CMP Gen2: RETRAIN_PASS status=%04x attempt=%d\n",
 +                          link_status, attempt + 1);
 +            return;
 +        }
 +    }
 +    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                  "CMP40_PCIE_GEN2_V2: RETRAIN_FAIL status=%04x\n", link_status);
++                  "CMP Gen2: RETRAIN_FAIL status=%04x\n", link_status);
 +    return;
 +
 +    cap_err:
 +    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                  "CMP40_PCIE_GEN2_V2: PCI cap error=%d\n", ret);
++                  "CMP Gen2: PCI cap error=%d\n", ret);
 +}
  /*
   * Brings up the device on the first file open. Assumes nvl->ldata_lock is held.
   */
-@@ -1525,6 +1629,8 @@ int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
+@@ -1482,6 +1586,8 @@ static int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
          goto failed_release_irq;
      }
  
 +    nv_cmp40hx_retrain_gen2(nv);
 +
-     /* Generate and cache the UUID for future callers */
-     (void)rm_get_gpu_uuid_raw(sp, nv);
- 
+     {
+         const NvU8 *uuid = rm_get_gpu_uuid_raw(sp, nv);
+
