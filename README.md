@@ -2,11 +2,12 @@
 
 Linux unlock project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`).
 
-The project currently provides three independent unlocks:
+The project currently provides four independent unlocks:
 
 - **Compute / SM performance unlock** — restores full SM issue rate and compute performance.
 - **PCIe Gen2 x16 unlock** — raises the link from the stock PCIe Gen1 x16 (2.5 GT/s) to PCIe Gen2 x16 (5 GT/s) using the GSP/RM policy path plus a real link retrain.
 - **Resizable BAR unlock** — enables an 8 GiB BAR1 aperture on the CMP 40HX.
+- **Pipeline bind / MME throttle unlock** — removes the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so`.
 
 The unlock is implemented in the NVIDIA open kernel module driver and does not modify the VBIOS or video memory.
 
@@ -217,6 +218,7 @@ sudo ./install.sh --no-download
 | `0001-cmp40hx-unlock.patch` | Compute / SM unlock for NVIDIA 610.57.04 |
 | `0002-cmp40hx-pcie2-unlock.patch` | PCIe Gen2 x16 unlock |
 | `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
+| `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
 | `install.sh` | Build and installation script |
 | `README.md` | This document |
 
@@ -274,13 +276,112 @@ The 8 GiB BAR1 aperture is exposed to the NVIDIA driver and is actively usable b
 
 A FurMark test showed a small performance improvement from approximately 120 FPS to **~122 FPS** with ReBAR enabled.
 
+### Pipeline bind / MME throttle unlock
+
+The CMP 40HX also has a separate userspace performance restriction affecting classic Vulkan pipeline binding.
+
+The throttle was identified experimentally in the NVIDIA userspace driver. Each classic `vkCmdBindPipeline` path invokes:
+
+```text
+NVC597_CALL_MME_MACRO(52), argument 0xf0
+```
+
+The selected MME macro executes a repeated sequence of:
+
+```text
+NVC597_PIPE_NOP
+NVC597_WAIT_FOR_IDLE
+```
+
+for approximately 240 iterations. The important point is that the slowdown is caused by the **combination** of the two operations in the MME macro, not by either operation in isolation.
+
+The relevant emitters were located in:
+
+```text
+/usr/lib/libnvidia-glcore.so.610.57.04
+```
+
+at file offsets:
+
+```text
+0xb20c2d
+0xdcbf60
+```
+
+The unlock patches those userspace emitters so the expensive throttle sequence is no longer used.
+
+Verified results:
+
+| Test | Stock | After pipeline unlock |
+|---|---:|---:|
+| 4 binds | ~0.739 ms | **~0.0024 ms** |
+| 1000 binds | ~183.3 ms | **~0.77 ms** |
+| 1000 binds speed-up | 1× | **~238×** |
+
+The unlock was additionally validated in real applications:
+
+- FurMark improved from approximately **131 FPS average / 134 FPS max** to **134 FPS average / 137 FPS max** in the tested configuration.
+- War Thunder reached approximately **90 FPS at Ultra with DLSS 4 Native** after the throttle was removed.
+- Cyberpunk 2077 reached approximately **60.2 FPS average at High settings with DLSS Transformer Quality** in the tested configuration.
+
+These application results are workload- and configuration-dependent and should not be treated as universal performance guarantees.
+
+### How the pipeline unlock works
+
+Unlike the compute, PCIe and ReBAR patches, this unlock does **not** modify the open kernel module.
+
+The restriction is present in the proprietary userspace component:
+
+```text
+libnvidia-glcore.so.610.57.04
+```
+
+The supplied `cmp_glcore_patch` directory contains:
+
+```text
+cmp_glcore_patch/
+├── libnvidia-glcore.so.610.57.04   # patched library
+├── patch_glcore                    # patcher
+├── patch_glcore.cpp                # patcher source
+└── README.md                       # dedicated installation / usage instructions
+```
+
+The supplied patched library can be tested locally without replacing the system copy. Follow the instructions in `cmp_glcore_patch/README.md` for installation and rollback.
+
+Important:
+
+- This unlock is currently specific to **`libnvidia-glcore.so.610.57.04`**.
+- Other NVIDIA driver versions require new emitter signatures and revalidation.
+- NVIDIA 32-bit userspace components require separate signatures / patching.
+- The system `/usr/lib/libnvidia-glcore.so.*` should be backed up before replacing or otherwise modifying it.
+- The kernel-module unlocks (`0001`–`0003`) are independent of this userspace patch and are not modified by it.
+
+## Technical summary: pipeline throttle unlock
+
+The classic Vulkan pipeline bind path in the tested NVIDIA userspace driver emits:
+
+```text
+NVC597_CALL_MME_MACRO(52), argument 0xf0
+```
+
+The corresponding MME code performs a long sequence of `PIPE_NOP` + `WAIT_FOR_IDLE` pairs. Microbenchmarks demonstrated that replacing this throttled emitter path with the non-throttled argument/path removes the dominant bind overhead while leaving the actual pipeline bind functionality intact.
+
+The patch is applied to the two identified emitter locations in `libnvidia-glcore.so.610.57.04`:
+
+```text
+0xb20c2d
+0xdcbf60
+```
+
+This unlock is therefore a **userspace Vulkan command-generation patch**, not a GSP/SEC2 hardware-security unlock.
 
 ## Disclaimer
 - Original compute unlock by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
 - The PCIe Gen2 and Resizable BAR unlocks were ported to the CMP 40HX from the CMP 50HX unlock work by @xrip (https://github.com/xrip/cmp50hx-unlock).
 - This project is intended for hardware research and experimentation.
 - Use it at your own risk.
-- Modified kernel modules may cause driver initialization failures or system instability.
+- Modified kernel modules or NVIDIA userspace libraries may cause driver initialization failures, application crashes, or system instability.
+- The pipeline throttle unlock modifies `libnvidia-glcore.so.610.57.04`; keep an untouched copy of the original library for rollback.
 - NVIDIA licensing, warranty, and support terms may be affected.
 - Keep a way to boot without the patched modules so the official driver can be restored.
 
