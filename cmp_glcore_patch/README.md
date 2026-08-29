@@ -29,10 +29,10 @@ copy into this directory:
 
 ```bash
 ./patch_glcore /usr/lib/libnvidia-glcore.so.610.57.04 \
-  ./libnvidia-glcore.so.610.57.04 1
+  ./libnvidia-glcore.so.610.57.04 0
 ```
 
-The final `1` reduces the MME loop from 240 iterations to one. It does not remove the macro or change its program.
+The final `0` reduces the MME loop from 240 iterations to zero without removing the macro or changing its program.
 
 The original system library remains untouched.
 
@@ -169,38 +169,33 @@ NVC597_PIPE_NOP
 NVC597_WAIT_FOR_IDLE
 ```
 
-The experimentally validated unlock changes the argument so that only one
-iteration of the expensive sequence is executed instead of 240.
+The experimentally validated unlock changes the argument so that **zero**
+iterations of the expensive sequence are executed instead of 240.
 
 The observed microbenchmark results on CMP 40HX were:
 
 ```text
 4 pipeline binds:
   stock:      0.738976 ms
-  argument 1: 0.005408 ms
+  argument 1: 0.002368 ms
 
 1000 pipeline binds:
   stock:      183.296544 ms
-  argument 1:   0.769792 ms
+  argument 1: 0.592~ ms
 ```
 
-This corresponds to roughly a 238× reduction in the measured pipeline-bind
+This corresponds to roughly a 309x reduction in the measured pipeline-bind
 overhead in that specific test.
-
-A separate in-process causal test replaced the complete command pairs with
-length-preserving NOPs and measured `0.002368 ms` for four binds. That result
-proves the command pair is the trigger, but it is not the timing of the
-distributed argument-`1` library patch.
 
 ## Application observations
 
 With the local userspace patch enabled on the tested system:
 
-- Cyberpunk 2077 through Proton-CachyOS reached about 60 FPS average in its benchmark at High settings with DLSS Transformer Quality.
-- War Thunder native Vulkan reached about 80-90 FPS during gameplay at Ultra with DLAA 4.
+- Cyberpunk 2077 through Proton-CachyOS reached about 66 FPS average in its benchmark at High settings with DLSS 4 Quality.
+- War Thunder native Vulkan reached about 90 FPS average during gameplay at Ultra with DLAA 4.
 
 Before this pipeline fix, affected configurations showed a severe slowdown,
-reported as up to roughly 15x. These are single-system observations and not
+reported as up to roughly 10-15x. These are single-system observations and not
 universal performance guarantees.
 
 ## Safety

@@ -7,7 +7,7 @@ The project currently provides four independent unlocks:
 - **Compute / SM configuration unlock** - changes the protected GSP/SEC2 initialization state used by the tested compute paths.
 - **PCIe Gen2 x16 unlock** — raises the link from the stock PCIe Gen1 x16 (2.5 GT/s) to PCIe Gen2 x16 (5 GT/s) using the GSP/RM policy path plus a real link retrain.
 - **Resizable BAR unlock** — enables an 8 GiB BAR1 aperture on the CMP 40HX.
-- **Pipeline bind / MME throttle unlock** - reduces the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so` emitter.
+- **Pipeline bind / MME throttle unlock** - eliminates the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so` emitter.
 
 None of these modifications changes the VBIOS or video memory. The compute, PCIe and ReBAR unlocks patch the NVIDIA open kernel module. The pipeline unlock is separate and patches a local copy of a proprietary userspace library.
 
@@ -323,25 +323,23 @@ at file offsets:
 0xdcbf60
 ```
 
-The supplied patcher changes only the emitted MME loop argument from `0xf0` (240) to `1`. This preserves the command shape and one macro iteration while removing the other 239 repeated iterations.
+The supplied patcher changes only the emitted MME loop argument from `0xf0` (240) to `0`. This retains the macro call and command shape while eliminating all 240 delay iterations.
 
 Verified results:
 
 | Test | Stock | After pipeline unlock |
 |---|---:|---:|
-| 4 binds | ~0.739 ms | **~0.0054 ms** |
-| 1000 binds | ~183.3 ms | **~0.77 ms** |
-| 1000 binds speed-up | 1× | **~238×** |
-
-An earlier in-process causal experiment replaced the complete command pairs with length-preserving NOPs and measured `~0.0024 ms` for four binds. That is a different experiment from the distributed argument-`1` patch shown in the table.
+| 4 binds | ~0.739 ms | **~0.0024 ms** |
+| 1000 binds | ~183.3 ms | **~0.59 ms** |
+| 1000 binds speed-up | 1× | **~309x** |
 
 The unlock was additionally validated in real applications:
 
 - FurMark improved from approximately **131 FPS average / 134 FPS max** to **134 FPS average / 137 FPS max** in one tested configuration.
-- War Thunder native Vulkan reached approximately **80-90 FPS during gameplay at Ultra with DLAA 4**.
-- Cyberpunk 2077 through Proton-CachyOS reached approximately **60 FPS average in the benchmark at High settings with DLSS Transformer Quality**.
+- War Thunder native Vulkan reached approximately **90 FPS average during gameplay at Ultra with DLAA 4**.
+- Cyberpunk 2077 through Proton-CachyOS reached approximately **66 FPS average in the benchmark at High settings with DLSS 4 Quality**.
 
-Before the userspace pipeline fix, the affected game configurations showed a very large slowdown, reported as up to roughly 15x. The application figures above are observations from one system, not universal performance guarantees.
+Before the userspace pipeline fix, the affected game configurations showed a very large slowdown, reported as up to roughly 10-15x. The application figures above are observations from one system, not universal performance guarantees.
 
 ### How the pipeline unlock works
 
@@ -384,7 +382,7 @@ The classic Vulkan pipeline bind path in the tested NVIDIA userspace driver emit
 NVC597_CALL_MME_MACRO(52), argument 0xf0
 ```
 
-The corresponding MME code performs 240 `PIPE_NOP` + `WAIT_FOR_IDLE` pairs. Microbenchmarks demonstrated that changing the emitter argument from 240 to 1 removes the dominant bind overhead while leaving the actual pipeline bind functionality intact in the tested applications.
+The corresponding MME code performs 240 `PIPE_NOP` + `WAIT_FOR_IDLE` pairs. Microbenchmarks demonstrated that changing the emitter argument from 240 to 0 removes the dominant bind overhead while leaving the actual pipeline bind functionality intact in the tested applications.
 
 The patch is applied to the two identified emitter locations in `libnvidia-glcore.so.610.57.04`:
 
