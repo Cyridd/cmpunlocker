@@ -1,5 +1,7 @@
 # NVIDIA glcore MME pipeline throttle unlock
 
+This is an optional 64-bit userspace patch for the classic Vulkan pipeline-bind throttle. It is independent of the compute, PCIe and ReBAR kernel-module patches installed by the repository's `install.sh`.
+
 This directory contains a narrow binary patcher for the two x86-64 command
 emitters in `libnvidia-glcore.so.610.57.04` that write:
 
@@ -30,7 +32,7 @@ copy into this directory:
   ./libnvidia-glcore.so.610.57.04 1
 ```
 
-The final `1` selects the non-throttled argument used by the current unlock.
+The final `1` reduces the MME loop from 240 iterations to one. It does not remove the macro or change its program.
 
 The original system library remains untouched.
 
@@ -125,6 +127,19 @@ The current patch changes only the MME loop argument:
 
 It does not alter the MME program itself.
 
+The exact original bytes are:
+
+```text
+68 0e 01 20 f0 00 00 00
+```
+
+For the validated 64-bit 610.57.04 library, the two emitter constants were found at file offsets:
+
+```text
+0x00b20c2d
+0x00dcbf60
+```
+
 The two emitter locations were identified specifically for:
 
 ```text
@@ -134,6 +149,10 @@ libnvidia-glcore.so.610.57.04
 This is version-specific research tooling. Other NVIDIA driver versions require
 new binary signatures and revalidation. 32-bit userspace components also
 require separate signatures.
+
+The reproduced trigger is the classic pipeline path. A shader-object binding
+diagnostic did not reproduce the same delay, so the patch should not be
+described as a global shader-execution or FP32/FP16 unlock.
 
 ## Research result
 
@@ -150,19 +169,39 @@ NVC597_PIPE_NOP
 NVC597_WAIT_FOR_IDLE
 ```
 
-The experimentally validated unlock changes the argument so that the expensive
-throttle sequence is no longer executed.
+The experimentally validated unlock changes the argument so that only one
+iteration of the expensive sequence is executed instead of 240.
 
-The observed microbenchmark result on CMP 40HX was:
+The observed microbenchmark results on CMP 40HX were:
 
 ```text
+4 pipeline binds:
+  stock:      0.738976 ms
+  argument 1: 0.005408 ms
+
 1000 pipeline binds:
-  stock:    ~183.3 ms
-  unlocked: ~0.77 ms
+  stock:      183.296544 ms
+  argument 1:   0.769792 ms
 ```
 
 This corresponds to roughly a 238× reduction in the measured pipeline-bind
 overhead in that specific test.
+
+A separate in-process causal test replaced the complete command pairs with
+length-preserving NOPs and measured `0.002368 ms` for four binds. That result
+proves the command pair is the trigger, but it is not the timing of the
+distributed argument-`1` library patch.
+
+## Application observations
+
+With the local userspace patch enabled on the tested system:
+
+- Cyberpunk 2077 through Proton-CachyOS reached about 60 FPS average in its benchmark at High settings with DLSS Transformer Quality.
+- War Thunder native Vulkan reached about 80-90 FPS during gameplay at Ultra with DLAA 4.
+
+Before this pipeline fix, affected configurations showed a severe slowdown,
+reported as up to roughly 15x. These are single-system observations and not
+universal performance guarantees.
 
 ## Safety
 

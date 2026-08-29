@@ -1,28 +1,38 @@
-# CMP 40HX — Compute, PCIe & Resizable BAR Unlock (NVIDIA Linux Driver 610.57.04)
+# CMP 40HX - Compute, PCIe, ReBAR & Vulkan Pipeline Unlocks (NVIDIA Linux 610.57.04)
 
-Linux unlock project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`).
+Linux hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`). It contains three open-kernel-module patches and one optional proprietary-userspace patch.
 
 The project currently provides four independent unlocks:
 
-- **Compute / SM performance unlock** — restores full SM issue rate and compute performance.
+- **Compute / SM configuration unlock** - changes the protected GSP/SEC2 initialization state used by the tested compute paths.
 - **PCIe Gen2 x16 unlock** — raises the link from the stock PCIe Gen1 x16 (2.5 GT/s) to PCIe Gen2 x16 (5 GT/s) using the GSP/RM policy path plus a real link retrain.
 - **Resizable BAR unlock** — enables an 8 GiB BAR1 aperture on the CMP 40HX.
-- **Pipeline bind / MME throttle unlock** — removes the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so`.
+- **Pipeline bind / MME throttle unlock** - reduces the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so` emitter.
 
-The unlock is implemented in the NVIDIA open kernel module driver and does not modify the VBIOS or video memory.
+None of these modifications changes the VBIOS or video memory. The compute, PCIe and ReBAR unlocks patch the NVIDIA open kernel module. The pipeline unlock is separate and patches a local copy of a proprietary userspace library.
+
+## Important distinction: compute is not raster graphics
+
+Earlier versions of this README described the pre-unlock `~0.39 TFLOPS` measurements as if the CMP 40HX had a global FP16/FP32 lock. That conclusion was too broad.
+
+- The `~0.39 TFLOPS` values came from specific compute benchmarks and execution paths. They are not a measurement of all FP16/FP32 work performed by the GPU.
+- Ordinary raster games already ran at normal performance before the compute patch, so their regular graphics-shader FP32/FP16 execution was not globally limited to `~0.39 TFLOPS`.
+- The compute patch changes protected SM/security initialization state and restores performance or availability in the tested compute and Tensor Core paths.
+- The severe GSP-enabled gaming slowdown investigated by this project was a separate classic Vulkan pipeline-bind throttle. Its current bypass is the optional `cmp_glcore_patch` userspace patch, not the compute patch.
 
 ## Results
 
 ### Compute unlock
 
-Verified on real hardware:
+Measured on the tested CMP 40HX system:
 
-| Metric | Before unlock | After unlock |
+| Tested workload/path | Before unlock | After unlock |
 |---|---:|---:|
-| FP16 (cuBLAS) | ~0.39 TFLOPS | **11.42 TFLOPS** |
-| FP32 | ~0.39 TFLOPS | **7.0 TFLOPS** |
-| FP16 Tensor Core (mma) | Disabled | **63.8 TFLOPS** |
-| VRAM | 8 GB | 8 GB |
+| FP16 cuBLAS benchmark | ~0.39 TFLOPS | **11.42 TFLOPS** |
+| FP32 compute benchmark | ~0.39 TFLOPS | **7.0 TFLOPS** |
+| FP16 Tensor Core MMA benchmark | Unavailable in the tested configuration | **63.8 TFLOPS** |
+
+These numbers describe the named compute tests on one system. In particular, the pre-unlock values must not be interpreted as the total FP32/FP16 capability available to graphics workloads.
 
 ### PCIe Gen2 unlock
 
@@ -32,7 +42,7 @@ Verified on real hardware:
 |---|---|---|
 | PCIe link | **Gen1 x16 (2.5 GT/s)** | **Gen2 x16 (5 GT/s)** |
 | `LnkCap` / `LnkSta` | 2.5 GT/s x16 | **5 GT/s x16** |
-| FurMark average FPS | ~110 | **~120** |
+| FurMark average FPS (one test setup) | ~110 | **~120** |
 
 The PCIe result is a real trained link state, not just a spoofed capability value.
 
@@ -40,7 +50,7 @@ The PCIe result is a real trained link state, not just a spoofed capability valu
 
 ### Compute unlock
 
-The CMP 40HX has an SM performance restriction enforced during GSP/SEC2 initialization. The patch injects a payload into the standard SEC2 Booter flow and, during its privileged execution phase, restores:
+The tested CMP 40HX exposes a restricted SM/security configuration during GSP/SEC2 initialization. The patch injects a payload into the standard SEC2 Booter flow and, during its privileged execution phase, restores the state used by the validated compute workloads:
 
 - `SS0 = 0x88888888`
 - `SS1 = 0x00000008`
@@ -69,7 +79,7 @@ This is a genuine PCIe Gen2 x16 link.
 
 ### Resizable BAR unlock
 
-The CMP 40HX exposes a restricted Resizable BAR configuration. The patch unlocks the required XVE registers, configures the BAR1 size selector, and enables the ReBAR state before the NVIDIA driver performs its normal PCI BAR resizing.
+The patch configures the required XVE registers and BAR1 size selector, then lets the NVIDIA driver perform its normal PCI BAR resizing.
 
 The current configuration uses selector 7, corresponding to an 8 GiB BAR1 aperture.
 
@@ -143,6 +153,8 @@ The installer applies:
 - `0002-cmp40hx-pcie2-unlock.patch`
 - `0003-cmp40hx-rebar-unlock.patch`
 
+This installs only the three kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.
+
 ### 4. Cold reboot (required)
 
 ```bash
@@ -201,7 +213,7 @@ Then reinstall the official NVIDIA driver package if necessary.
 - The PCIe patch changes the GSP/RM PCIe policy and retrains the link. It does not modify the VBIOS.
 - **PCIe Gen2 x16 is verified.**
 - **PCIe Gen3 is not currently unlocked.**
-- CMP 40HX has no normal display outputs; this project is intended for compute use.
+- CMP 40HX has no normal display outputs. Graphics use therefore requires a suitable headless, secondary-GPU, remote-display or similar setup.
 - Secure Boot must be disabled or the custom kernel modules must be signed with a trusted key.
 - After a kernel update, rebuild and reinstall the patched modules.
 
@@ -219,6 +231,7 @@ sudo ./install.sh --no-download
 | `0002-cmp40hx-pcie2-unlock.patch` | PCIe Gen2 x16 unlock |
 | `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
 | `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
+| `CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |
 | `README.md` | This document |
 
@@ -230,7 +243,7 @@ The PCIe unlock extends the GSP/RM PCIe policy and adds a host-side retrain path
 
 ### Compute unlock
 
-The stock CMP 40HX exposes a restricted SM issue-rate configuration. The patch injects a custom payload into the SEC2 Booter flow and uses privileged HS execution to restore the required FECS/SM state.
+The tested CMP 40HX exposes a restricted SM/security configuration. The patch injects a custom payload into the SEC2 Booter flow and uses privileged HS execution to restore the FECS/SM state exercised by the compute benchmarks.
 
 Key values:
 
@@ -260,7 +273,7 @@ Speed 5GT/s
 Width x16
 ```
 
-The observed FurMark result improved from roughly 110 FPS to roughly 120 FPS on the same test setup.
+One test setup improved from roughly 110 FPS to roughly 120 FPS in FurMark. This is an observed workload result, not a guaranteed consequence of Gen2 on every system.
 
 ### Resizable BAR unlock
 
@@ -272,13 +285,15 @@ Verified on real hardware:
 | `lspci` BAR 1 | 64 MB | **8 GB** |
 | NVIDIA `BAR1 Total` | 64 MiB | **8192 MiB** |
 
-The 8 GiB BAR1 aperture is exposed to the NVIDIA driver and is actively usable by applications. For example, War Thunder was observed using approximately 80 MiB of BAR1 memory in the main menu.
+The 8 GiB BAR1 aperture is exposed to the NVIDIA driver and was usable by applications in the tested system. For example, War Thunder was observed using approximately 80 MiB of BAR1 memory in the main menu.
 
-A FurMark test showed a small performance improvement from approximately 120 FPS to **~122 FPS** with ReBAR enabled.
+A FurMark test on the same system showed a small change from approximately 120 FPS to **~122 FPS** with ReBAR enabled. This result is setup-dependent and should not be treated as a general ReBAR performance claim.
 
 ### Pipeline bind / MME throttle unlock
 
 The CMP 40HX also has a separate userspace performance restriction affecting classic Vulkan pipeline binding.
+
+The reproduced trigger is the classic pipeline path. The shader-object binding diagnostic did not reproduce the same delay, so this README does not claim a global shader-execution throttle.
 
 The throttle was identified experimentally in the NVIDIA userspace driver. Each classic `vkCmdBindPipeline` path invokes:
 
@@ -293,7 +308,7 @@ NVC597_PIPE_NOP
 NVC597_WAIT_FOR_IDLE
 ```
 
-for approximately 240 iterations. The important point is that the slowdown is caused by the **combination** of the two operations in the MME macro, not by either operation in isolation.
+for 240 iterations. The important point is that the slowdown is caused by the **combination** of the two operations in the MME macro, not by either operation in isolation.
 
 The relevant emitters were located in:
 
@@ -308,23 +323,25 @@ at file offsets:
 0xdcbf60
 ```
 
-The unlock patches those userspace emitters so the expensive throttle sequence is no longer used.
+The supplied patcher changes only the emitted MME loop argument from `0xf0` (240) to `1`. This preserves the command shape and one macro iteration while removing the other 239 repeated iterations.
 
 Verified results:
 
 | Test | Stock | After pipeline unlock |
 |---|---:|---:|
-| 4 binds | ~0.739 ms | **~0.0024 ms** |
+| 4 binds | ~0.739 ms | **~0.0054 ms** |
 | 1000 binds | ~183.3 ms | **~0.77 ms** |
 | 1000 binds speed-up | 1× | **~238×** |
 
+An earlier in-process causal experiment replaced the complete command pairs with length-preserving NOPs and measured `~0.0024 ms` for four binds. That is a different experiment from the distributed argument-`1` patch shown in the table.
+
 The unlock was additionally validated in real applications:
 
-- FurMark improved from approximately **131 FPS average / 134 FPS max** to **134 FPS average / 137 FPS max** in the tested configuration.
-- War Thunder reached approximately **90 FPS at Ultra with DLSS 4 Native** after the throttle was removed.
-- Cyberpunk 2077 reached approximately **60.2 FPS average at High settings with DLSS Transformer Quality** in the tested configuration.
+- FurMark improved from approximately **131 FPS average / 134 FPS max** to **134 FPS average / 137 FPS max** in one tested configuration.
+- War Thunder native Vulkan reached approximately **80-90 FPS during gameplay at Ultra with DLAA 4**.
+- Cyberpunk 2077 through Proton-CachyOS reached approximately **60 FPS average in the benchmark at High settings with DLSS Transformer Quality**.
 
-These application results are workload- and configuration-dependent and should not be treated as universal performance guarantees.
+Before the userspace pipeline fix, the affected game configurations showed a very large slowdown, reported as up to roughly 15x. The application figures above are observations from one system, not universal performance guarantees.
 
 ### How the pipeline unlock works
 
@@ -348,12 +365,15 @@ cmp_glcore_patch/
 
 The supplied patched library can be tested locally without replacing the system copy. Follow the instructions in `cmp_glcore_patch/README.md` for installation and rollback.
 
+See [cmp_glcore_patch/README.md](cmp_glcore_patch/README.md) for usage and [CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md](CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md) for the command-level evidence.
+
 Important:
 
 - This unlock is currently specific to **`libnvidia-glcore.so.610.57.04`**.
+- The validated patch signatures cover the 64-bit library only.
 - Other NVIDIA driver versions require new emitter signatures and revalidation.
 - NVIDIA 32-bit userspace components require separate signatures / patching.
-- The system `/usr/lib/libnvidia-glcore.so.*` should be backed up before replacing or otherwise modifying it.
+- Do not replace the system `/usr/lib/libnvidia-glcore.so.*`; use the local library through `LD_LIBRARY_PATH` as documented in `cmp_glcore_patch/README.md`.
 - The kernel-module unlocks (`0001`–`0003`) are independent of this userspace patch and are not modified by it.
 
 ## Technical summary: pipeline throttle unlock
@@ -364,7 +384,7 @@ The classic Vulkan pipeline bind path in the tested NVIDIA userspace driver emit
 NVC597_CALL_MME_MACRO(52), argument 0xf0
 ```
 
-The corresponding MME code performs a long sequence of `PIPE_NOP` + `WAIT_FOR_IDLE` pairs. Microbenchmarks demonstrated that replacing this throttled emitter path with the non-throttled argument/path removes the dominant bind overhead while leaving the actual pipeline bind functionality intact.
+The corresponding MME code performs 240 `PIPE_NOP` + `WAIT_FOR_IDLE` pairs. Microbenchmarks demonstrated that changing the emitter argument from 240 to 1 removes the dominant bind overhead while leaving the actual pipeline bind functionality intact in the tested applications.
 
 The patch is applied to the two identified emitter locations in `libnvidia-glcore.so.610.57.04`:
 
