@@ -1,0 +1,242 @@
+diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
+index 04a5c64..e0205ba 100755
+--- a/kernel-open/nvidia/nv.c
++++ b/kernel-open/nvidia/nv.c
+@@ -65,6 +65,10 @@
+ 
+ #include <linux/firmware.h>
+ #include <linux/cdev.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/pci.h>
++#include <uapi/linux/pci_regs.h>
+ 
+ #include <sound/core.h>             /* HDA struct snd_card */
+ 
+@@ -1365,7 +1369,180 @@ nv_schedule_uvm_resume_p2p(NvU8 *pUuid)
+     nv_uvm_resume_P2P(pUuid);
+ #endif
+ }
++static NvBool
++nv_cmp40hx_is_supported(struct pci_dev *gpu)
++{
++    return (gpu != NULL) &&
++    (gpu->vendor == PCI_VENDOR_ID_NVIDIA) &&
++    (gpu->device == 0x1f0b);
++}
++
++static void
++nv_cmp40hx_log_gen2_state(nv_state_t *nv, struct pci_dev *gpu,
++                          struct pci_dev *upstream, void __iomem *bar0,
++                          const char *phase)
++{
++    u32 gpu_cap = ~0U, gpu_cap2 = ~0U;
++    u32 upstream_cap = ~0U, upstream_cap2 = ~0U;
++    u16 gpu_ctl2 = 0xffffU, gpu_status = 0xffffU;
++    u16 upstream_ctl2 = 0xffffU, upstream_status = 0xffffU;
++
++    (void)pcie_capability_read_dword(gpu, PCI_EXP_LNKCAP, &gpu_cap);
++    (void)pcie_capability_read_dword(gpu, PCI_EXP_LNKCAP2, &gpu_cap2);
++    (void)pcie_capability_read_word(gpu, PCI_EXP_LNKCTL2, &gpu_ctl2);
++    (void)pcie_capability_read_word(gpu, PCI_EXP_LNKSTA, &gpu_status);
++    (void)pcie_capability_read_dword(upstream, PCI_EXP_LNKCAP,
++                                     &upstream_cap);
++    (void)pcie_capability_read_dword(upstream, PCI_EXP_LNKCAP2,
++                                     &upstream_cap2);
++    (void)pcie_capability_read_word(upstream, PCI_EXP_LNKCTL2,
++                                    &upstream_ctl2);
++    (void)pcie_capability_read_word(upstream, PCI_EXP_LNKSTA,
++                                    &upstream_status);
++
++    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                  "CMP40_PCIE_GEN2_DIAG_V1: phase=%s BAR0 "
++                  "OVR=%08x CAP=%08x LNK=%08x CAP2=%08x CTL2=%08x "
++                  "MISC1=%08x CFG=%08x PL=%08x CYA=%08x\n",
++                  phase,
++                  readl(bar0 + 0x8872c), readl(bar0 + 0x88084),
++                  readl(bar0 + 0x88088), readl(bar0 + 0x880a4),
++                  readl(bar0 + 0x880a8), readl(bar0 + 0x8841c),
++                  readl(bar0 + 0x8c040), readl(bar0 + 0x8c1c0),
++                  readl(bar0 + 0x8c2c0));
++
++    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                  "CMP40_PCIE_GEN2_DIAG_V1: phase=%s PCICFG "
++                  "GPU_CAP=%08x GPU_LNKSTA=%04x GPU_CAP2=%08x GPU_CTL2=%04x "
++                  "UP_CAP=%08x UP_LNKSTA=%04x UP_CAP2=%08x UP_CTL2=%04x\n",
++                  phase, gpu_cap, gpu_status, gpu_cap2, gpu_ctl2,
++                  upstream_cap, upstream_status, upstream_cap2,
++                  upstream_ctl2);
++}
++
++static void
++nv_cmp40hx_retrain_gen2(nv_state_t *nv)
++{
++    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
++    struct pci_dev   *gpu = nvl->pci_dev;
++    struct pci_dev   *upstream;
++    void __iomem     *bar0;
++    u16  gpu_ctl2, upstream_ctl2, upstream_ctl, link_status = 0;
++    u16  previous_status = 0xffffU;
++    u32  cya0, link_config, pl_link_rate;
++    int  ret, attempt;
++
++    if (!nv_cmp40hx_is_supported(gpu))
++        return;
++
++    upstream = pci_upstream_bridge(gpu);
++    if (!upstream) {
++        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                      "CMP40_PCIE_GEN2_V2: no upstream bridge\n");
++        return;
++    }
++
++    bar0 = ioremap(pci_resource_start(gpu, 0), 0x90000);
++    if (!bar0) {
++        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                      "CMP40_PCIE_GEN2_V2: BAR0 map failed\n");
++        return;
++    }
++
++    cya0         = readl(bar0 + 0x8c2c0);
++    link_config  = readl(bar0 + 0x8c040);
++    pl_link_rate = readl(bar0 + 0x8c1c0);
+ 
++    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0, "before_ovr");
++
++    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                  "CMP40_PCIE_GEN2_V2: CYA=%08x(DIS_G2=%u) "
++                  "CFG=%08x(bits[19:18]=%u) "
++                  "PL=%08x(bits[18:17]=%u)\n",
++                  cya0, (cya0 >> 2) & 1U,
++                  link_config, (link_config >> 18) & 3U,
++                  pl_link_rate, (pl_link_rate >> 17) & 3U);
++
++    if (((cya0 & (1U << 2)) != 0U) ||
++        (((link_config  >> 18) & 3U) != 2U) ||
++        (((pl_link_rate >> 17) & 3U) != 2U))
++    {
++        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                      "CMP40_PCIE_GEN2_V2: GSP policy not ready; retrain skipped\n");
++        iounmap(bar0);
++        return;
++    }
++
++    writel(6U, bar0 + 0x8872c);
++    (void)readl(bar0 + 0x8872c);
++    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0,
++                              "after_ovr_immediate");
++    msleep(50);
++    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0,
++                              "after_ovr_50ms");
++
++    ret = pcie_capability_read_word(gpu,      PCI_EXP_LNKCTL2, &gpu_ctl2);
++    if (ret) goto cap_err;
++    ret = pcie_capability_read_word(upstream, PCI_EXP_LNKCTL2, &upstream_ctl2);
++    if (ret) goto cap_err;
++
++    gpu_ctl2      = (gpu_ctl2      & ~PCI_EXP_LNKCTL2_TLS) | PCI_EXP_LNKCTL2_TLS_5_0GT;
++    upstream_ctl2 = (upstream_ctl2 & ~PCI_EXP_LNKCTL2_TLS) | PCI_EXP_LNKCTL2_TLS_5_0GT;
++
++    ret = pcie_capability_write_word(gpu,      PCI_EXP_LNKCTL2, gpu_ctl2);
++    if (ret) goto cap_err;
++    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL2, upstream_ctl2);
++    if (ret) goto cap_err;
++
++    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0,
++                              "after_target_writes");
++
++    ret = pcie_capability_read_word(upstream,  PCI_EXP_LNKCTL,  &upstream_ctl);
++    if (ret) goto cap_err;
++    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL,
++                                     upstream_ctl | PCI_EXP_LNKCTL_RL);
++    if (ret) goto cap_err;
++
++    for (attempt = 0; attempt < 20; attempt++) {
++        msleep(100);
++        ret = pcie_capability_read_word(gpu, PCI_EXP_LNKSTA, &link_status);
++        if (!ret && link_status != previous_status) {
++            NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                          "CMP40_PCIE_GEN2_DIAG_V1: phase=retrain_poll "
++                          "attempt=%d status=%04x speed=%u width=x%u "
++                          "training=%u slot_clock=%u\n",
++                          attempt + 1, link_status,
++                          link_status & PCI_EXP_LNKSTA_CLS,
++                          (link_status & PCI_EXP_LNKSTA_NLW) >>
++                              PCI_EXP_LNKSTA_NLW_SHIFT,
++                          (link_status & PCI_EXP_LNKSTA_LT) != 0U,
++                          (link_status & PCI_EXP_LNKSTA_SLC) != 0U);
++            previous_status = link_status;
++        }
++        if (!ret &&
++            ((link_status & PCI_EXP_LNKSTA_CLS) >= PCI_EXP_LNKSTA_CLS_5_0GB))
++        {
++            nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0,
++                                      "retrain_pass");
++            NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                          "CMP40_PCIE_GEN2_V2: RETRAIN_PASS status=%04x attempt=%d\n",
++                          link_status, attempt + 1);
++            iounmap(bar0);
++            return;
++        }
++    }
++    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0, "retrain_fail");
++    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                  "CMP40_PCIE_GEN2_V2: RETRAIN_FAIL status=%04x\n", link_status);
++    iounmap(bar0);
++    return;
++
++    cap_err:
++    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0, "cap_error");
++    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                  "CMP40_PCIE_GEN2_V2: PCI cap error=%d\n", ret);
++    iounmap(bar0);
++}
+ /*
+  * Brings up the device on the first file open. Assumes nvl->ldata_lock is held.
+  */
+@@ -1525,6 +1702,8 @@ int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
+         goto failed_release_irq;
+     }
+ 
++    nv_cmp40hx_retrain_gen2(nv);
++
+     /* Generate and cache the UUID for future callers */
+     (void)rm_get_gpu_uuid_raw(sp, nv);
+ 
+diff --git a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
+index 8b2de68..f260d78 100755
+--- a/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
++++ b/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c
+@@ -1285,6 +1285,32 @@ cmp40_v525_stock_booter:
+                       CMP40_FECS_FEATURE_READOUT_SM_SPEED_SELECT),
+                   GPU_REG_RD32(pGpu,
+                       CMP40_FECS_FEATURE_OVERRIDE_SM_SPEED_SELECT_1));
++
++        if (pGpu->idInfo.PCIDeviceID == CMP40_PC_CANARY_PCI_DEVICE_ID)
++        {
++            NvU32 lnkcfg   = GPU_REG_RD32(pGpu, 0x0008c040U);
++            NvU32 pl_rate  = GPU_REG_RD32(pGpu, 0x0008c1c0U);
++            NvU32 cya0     = GPU_REG_RD32(pGpu, 0x0008c2c0U);
++
++            /* Set link_config bits[19:18] = 2 (Gen2 max rate policy) */
++            GPU_REG_WR32(pGpu, 0x0008c040U,
++                         (lnkcfg & ~0x000C0000U) | 0x00080000U);
++            /* Set pl_link_rate bits[18:17] = 2 */
++            GPU_REG_WR32(pGpu, 0x0008c1c0U,
++                         (pl_rate & ~0x00060000U) | 0x00040000U);
++
++            NvU32 rb_lnkcfg  = GPU_REG_RD32(pGpu, 0x0008c040U);
++            NvU32 rb_pl_rate = GPU_REG_RD32(pGpu, 0x0008c1c0U);
++
++            NV_PRINTF(LEVEL_ERROR,
++                      "CMP40_PCIE_GEN2_V2: "
++                      "LNKCFG=0x%08x(bits[19:18]=%u) "
++                      "PL_RATE=0x%08x(bits[18:17]=%u) "
++                      "CYA0=0x%08x(DIS_G2=%u)\n",
++                      rb_lnkcfg,  (rb_lnkcfg  >> 18) & 3U,
++                      rb_pl_rate, (rb_pl_rate >> 17) & 3U,
++                      cya0, (cya0 >> 2) & 1U);
++        }
+     }
+ 
+     return NV_OK;

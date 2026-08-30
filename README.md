@@ -229,7 +229,9 @@ sudo ./install.sh --no-download
 |---|---|
 | `0001-cmp40hx-unlock.patch` | Compute / SM unlock for NVIDIA 610.57.04 |
 | `0002-cmp40hx-pcie2-unlock.patch` | PCIe Gen2 x16 unlock |
+| `0002-cmp40hx-pcie2-diagnostic.patch` | Verbose replacement for `0002`; captures XVE/BAR0 and PCI capability state |
 | `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
+| `PCIE_GEN2_DIAGNOSTIC.md` | Diagnostic installation, collection and interpretation guide |
 | `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
 | `CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |
