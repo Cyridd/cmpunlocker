@@ -394,8 +394,6 @@ The patch is applied to the two identified emitter locations in `libnvidia-glcor
 This unlock is therefore a **userspace Vulkan command-generation patch**, not a GSP/SEC2 hardware-security unlock.
 
 ## Disclaimer
-- Original compute unlock by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
-- The PCIe Gen2 and Resizable BAR unlocks were ported to the CMP 40HX from the CMP 50HX unlock work by @xrip (https://github.com/xrip/cmp50hx-unlock).
 - This project is intended for hardware research and experimentation.
 - Use it at your own risk.
 - Modified kernel modules or NVIDIA userspace libraries may cause driver initialization failures, application crashes, or system instability.
@@ -403,8 +401,15 @@ This unlock is therefore a **userspace Vulkan command-generation patch**, not a 
 - NVIDIA licensing, warranty, and support terms may be affected.
 - Keep a way to boot without the patched modules so the official driver can be restored.
 
-## License
+## Licensing
 
-MIT
+This project contains code derived from multiple authors:
 
-NVIDIA open-gpu-kernel-modules remains subject to NVIDIA's applicable open-source license terms.
+- Compute Unlock — originally developed by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
+  Licensed under the MIT License. Original attribution is preserved.
+- PCIe / ReBAR patches — ported from @xrip (https://github.com/xrip/cmp50hx-unlock).
+  The original source did not specify a license; these portions are therefore
+  not relicensed under this project's MIT License.
+- NVIDIA open-gpu-kernel-modules remains subject to NVIDIA's applicable open-source license terms.
+- CMP 40HX pipeline throttle unlock and related modifications —
+  Copyright (c) 2026 Cyridd, licensed under the MIT License.
