@@ -65,7 +65,7 @@ Expected driver log:
 
 The CMP 40HX is restricted to PCIe Gen1 x16 (2.5 GT/s) by default.
 
-The PCIe patch uses a protected GSP/RM policy path to enable the higher PCIe link rate, then performs an actual PCIe link retrain. The resulting hardware state is:
+The PCIe patch uses a protected GSP/RM policy path to enable the higher PCIe link rate, then performs an actual PCIe link retrain. The retrain first disables the upstream link for 200 ms, reapplies the Gen2 target speeds, re-enables the link, waits 50 ms, and asserts Retrain Link. This full Link Disable cycle is needed by some Intel Alder Lake root ports and runs during driver initialization, before user applications can access the GPU. The resulting hardware state is:
 
 ```text
 LnkSta: Speed 5GT/s, Width x16
@@ -74,6 +74,10 @@ LnkCtl2: Target Link Speed: 5GT/s
 ```
 
 This is a genuine PCIe Gen2 x16 link.
+
+The sequence has been verified on both an AMD root port and an Intel Alder
+Lake root port. The Intel platform required the explicit upstream Link Disable
+cycle now included in `0002`.
 
 > PCIe Gen3 is **not** currently implemented by this project. Work on higher CMP models may provide a future reference for a Gen3 port.
 
@@ -325,15 +329,21 @@ at file offsets:
 0xdcbf60
 ```
 
-The supplied patcher changes only the emitted MME loop argument from `0xf0` (240) to `0`. This retains the macro call and command shape while eliminating all 240 delay iterations.
+The supplied patcher changes only the emitted MME loop argument from `0xf0` (240) to a user-selected DWORD. The bundled library uses `0`, retaining the macro call and command shape while eliminating all 240 delay iterations.
 
 Verified results:
 
 | Test | Stock | After pipeline unlock |
 |---|---:|---:|
-| 4 binds | ~0.739 ms | **~0.0024 ms** |
-| 1000 binds | ~183.3 ms | **~0.59 ms** |
-| 1000 binds speed-up | 1× | **~309x** |
+| 4 binds | ~0.739 ms | **~0.0023 ms** (argument 0) |
+| 1000 binds | ~183.3 ms | **~0.0054 ms** (argument 0) |
+| 1000 binds speed-up | 1× | **~33,700x** (argument 0) |
+
+The argument-0 value is the bundled-library configuration. Three follow-up
+runs measured `0.005248`, `0.005440` and `0.005568 ms` (median
+`0.005440 ms`). The ratio is a GPU timestamp microbenchmark result: it shows
+that the artificial loop has effectively disappeared, and is not a claim that
+every application will become 33,700 times faster.
 
 The unlock was additionally validated in real applications:
 

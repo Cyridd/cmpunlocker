@@ -49,7 +49,7 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
  
  #include <sound/core.h>             /* HDA struct snd_card */
  
-@@ -1365,7 +1369,107 @@ nv_schedule_uvm_resume_p2p(NvU8 *pUuid)
+@@ -1365,7 +1369,121 @@ nv_schedule_uvm_resume_p2p(NvU8 *pUuid)
      nv_uvm_resume_P2P(pUuid);
  #endif
  }
@@ -124,12 +124,26 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
 +    gpu_ctl2      = (gpu_ctl2      & ~PCI_EXP_LNKCTL2_TLS) | PCI_EXP_LNKCTL2_TLS_5_0GT;
 +    upstream_ctl2 = (upstream_ctl2 & ~PCI_EXP_LNKCTL2_TLS) | PCI_EXP_LNKCTL2_TLS_5_0GT;
 +
-+    ret = pcie_capability_write_word(gpu,      PCI_EXP_LNKCTL2, gpu_ctl2);
++    ret = pcie_capability_read_word(upstream,  PCI_EXP_LNKCTL,  &upstream_ctl);
++    if (ret) goto cap_err;
++    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL,
++                                     upstream_ctl | PCI_EXP_LNKCTL_LD);
++    if (ret) goto cap_err;
++    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                  "CMP40_PCIE_GEN2_V2: LINK_DISABLED\n");
++    msleep(200);
++    ret = pcie_capability_write_word(gpu, PCI_EXP_LNKCTL2, gpu_ctl2);
 +    if (ret) goto cap_err;
 +    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL2, upstream_ctl2);
 +    if (ret) goto cap_err;
-+    ret = pcie_capability_read_word(upstream,  PCI_EXP_LNKCTL,  &upstream_ctl);
++    ret = pcie_capability_read_word(upstream, PCI_EXP_LNKCTL, &upstream_ctl);
 +    if (ret) goto cap_err;
++    upstream_ctl &= ~PCI_EXP_LNKCTL_LD;
++    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL, upstream_ctl);
++    if (ret) goto cap_err;
++    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
++                  "CMP40_PCIE_GEN2_V2: LINK_ENABLED\n");
++    msleep(50);
 +    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL,
 +                                     upstream_ctl | PCI_EXP_LNKCTL_RL);
 +    if (ret) goto cap_err;
@@ -157,7 +171,7 @@ diff --git a/kernel-open/nvidia/nv.c b/kernel-open/nvidia/nv.c
  /*
   * Brings up the device on the first file open. Assumes nvl->ldata_lock is held.
   */
-@@ -1525,6 +1629,8 @@ int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
+@@ -1525,6 +1643,8 @@ int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
          goto failed_release_irq;
      }
  

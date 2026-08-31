@@ -32,7 +32,7 @@ copy into this directory:
   ./libnvidia-glcore.so.610.57.04 0
 ```
 
-The final `0` reduces the MME loop from 240 iterations to zero without removing the macro or changing its program.
+The final `0` reduces the MME loop from 240 iterations to zero without removing the macro or changing its program. Other DWORD values are accepted for controlled experiments; `1` retains one iteration.
 
 The original system library remains untouched.
 
@@ -177,15 +177,21 @@ The observed microbenchmark results on CMP 40HX were:
 ```text
 4 pipeline binds:
   stock:      0.738976 ms
-  argument 1: 0.002368 ms
+  argument 0: 0.002304 ms
+  argument 1: 0.005408 ms
 
 1000 pipeline binds:
   stock:      183.296544 ms
-  argument 1: 0.592~ ms
+  argument 0:  0.005248 ms (0.005440 ms median across 3 runs)
+  argument 1: 0.769792 ms
 ```
 
-This corresponds to roughly a 309x reduction in the measured pipeline-bind
-overhead in that specific test.
+The bundled library uses argument 0. Three argument-0 runs measured
+`0.005248`, `0.005440` and `0.005568 ms`; the median is `0.005440 ms`, or
+approximately **33,700x faster than stock** in this specific timestamp test.
+The argument-1 result is included as a separate controlled comparison and is
+approximately 238x faster than stock. These are microbenchmark measurements,
+not universal application speed-up guarantees.
 
 ## Application observations
 
