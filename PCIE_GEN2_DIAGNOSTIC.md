@@ -8,11 +8,11 @@ The diagnostic variant performs the normal Gen2 policy setup and retrain, but
 also records the endpoint XVE/BAR0 mirrors and the PCI configuration-space
 view at each important phase.
 
-The retrain sequence disables the upstream link for 200 ms, reapplies the
-Gen2 target to both sides, re-enables the link, waits 50 ms, and then asserts
-Retrain Link. This full Link Disable cycle is required by at least one Intel
-Alder Lake root port. Running it from userspace after driver initialization
-can detach the GSP device, so it is performed during early driver startup.
+The kernel retrain sequence sets the Gen2 target on both sides and asserts
+Retrain Link on the upstream bridge. It deliberately does not toggle Link
+Disable. A full Link Disable experiment can train Gen2 on some Alder Lake
+systems, but can detach GSP/RM after driver initialization; see
+`PCIE_LINK_DISABLE_AUDIT.md`.
 
 ## Install
 
@@ -52,9 +52,7 @@ Each major phase produces one BAR0 line and one PCI configuration-space line:
 before_ovr
 after_ovr_immediate
 after_ovr_50ms
-link_disabled
 after_target_writes
-link_enabled
 retrain_pass or retrain_fail
 ```
 
@@ -117,9 +115,10 @@ The currently known working ASUS `1043:8804` comparison system uses VBIOS
 failing card's exact version will show whether VBIOS revision correlates with
 the XVE capability state.
 
-The Alder Lake failure was reproduced and then resolved on the same ASUS
-subsystem. The successful final state was Gen2 x16 (`LnkCap2=00000006`, `LnkSta=5GT/s x16`). 
-This points to the root-port retrain sequence, rather than a VBIOS revision difference, as the relevant platform dependency.
+The Alder Lake failure was reproduced on the same ASUS subsystem and VBIOS
+`90.06.67.00.06`. A manual Link Disable sequence reached Gen2 x16, but the
+driver subsequently detached. This is evidence about the physical training
+sequence, not a validated kernel integration.
 
 ## Interpretation
 
@@ -133,12 +132,10 @@ This points to the root-port retrain sequence, rather than a VBIOS revision diff
 - If the endpoint advertises Gen2 but retraining still ends at `1101`, only
   then investigate link training, platform timing and physical-layer errors.
 
-On the affected Alder Lake system, a userspace Link Disable sequence succeeded:
-set upstream `LNKCTL.LD`, wait 200 ms, rewrite both Gen2 target speeds, clear
-`LD`, wait 50 ms, then set `Retrain Link`. The kernel patch now performs this
-same sequence during `nv_start_device`; runtime unbind/retrain after the
-driver is active is not supported and may make `nvidia-smi` report
-`Unknown Error`.
+On the affected Alder Lake system, userspace Link Disable succeeded physically
+but caused GSP/RM detachment. The kernel patch intentionally does not perform
+that sequence. Do not add a systemd unit for it; use the explicitly-confirmed
+manual reproducer in `PCIE_LINK_DISABLE_AUDIT.md` only for controlled research.
 
 This patch is diagnostic instrumentation, not a new bypass. It adds read-only
 state capture around the existing `OVR=6`, PCI target-speed writes and root-port

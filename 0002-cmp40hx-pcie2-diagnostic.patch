@@ -13,7 +13,7 @@ index 04a5c64..e0205ba 100755
  
  #include <sound/core.h>             /* HDA struct snd_card */
  
-@@ -1365,7 +1369,197 @@ nv_schedule_uvm_resume_p2p(NvU8 *pUuid)
+@@ -1365,7 +1369,180 @@ nv_schedule_uvm_resume_p2p(NvU8 *pUuid)
      nv_uvm_resume_P2P(pUuid);
  #endif
  }
@@ -137,16 +137,6 @@ index 04a5c64..e0205ba 100755
 +    gpu_ctl2      = (gpu_ctl2      & ~PCI_EXP_LNKCTL2_TLS) | PCI_EXP_LNKCTL2_TLS_5_0GT;
 +    upstream_ctl2 = (upstream_ctl2 & ~PCI_EXP_LNKCTL2_TLS) | PCI_EXP_LNKCTL2_TLS_5_0GT;
 +
-+    ret = pcie_capability_read_word(upstream,  PCI_EXP_LNKCTL,  &upstream_ctl);
-+    if (ret) goto cap_err;
-+    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL,
-+                                     upstream_ctl | PCI_EXP_LNKCTL_LD);
-+    if (ret) goto cap_err;
-+    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                  "CMP40_PCIE_GEN2_DIAG_V1: LINK_DISABLED\n");
-+    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0, "link_disabled");
-+    msleep(200);
-+
 +    ret = pcie_capability_write_word(gpu,      PCI_EXP_LNKCTL2, gpu_ctl2);
 +    if (ret) goto cap_err;
 +    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL2, upstream_ctl2);
@@ -155,15 +145,8 @@ index 04a5c64..e0205ba 100755
 +    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0,
 +                              "after_target_writes");
 +
-+    ret = pcie_capability_read_word(upstream, PCI_EXP_LNKCTL, &upstream_ctl);
++    ret = pcie_capability_read_word(upstream,  PCI_EXP_LNKCTL,  &upstream_ctl);
 +    if (ret) goto cap_err;
-+    upstream_ctl &= ~PCI_EXP_LNKCTL_LD;
-+    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL, upstream_ctl);
-+    if (ret) goto cap_err;
-+    NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-+                  "CMP40_PCIE_GEN2_DIAG_V1: LINK_ENABLED\n");
-+    nv_cmp40hx_log_gen2_state(nv, gpu, upstream, bar0, "link_enabled");
-+    msleep(50);
 +    ret = pcie_capability_write_word(upstream, PCI_EXP_LNKCTL,
 +                                     upstream_ctl | PCI_EXP_LNKCTL_RL);
 +    if (ret) goto cap_err;
@@ -211,7 +194,7 @@ index 04a5c64..e0205ba 100755
  /*
   * Brings up the device on the first file open. Assumes nvl->ldata_lock is held.
   */
-@@ -1525,6 +1719,8 @@ int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
+@@ -1525,6 +1702,8 @@ int nv_start_device(nv_state_t *nv, nvidia_stack_t *sp)
          goto failed_release_irq;
      }
  

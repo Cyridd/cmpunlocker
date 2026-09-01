@@ -65,7 +65,7 @@ Expected driver log:
 
 The CMP 40HX is restricted to PCIe Gen1 x16 (2.5 GT/s) by default.
 
-The PCIe patch uses a protected GSP/RM policy path to enable the higher PCIe link rate, then performs an actual PCIe link retrain. The retrain first disables the upstream link for 200 ms, reapplies the Gen2 target speeds, re-enables the link, waits 50 ms, and asserts Retrain Link. This full Link Disable cycle is needed by some Intel Alder Lake root ports and runs during driver initialization, before user applications can access the GPU. The resulting hardware state is:
+The PCIe patch uses a protected GSP/RM policy path to enable the higher PCIe link rate, then performs an actual PCIe link retrain. It sets the Gen2 target on both ends and asserts Retrain Link on the upstream bridge. This normal retrain is the supported kernel path in this repository. A separate Link Disable experiment is documented in `PCIE_LINK_DISABLE_AUDIT.md`; it is not integrated because it can detach GSP/RM after the driver has initialized. The resulting hardware state is:
 
 ```text
 LnkSta: Speed 5GT/s, Width x16
@@ -75,9 +75,10 @@ LnkCtl2: Target Link Speed: 5GT/s
 
 This is a genuine PCIe Gen2 x16 link.
 
-The sequence has been verified on both an AMD root port and an Intel Alder
-Lake root port. The Intel platform required the explicit upstream Link Disable
-cycle now included in `0002`.
+The normal sequence is verified on the maintainer's AMD root port. On Intel
+Alder Lake, a manual Link Disable experiment can train the physical link to
+Gen2 x16 but can also leave `nvidia-smi` unable to access the GPU; that
+platform-specific experiment is intentionally excluded from the kernel patch.
 
 > PCIe Gen3 is **not** currently implemented by this project. Work on higher CMP models may provide a future reference for a Gen3 port.
 
@@ -165,7 +166,7 @@ This installs only the three kernel-module patches. It does not apply the option
 sudo shutdown -h now
 ```
 
-A full power-off is recommended. Do not rely on a simple warm reboot when validating the unlock.
+A full power-off is recommended. Do not rely on a simple warm reboot when validating the unlock. If an earlier experimental build containing the Link Disable sequence was installed, reinstall the current patch and perform a full cold power-off before testing again.
 
 ### 5. Verify
 
@@ -236,6 +237,8 @@ sudo ./install.sh --no-download
 | `0002-cmp40hx-pcie2-diagnostic.patch` | Verbose replacement for `0002`; captures XVE/BAR0 and PCI capability state |
 | `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
 | `PCIE_GEN2_DIAGNOSTIC.md` | Diagnostic installation, collection and interpretation guide |
+| `PCIE_LINK_DISABLE_AUDIT.md` | Evidence and limitations of the Link Disable experiment |
+| `tools/cmp40hx-alder-lake-link-disable-test.sh` | Manual, explicitly-confirmed research reproducer |
 | `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
 | `CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |
