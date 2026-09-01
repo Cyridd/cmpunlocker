@@ -13,7 +13,7 @@ it is not a safe operation after NVIDIA RM/GSP has initialized the GPU.
 
 ## Observed results
 
-### CMP 40HX on the project maintainer's system
+### CMP 40HX on my system (Ryzen 5 5600G + MSI MPG B550 Gaming Plus)
 
 The compute and GSP PCIe policy parts completed successfully. The integrated
 Link Disable variant then left the card with POST-like maximum fan speed and
@@ -21,7 +21,7 @@ Link Disable variant then left the card with POST-like maximum fan speed and
 ordinary PCIe path had already logged a successful Gen2 retrain (`status=1102`)
 and the compute unlock was working.
 
-### CMP 40HX on Intel Alder Lake
+### CMP 40HX on Intel Alder Lake (i3-12100F + MSI MAG B660M MORTAR MAX DDR4)
 
 The same ASUS CMP 40HX subsystem (`1043:8804`) with VBIOS
 `90.06.67.00.06` reached a real Gen2 x16 link with the manual sequence:
