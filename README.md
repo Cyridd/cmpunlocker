@@ -101,21 +101,68 @@ BAR1 Memory Usage
 
 ### 1. Prepare the environment
 
-```bash
-# Arch Linux / CachyOS
-sudo pacman -S --needed base-devel pciutils
+The installer is distribution-agnostic: it does not install packages or
+require a specific package manager. Install the prerequisites with the package
+manager used by your distribution, then run the same `install.sh` command.
+You need a matching kernel headers/devel package, a C toolchain, `make`, GNU
+`patch`, `tar`, `sha256sum`, `pciutils`, `kmod`/`depmod`, and `curl` or `wget`
+if the NVIDIA source is downloaded automatically. The installed NVIDIA
+userspace and firmware must be version `610.57.04`.
+The distribution's NVIDIA installation must provide a compatible open kernel
+module stack; this project does not install the NVIDIA driver or firmware.
 
-# Install headers for your kernel:
+#### Arch Linux / CachyOS
+
+```bash
+sudo pacman -S --needed base-devel pciutils patch curl \
+  ca-certificates tar gzip xz bzip2 kmod bc flex bison libelf openssl
 
 # Standard Arch kernel:
-sudo pacman -S linux-headers
-
-# CachyOS (choose the matching variant):
-sudo pacman -S linux-cachyos-headers
+# sudo pacman -S linux-headers
+# For CachyOS, install the headers matching the running kernel instead:
+# sudo pacman -S linux-cachyos-headers
 # sudo pacman -S linux-cachyos-bore-headers
 # sudo pacman -S linux-cachyos-lto-headers
+```
 
-# Verify that the 40HX is detected
+#### Ubuntu / Debian
+
+```bash
+sudo apt update
+sudo apt install build-essential linux-headers-$(uname -r) pciutils patch \
+  curl ca-certificates tar gzip xz-utils bzip2 kmod initramfs-tools \
+  bc flex bison libelf-dev libssl-dev
+```
+
+#### Fedora / RHEL / Rocky / AlmaLinux
+
+```bash
+sudo dnf group install "Development Tools"
+sudo dnf install kernel-devel-$(uname -r) kernel-headers \
+  pciutils patch curl ca-certificates tar gzip xz bzip2 kmod dracut \
+  bc flex bison elfutils-libelf-devel openssl-devel
+```
+
+#### openSUSE
+
+```bash
+sudo zypper install -t pattern devel_basis pciutils patch curl \
+  ca-certificates tar gzip xz bzip2 kmod dracut bc flex bison \
+  libelf-devel libopenssl-devel
+# Also install the -devel package matching the running kernel flavor,
+# for example kernel-default-devel.
+```
+
+Other Linux distributions need the equivalent packages. The installer only
+requires the standard Linux module build layout and accepts a non-standard
+kernel build directory through `KERNEL_HDRS`.
+The unlock itself is hardware- and driver-version-specific; the commands
+above cover common packaging layouts, but distro kernels and NVIDIA packages
+still need to be tested on the target system.
+
+Verify that the 40HX is detected:
+
+```bash
 lspci -nn | grep -i nvidia   # expected: 10de:1f0b
 ```
 
@@ -132,10 +179,18 @@ If you do not want the script to download the source automatically, place one of
 - `open-gpu-kernel-modules-610.57.04.tar.gz`
 - `NVIDIA-610.57.04.tar.xz`
 - `NVIDIA-kernel-module-source-610.57.04.tar.xz`
+- `NVIDIA-kernel-module-source-610.57.04.tar.bz2`
 
-SHA256 of the official source archive:
+The official GitHub `.tar.gz` archive is verified automatically:
 
 `619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681`
+
+For a differently named or compressed local archive, provide its own digest
+explicitly; the installer will not silently accept an unverified archive:
+
+```bash
+sudo env SOURCE_SHA256=<sha256-of-your-archive> ./install.sh --no-download
+```
 
 ### 3. Install
 
@@ -148,6 +203,10 @@ The installer performs:
 
 `download → SHA256 verification → patch application → kernel module build → installation`
 
+Patches are applied with GNU `patch -p1`; the NVIDIA source is treated as a
+source tree, not as a Git checkout. This also works when the source directory
+is located inside another Git repository.
+
 The patched modules are installed under:
 
 `/lib/modules/$(uname -r)/updates/cmpunlocker/`
@@ -159,6 +218,28 @@ The installer applies:
 - `0003-cmp40hx-rebar-unlock.patch`
 
 This installs only the three kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.
+It also does not install or replace the NVIDIA userspace driver or firmware;
+install a matching `610.57.04` NVIDIA stack through your distribution first.
+
+Useful options and environment overrides:
+
+```bash
+sudo ./install.sh --pcie-diagnostic
+sudo ./install.sh --source-dir=/absolute/path/to/open-gpu-kernel-modules-610.57.04
+sudo ./install.sh --no-download
+sudo env KERNEL_UNAME=6.12.1-custom KERNEL_HDRS=/path/to/kernel/build ./install.sh
+sudo env JOBS=4 INITRAMFS_TOOL=dracut ./install.sh
+```
+
+`KERNEL_HDRS` defaults to `/lib/modules/$(uname -r)/build` and then
+`/usr/lib/modules/$(uname -r)/build`. `INITRAMFS_TOOL=auto` follows the
+distribution configuration: it uses `mkinitcpio` when its configuration is
+present, `update-initramfs` on Debian-style systems, and otherwise `dracut`
+when available (or `mkinitrd` on systems that provide only that command).
+Use `INITRAMFS_TOOL=none` only when you will rebuild the initramfs yourself.
+`JOBS` controls parallel compilation and must be a positive integer.
+`--no-download` uses an existing source directory next to the installer or a
+local source archive; the archive is still SHA256-verified.
 
 ### 4. Cold reboot (required)
 
