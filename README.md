@@ -80,7 +80,11 @@ Alder Lake, a manual Link Disable experiment can train the physical link to
 Gen2 x16 but can also leave `nvidia-smi` unable to access the GPU; that
 platform-specific experiment is intentionally excluded from the kernel patch.
 
-> PCIe Gen3 is **not** currently implemented by this project. Work on higher CMP models may provide a future reference for a Gen3 port.
+> PCIe Gen3 is **not** currently implemented by this project. The CMP 40HX
+> investigation found that the endpoint advertises only Gen1 before the stock
+> Booter and canonicalizes runtime capability writes to Gen2. See
+> [PCIE_GEN3_CMP40HX_RESEARCH.md](PCIE_GEN3_CMP40HX_RESEARCH.md) for the
+> collected evidence and the remaining VBIOS/FWSEC research boundary.
 
 ### Resizable BAR unlock
 
@@ -318,6 +322,7 @@ sudo ./install.sh --no-download
 | `0002-cmp40hx-pcie2-diagnostic.patch` | Verbose replacement for `0002`; captures XVE/BAR0 and PCI capability state |
 | `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
 | `PCIE_GEN2_DIAGNOSTIC.md` | Diagnostic installation, collection and interpretation guide |
+| `PCIE_GEN3_CMP40HX_RESEARCH.md` | Gen3 capability/policy investigation and negative results |
 | `PCIE_LINK_DISABLE_AUDIT.md` | Evidence and limitations of the Link Disable experiment |
 | `tools/cmp40hx-alder-lake-link-disable-test.sh` | Manual, explicitly-confirmed research reproducer |
 | `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
@@ -503,9 +508,8 @@ This project contains code derived from multiple authors:
 
 - Compute Unlock — originally developed by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
   Licensed under the MIT License. Original attribution is preserved.
-- PCIe / ReBAR patches — ported from @xrip (https://github.com/xrip/cmp50hx-unlock).
-  The original source did not specify a license; these portions are therefore
-  not relicensed under this project's MIT License.
+- PCIe / ReBAR patches - ported from @xrip (https://github.com/xrip/cmp50hx-unlock). 
+  Licensed under copyleft-next 0.3.1. Original attribution is preserved.
 - NVIDIA open-gpu-kernel-modules remains subject to NVIDIA's applicable open-source license terms.
 - CMP 40HX pipeline throttle unlock and related modifications —
   Copyright (c) 2026 Cyridd, licensed under the MIT License.

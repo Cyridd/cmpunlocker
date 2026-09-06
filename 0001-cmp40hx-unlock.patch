@@ -401,7 +401,7 @@ index 587b508..978f27e 100644
  
 -    // Wait for completion
 -    status = kflcnWaitForHalt_HAL(pGpu, pKernelFlcn, GPU_TIMEOUT_DEFAULT, 0);
-+    // Wait for completion. Limit only the exact CMP 50HX research target so
++    // Wait for completion. Limit only the exact CMP 40HX research target so
 +    // V34 can test a bounded set of safe-loop stack positions quickly.
 +    if ((pGpu->idInfo.PCIDeviceID == 0x1F0B10DEU) &&
 +        (1) &&
