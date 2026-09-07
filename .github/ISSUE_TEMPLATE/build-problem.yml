@@ -1,0 +1,108 @@
+name: Build problem
+description: install.sh / kernel module fails to compile
+title: "[build] "
+labels: ["build-problem"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a build issue! Most build failures are caused by
+        missing prerequisites or a headers/kernel mismatch — please fill in
+        everything below so we don't have to go back and forth.
+
+  - type: checkboxes
+    id: prereqs
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I installed all packages listed in the README's Quick Start for my distro (build-essential/base-devel, matching kernel headers, bc, flex, bison, libelf-dev, libssl-dev, etc.)
+          required: true
+        - label: My installed NVIDIA userspace/firmware version is exactly 610.57.04
+          required: true
+        - label: I searched existing issues and this isn't a duplicate
+          required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and version
+      description: Output of `lsb_release -a` (or `cat /etc/os-release`)
+      placeholder: "Debian GNU/Linux 13 (trixie)"
+    validations:
+      required: true
+
+  - type: input
+    id: kernel
+    attributes:
+      label: Kernel version
+      description: Output of `uname -a`
+      placeholder: "Linux host 6.12.94+deb13-amd64 ..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: compiler_choice
+    attributes:
+      label: Compiler
+      description: install.sh auto-detects Clang-built kernels (CONFIG_CC_IS_CLANG=y) and switches to clang+ld.lld+LLVM=1 on its own. Did you let it auto-detect, or force one with CC=?
+      options:
+        - "Auto-detected (no CC= set)"
+        - "Forced with CC=gcc / CC=gcc-N"
+        - "Forced with CC=clang / CC=clang-N"
+    validations:
+      required: true
+
+  - type: input
+    id: compiler_version
+    attributes:
+      label: Compiler version
+      description: "Output of `gcc --version` or `clang --version` (whichever was actually used). If you're on Clang, also run `ld.lld --version` — it's required alongside clang."
+      placeholder: "gcc (Debian 14.2.0-1) 14.2.0  /  clang version 18.1.8, ld.lld 18.1.8"
+    validations:
+      required: true
+
+  - type: textarea
+    id: headers
+    attributes:
+      label: Installed kernel headers
+      description: Output of `dpkg -l | grep linux-headers` (Debian/Ubuntu) or the equivalent for your distro
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: card
+    attributes:
+      label: GPU
+      description: Output of `lspci -nn | grep -i nvidia`
+      placeholder: "01:00.0 VGA compatible controller [0300]: NVIDIA Corporation ... [10de:1f0b]"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command you ran
+      description: Include any environment overrides (KERNEL_UNAME, KERNEL_HDRS, CC, JOBS, INITRAMFS_TOOL, --no-download, --pcie-diagnostic, etc.)
+      placeholder: |
+        sudo env KERNEL_UNAME=6.12.94+deb13-amd64 CC=clang ./install.sh --no-download
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Full build log
+      description: Paste the complete output, not just the last few lines — earlier CONFTEST/warning lines are often what explains the actual error at the bottom. No need to add ``` fences, this field already renders as a code block.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Did this work before (e.g. before a kernel/driver upgrade)? Any other unlock tools or DKMS modules installed for this GPU?
+    validations:
+      required: false
