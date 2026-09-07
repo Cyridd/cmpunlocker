@@ -1,0 +1,104 @@
+name: Unlock not working
+description: Modules built and installed fine, but the unlock itself doesn't apply
+title: "[runtime] "
+labels: ["runtime-problem"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this if `install.sh` finished successfully but the actual unlock
+        (compute / PCIe / ReBAR / pipeline throttle) isn't showing up. If the
+        build itself failed, use the **Build problem** template instead.
+
+  - type: checkboxes
+    id: prereqs
+    attributes:
+      label: Before reporting
+      options:
+        - label: I did a full cold reboot (power off, then boot — not just `reboot`) after installing
+          required: true
+        - label: I'm on the latest version — this project has no releases, so I re-cloned or ran `git pull` right before reporting
+          required: true
+        - label: "`nvidia-smi --query-gpu=driver_version --format=csv,noheader` reports exactly `610.57.04`"
+          required: true
+        - label: I searched existing issues and this isn't a duplicate or already-fixed problem
+          required: true
+
+  - type: dropdown
+    id: which_unlock
+    attributes:
+      label: Which unlock isn't working?
+      multiple: true
+      options:
+        - "Compute / SM unlock"
+        - "PCIe Gen2 unlock"
+        - "Resizable BAR unlock"
+        - "Pipeline bind / MME throttle unlock (glcore patch)"
+        - "More than one / not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: dmesg
+    attributes:
+      label: dmesg output
+      description: "Output of `sudo dmesg | grep -i cmp40` right after boot. If there's no output at all, say so explicitly — that's meaningful."
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: nvidia_smi
+    attributes:
+      label: nvidia-smi output
+      description: Full output of `nvidia-smi` and, for the ReBAR unlock specifically, `nvidia-smi -q | grep -A3 BAR1`
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs. actual
+      description: What result did you expect (per the README's "Results" tables), and what did you actually get?
+      placeholder: |
+        Expected: BAR1 size 8192 MiB (per README)
+        Actual: BAR1 still shows 64 MiB
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Did this ever work for you before?
+      options:
+        - "No, never worked on this system"
+        - "Yes, it worked before and stopped (regression)"
+        - "Not sure / first time trying"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Install command used
+      description: Include any environment overrides and flags (KERNEL_UNAME, CC, --pcie-diagnostic, etc.)
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: kernel
+    attributes:
+      label: Kernel version
+      description: Output of `uname -a`
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Other GPUs in the system, other NVIDIA-related kernel modules/DKMS packages installed, secure boot status, etc.
+    validations:
+      required: false
