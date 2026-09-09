@@ -494,6 +494,17 @@ The patch is applied to the two identified emitter locations in `libnvidia-glcor
 
 This unlock is therefore a **userspace Vulkan command-generation patch**, not a GSP/SEC2 hardware-security unlock.
 
+## Related Windows implementation
+
+An independent Windows/UEFI implementation is maintained in
+[`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock).
+Its UEFI unlock is built on the Windows CMP90HX codebase from
+[`WildFlash1st/cmp90hx-unlock-for-windows`](https://github.com/WildFlash1st/cmp90hx-unlock-for-windows),
+while the CMP40HX-specific boot flow, register state, and cleanup logic
+substantially build on the CMP40HX research and implementation published in
+this repository. It is a separate project and is not maintained, released, or
+endorsed by `Cyridd/cmpunlocker`.
+
 ## Disclaimer
 - This project is intended for hardware research and experimentation.
 - Use it at your own risk.
