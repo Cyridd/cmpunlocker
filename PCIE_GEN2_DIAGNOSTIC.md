@@ -120,6 +120,67 @@ The Alder Lake failure was reproduced on the same ASUS subsystem and VBIOS
 driver subsequently detached. This is evidence about the physical training
 sequence, not a validated kernel integration.
 
+## Community result: VBIOS `.04` driver reprobe
+
+A community report on an ASUS CMP 40HX (`1043:8804`) with VBIOS
+`90.06.67.00.04`, an ASUS PRIME Z370-P and Xeon E-2174G found a useful
+recovery path. On Ubuntu 24.04 with kernel `6.8.0-31` and NVIDIA open modules
+`610.57.04`, the normal cold-boot pass left the endpoint at Gen1:
+
+```text
+cold boot:
+CAP=00453d01 CAP2=00000002 -> RETRAIN_FAIL status=1101
+```
+
+After an NVIDIA driver unbind/bind cycle, the second bootstrap materialized the
+Gen2 capability and retrained successfully:
+
+```text
+after driver unbind/bind:
+CAP=00453d02 CAP2=00000006 -> RETRAIN_PASS status=1102
+LnkSta: Speed 5GT/s, Width x16
+```
+
+The report also confirmed that `nvidia-smi`, the compute unlock state
+(`SS0=88888888`, `SS1=00000008`) and ReBAR remained healthy after the cycle.
+This is one confirmed `.04` system, not yet a universal production fix. An
+unbind can fail or block when the driver has active references, and it can
+interrupt display or compute clients.
+
+For an explicitly confirmed, one-shot recovery attempt, use the helper from a
+root shell after stopping GPU workloads:
+
+```bash
+sudo ./tools/cmp40hx-driver-reprobe-gen2.sh --confirm-driver-reprobe
+```
+
+When more than one CMP 40HX is present, select the device explicitly:
+
+```bash
+sudo ./tools/cmp40hx-driver-reprobe-gen2.sh \
+  --confirm-driver-reprobe --gpu 0000:01:00.0
+```
+
+The helper only targets a CMP 40HX whose endpoint does not advertise the Gen2
+bit in `LnkCap2`; it does not toggle PCIe Link Disable. `--skip-usage-check`
+exists only for a headless recovery console where the caller has independently
+stopped all GPU users. It is intentionally not installed or enabled as a
+systemd service. Before considering automation, collect the complete second
+bootstrap trace and verify both the driver state and the final link:
+
+```bash
+sudo dmesg | grep -E \
+  'CMP40_PCIE_GEN2_(DIAG_V1|V2)|CMP40_COMPUTE_UNLOCK|CMP40_GSP_READY'
+sudo lspci -Dvv -s 01:00.0 | grep -E \
+  'LnkCap:|LnkSta:|LnkCap2:|LnkCtl2:|LnkSta2:'
+nvidia-smi
+```
+
+In particular, include the second pass's `before_ovr` state. The combination
+`OVR=00000006` with `CAP2=00000002` is no longer conclusive evidence that the
+card cannot reach Gen2: the `.04` report shows that a full driver reprobe can
+materialize the capability later in the boot lifecycle.
+
 ## Interpretation
 
 - If `OVR` does not retain `00000006`, the XVE override write was rejected or
@@ -134,8 +195,9 @@ sequence, not a validated kernel integration.
 
 On the affected Alder Lake system, userspace Link Disable succeeded physically
 but caused GSP/RM detachment. The kernel patch intentionally does not perform
-that sequence. Do not add a systemd unit for it; use the explicitly-confirmed
-manual reproducer in `PCIE_LINK_DISABLE_AUDIT.md` only for controlled research.
+that sequence. Use the explicitly-confirmed driver reprobe helper above for the
+`.04` recovery experiment; keep the Link Disable reproducer in
+`PCIE_LINK_DISABLE_AUDIT.md` limited to controlled research.
 
 This patch is diagnostic instrumentation, not a new bypass. It adds read-only
 state capture around the existing `OVR=6`, PCI target-speed writes and root-port

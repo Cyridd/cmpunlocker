@@ -11,6 +11,17 @@ The project currently provides four independent unlocks:
 
 None of these modifications changes the VBIOS or video memory. The compute, PCIe and ReBAR unlocks patch the NVIDIA open kernel module. The pipeline unlock is separate and patches a local copy of a proprietary userspace library.
 
+## Related Windows implementation
+
+An independent Windows/UEFI implementation is maintained in
+[`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock).
+Its UEFI unlock is built on the Windows CMP90HX codebase from
+[`WildFlash1st/cmp90hx-unlock-for-windows`](https://github.com/WildFlash1st/cmp90hx-unlock-for-windows),
+while the CMP40HX-specific boot flow, register state, and cleanup logic
+substantially build on the CMP40HX research and implementation published in
+this repository. It is a separate project and is not maintained, released, or
+endorsed by `Cyridd/cmpunlocker`.
+
 ## Important distinction: compute is not raster graphics
 
 Earlier versions of this README described the pre-unlock `~0.39 TFLOPS` measurements as if the CMP 40HX had a global FP16/FP32 lock. That conclusion was too broad.
@@ -79,6 +90,16 @@ The normal sequence is verified on the maintainer's AMD root port. On Intel
 Alder Lake, a manual Link Disable experiment can train the physical link to
 Gen2 x16 but can also leave `nvidia-smi` unable to access the GPU; that
 platform-specific experiment is intentionally excluded from the kernel patch.
+
+One community report on VBIOS `90.06.67.00.04` found that a cold-boot Gen2
+failure (`CAP2=0x02`, retrain status `1101`) recovered after an NVIDIA driver
+unbind/bind cycle. The optional helper
+[`tools/cmp40hx-driver-reprobe-gen2.sh`](tools/cmp40hx-driver-reprobe-gen2.sh)
+performs that explicitly-confirmed recovery attempt only when the endpoint is
+a CMP 40HX and does not advertise Gen2. Stop GPU workloads first; the helper
+does not use Link Disable and is not installed or enabled automatically. The
+full evidence and collection procedure are in
+[`PCIE_GEN2_DIAGNOSTIC.md`](PCIE_GEN2_DIAGNOSTIC.md).
 
 > PCIe Gen3 is **not** currently implemented by this project. The CMP 40HX
 > investigation found that the endpoint advertises only Gen1 before the stock
@@ -286,6 +307,18 @@ Also verify the GPU is usable:
 nvidia-smi
 ```
 
+If the diagnostic log shows `CAP2=00000002` after cold boot and the GPU is
+otherwise healthy, the optional `.04` recovery experiment can be run from a
+root shell after stopping GPU clients:
+
+```bash
+sudo ./tools/cmp40hx-driver-reprobe-gen2.sh --confirm-driver-reprobe
+```
+
+This resets the NVIDIA driver for the selected GPU. It is a one-shot manual
+tool, not a boot service; review its warnings and the full procedure in
+`PCIE_GEN2_DIAGNOSTIC.md` before use.
+
 ## Removing the patched modules
 
 ```bash
@@ -325,6 +358,7 @@ sudo ./install.sh --no-download
 | `PCIE_GEN3_CMP40HX_RESEARCH.md` | Gen3 capability/policy investigation and negative results |
 | `PCIE_LINK_DISABLE_AUDIT.md` | Evidence and limitations of the Link Disable experiment |
 | `tools/cmp40hx-alder-lake-link-disable-test.sh` | Manual, explicitly-confirmed research reproducer |
+| `tools/cmp40hx-driver-reprobe-gen2.sh` | Optional driver unbind/bind recovery for cold-boot Gen1 capability state |
 | `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
 | `CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |
@@ -494,16 +528,6 @@ The patch is applied to the two identified emitter locations in `libnvidia-glcor
 
 This unlock is therefore a **userspace Vulkan command-generation patch**, not a GSP/SEC2 hardware-security unlock.
 
-## Related Windows implementation
-
-An independent Windows/UEFI implementation is maintained in
-[`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock).
-Its UEFI unlock is built on the Windows CMP90HX codebase from
-[`WildFlash1st/cmp90hx-unlock-for-windows`](https://github.com/WildFlash1st/cmp90hx-unlock-for-windows),
-while the CMP40HX-specific boot flow, register state, and cleanup logic
-substantially build on the CMP40HX research and implementation published in
-this repository. It is a separate project and is not maintained, released, or
-endorsed by `Cyridd/cmpunlocker`.
 
 ## Disclaimer
 - This project is intended for hardware research and experimentation.
