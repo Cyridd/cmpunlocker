@@ -1,0 +1,15 @@
+[Unit]
+Description=Experimental CMP 40HX PCIe Gen2 driver reprobe recovery
+Documentation=https://github.com/Cyridd/cmpunlocker/blob/main/PCIE_GEN2_DIAGNOSTIC.md
+After=systemd-modules-load.service
+Before=display-manager.service nvidia-persistenced.service
+ConditionPathExists=/usr/local/sbin/cmp40hx-driver-reprobe-gen2.sh
+
+[Service]
+Type=oneshot
+ExecStartPre=modprobe nvidia
+ExecStart=/usr/local/sbin/cmp40hx-driver-reprobe-gen2.sh --confirm-driver-reprobe
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target

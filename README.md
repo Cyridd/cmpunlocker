@@ -91,14 +91,17 @@ Alder Lake, a manual Link Disable experiment can train the physical link to
 Gen2 x16 but can also leave `nvidia-smi` unable to access the GPU; that
 platform-specific experiment is intentionally excluded from the kernel patch.
 
-One community report on VBIOS `90.06.67.00.04` found that a cold-boot Gen2
-failure (`CAP2=0x02`, retrain status `1101`) recovered after an NVIDIA driver
-unbind/bind cycle. The optional helper
+Repeated community testing on VBIOS `90.06.67.00.04` confirmed that a
+cold-boot Gen2 failure (`CAP2=0x02`, retrain status `1101`) recovers after an
+NVIDIA driver unbind/bind cycle. On the second bootstrap, `before_ovr` already
+reports `CAP2=0x06`, showing that the reprobe materializes the Gen2 capability
+before the host retrain phase. The optional helper
 [`tools/cmp40hx-driver-reprobe-gen2.sh`](tools/cmp40hx-driver-reprobe-gen2.sh)
-performs that explicitly-confirmed recovery attempt only when the endpoint is
-a CMP 40HX and does not advertise Gen2. Stop GPU workloads first; the helper
-does not use Link Disable and is not installed or enabled automatically. The
-full evidence and collection procedure are in
+performs this recovery only when the endpoint is a CMP 40HX and does not
+advertise Gen2. Stop GPU workloads first; the helper does not use Link Disable
+and is not installed or enabled automatically. A disabled-by-default
+experimental systemd unit is also available for testing before the display
+manager starts. The full evidence, safeguards and installation procedure are in
 [`PCIE_GEN2_DIAGNOSTIC.md`](PCIE_GEN2_DIAGNOSTIC.md).
 
 > PCIe Gen3 is **not** currently implemented by this project. The CMP 40HX
@@ -315,8 +318,9 @@ root shell after stopping GPU clients:
 sudo ./tools/cmp40hx-driver-reprobe-gen2.sh --confirm-driver-reprobe
 ```
 
-This resets the NVIDIA driver for the selected GPU. It is a one-shot manual
-tool, not a boot service; review its warnings and the full procedure in
+This resets the NVIDIA driver for the selected GPU. A disabled-by-default
+experimental systemd unit is provided separately; neither the helper nor the
+unit is installed by `install.sh`. Review the warnings and full procedure in
 `PCIE_GEN2_DIAGNOSTIC.md` before use.
 
 ## Removing the patched modules
@@ -359,6 +363,7 @@ sudo ./install.sh --no-download
 | `PCIE_LINK_DISABLE_AUDIT.md` | Evidence and limitations of the Link Disable experiment |
 | `tools/cmp40hx-alder-lake-link-disable-test.sh` | Manual, explicitly-confirmed research reproducer |
 | `tools/cmp40hx-driver-reprobe-gen2.sh` | Optional driver unbind/bind recovery for cold-boot Gen1 capability state |
+| `tools/cmp40hx-driver-reprobe-gen2.service` | Disabled-by-default experimental systemd boot unit for the reprobe helper |
 | `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
 | `CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |

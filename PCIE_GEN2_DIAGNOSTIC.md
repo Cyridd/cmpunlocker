@@ -120,11 +120,11 @@ The Alder Lake failure was reproduced on the same ASUS subsystem and VBIOS
 driver subsequently detached. This is evidence about the physical training
 sequence, not a validated kernel integration.
 
-## Community result: VBIOS `.04` driver reprobe
+## Confirmed VBIOS `.04` driver reprobe recovery
 
-A community report on an ASUS CMP 40HX (`1043:8804`) with VBIOS
-`90.06.67.00.04`, an ASUS PRIME Z370-P and Xeon E-2174G found a useful
-recovery path. On Ubuntu 24.04 with kernel `6.8.0-31` and NVIDIA open modules
+A community tester repeatedly confirmed the recovery path on an ASUS CMP 40HX
+(`1043:8804`) with VBIOS `90.06.67.00.04`, an ASUS PRIME Z370-P and Xeon
+E-2174G. On Ubuntu 24.04 with kernel `6.8.0-31` and NVIDIA open modules
 `610.57.04`, the normal cold-boot pass left the endpoint at Gen1:
 
 ```text
@@ -141,11 +141,26 @@ CAP=00453d02 CAP2=00000006 -> RETRAIN_PASS status=1102
 LnkSta: Speed 5GT/s, Width x16
 ```
 
-The report also confirmed that `nvidia-smi`, the compute unlock state
-(`SS0=88888888`, `SS1=00000008`) and ReBAR remained healthy after the cycle.
-This is one confirmed `.04` system, not yet a universal production fix. An
-unbind can fail or block when the driver has active references, and it can
-interrupt display or compute clients.
+The second bootstrap provided the important lifecycle result: its `before_ovr`
+phase already saw the materialized capability, before that pass performed its
+host-side OVR write:
+
+```text
+phase=before_ovr OVR=00000006 CAP=00453d02 CAP2=00000006 CTL2=00200002
+phase=retrain_pass CAP=00453d02 CAP2=00000006 status=1102 attempt=1
+```
+
+This means that merely extending the first retrain timeout is unlikely to fix
+the `.04` behavior. The first bootstrap appears to establish policy state that
+does not become visible through the endpoint capability until the driver is
+torn down and initialized again. The exact firmware lifecycle boundary remains
+unknown, but the recovery was stable across repeated tests.
+
+The tests also confirmed that `nvidia-smi`, the compute unlock state
+(`SS0=88888888`, `SS1=00000008`) and ReBAR (`BAR1 Total: 8192 MiB`) remained
+healthy after each cycle. This is a repeatable result on one `.04` platform,
+not yet a universal production fix. An unbind can fail or block when the
+driver has active references, and it can interrupt display or compute clients.
 
 For an explicitly confirmed, one-shot recovery attempt, use the helper from a
 root shell after stopping GPU workloads:
@@ -164,9 +179,7 @@ sudo ./tools/cmp40hx-driver-reprobe-gen2.sh \
 The helper only targets a CMP 40HX whose endpoint does not advertise the Gen2
 bit in `LnkCap2`; it does not toggle PCIe Link Disable. `--skip-usage-check`
 exists only for a headless recovery console where the caller has independently
-stopped all GPU users. It is intentionally not installed or enabled as a
-systemd service. Before considering automation, collect the complete second
-bootstrap trace and verify both the driver state and the final link:
+stopped all GPU users. Verify both the driver state and the final link:
 
 ```bash
 sudo dmesg | grep -E \
@@ -180,6 +193,62 @@ In particular, include the second pass's `before_ovr` state. The combination
 `OVR=00000006` with `CAP2=00000002` is no longer conclusive evidence that the
 card cannot reach Gen2: the `.04` report shows that a full driver reprobe can
 materialize the capability later in the boot lifecycle.
+
+### Experimental systemd boot unit
+
+`tools/cmp40hx-driver-reprobe-gen2.service` packages the confirmed helper as an
+experimental boot-time unit. It remains disabled by default and is not
+installed by `install.sh`. The unit runs before `display-manager.service` and
+`nvidia-persistenced.service`, while the helper retains its normal open-client
+check. If another service has already opened the GPU, the helper refuses the
+reprobe instead of bypassing that check.
+
+Install the helper and unit without enabling automatic startup:
+
+```bash
+sudo install -m 0755 tools/cmp40hx-driver-reprobe-gen2.sh \
+  /usr/local/sbin/cmp40hx-driver-reprobe-gen2.sh
+sudo install -m 0644 tools/cmp40hx-driver-reprobe-gen2.service \
+  /etc/systemd/system/cmp40hx-driver-reprobe-gen2.service
+sudo systemctl daemon-reload
+```
+
+First stop the display manager and GPU workloads, then test one manual service
+start and inspect its complete journal:
+
+```bash
+sudo systemctl start cmp40hx-driver-reprobe-gen2.service
+sudo journalctl -u cmp40hx-driver-reprobe-gen2.service -b --no-pager
+```
+
+Only after the manual service test succeeds should the experimental boot path
+be enabled:
+
+```bash
+sudo systemctl enable cmp40hx-driver-reprobe-gen2.service
+```
+
+After a cold boot, verify the service, PCIe link and GPU health:
+
+```bash
+systemctl status cmp40hx-driver-reprobe-gen2.service --no-pager
+sudo lspci -Dvv -s 01:00.0 | grep -E \
+  'LnkCap:|LnkSta:|LnkCap2:|LnkCtl2:|LnkSta2:'
+nvidia-smi
+```
+
+Disable and remove the experimental installation with:
+
+```bash
+sudo systemctl disable cmp40hx-driver-reprobe-gen2.service
+sudo rm -f /etc/systemd/system/cmp40hx-driver-reprobe-gen2.service
+sudo rm -f /usr/local/sbin/cmp40hx-driver-reprobe-gen2.sh
+sudo systemctl daemon-reload
+```
+
+The unit currently supports the helper's single-CMP auto-detection. Systems
+with multiple CMP 40HX cards should continue to use the helper manually with
+`--gpu` until per-device service instances are tested.
 
 ## Interpretation
 
