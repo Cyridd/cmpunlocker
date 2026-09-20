@@ -1,8 +1,13 @@
-# CMP 40HX - Compute, PCIe, ReBAR & Vulkan Pipeline Unlocks (NVIDIA Linux 610.57.04)
+# CMP 40HX - Compute, PCIe, ReBAR & Vulkan Pipeline Unlocks (Linux + Windows)
 
-Linux hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`). It contains three open-kernel-module patches and one optional proprietary-userspace patch.
+Hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`), covering both Linux and Windows.
 
-The project currently provides four independent unlocks:
+- **Linux** (repository root) — three open-kernel-module patches for NVIDIA `610.57.04` plus one optional proprietary-userspace patch, installed by `install.sh`.
+- **Windows / UEFI** ([`windows/`](windows/)) — a UEFI unlock application and Go installer/checker/uninstaller tools. See [`windows/README.md`](windows/README.md).
+
+The two halves are independent: they unlock the same hardware by different means and share no code. Pick the one matching your OS.
+
+The project currently provides four independent unlocks on Linux:
 
 - **Compute / SM configuration unlock** - changes the protected GSP/SEC2 initialization state used by the tested compute paths.
 - **PCIe Gen2 x16 unlock** — raises the link from the stock PCIe Gen1 x16 (2.5 GT/s) to PCIe Gen2 x16 (5 GT/s) using the GSP/RM policy path plus a real link retrain.
@@ -11,16 +16,35 @@ The project currently provides four independent unlocks:
 
 None of these modifications changes the VBIOS or video memory. The compute, PCIe and ReBAR unlocks patch the NVIDIA open kernel module. The pipeline unlock is separate and patches a local copy of a proprietary userspace library.
 
-## Related Windows implementation
+## Windows / UEFI implementation
 
-An independent Windows/UEFI implementation is maintained in
-[`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock).
-Its UEFI unlock is built on the Windows CMP90HX codebase from
+The Windows path lives in [`windows/`](windows/). Instead of patching a kernel
+module, it applies the unlock from a UEFI application that runs before Windows
+boots and then chainloads it, with Windows-side tools handling GSP state, the
+PCIe Gen2 bring-up after the NVIDIA driver loads, and cleanup:
+
+- compute/Tensor unlock through the UEFI application (`40HXUNLK.EFI`);
+- an 8 GiB Resizable BAR path in the same EFI application;
+- optional PCIe Gen2 bring-up after the NVIDIA driver loads;
+- GUI, command-line, status-check and uninstall tools, in English, Russian and Chinese.
+
+Like the Linux patches, this is a volatile unlock: it does not flash the VBIOS
+and must be reapplied after a full GPU reset or power cycle. Read
+[`windows/README.md`](windows/README.md) for firmware prerequisites, the
+recovery procedure, and the current limitations before installing.
+
+**Origin and attribution.** This tree is a fork of
+[`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock), whose
+UEFI unlock is in turn built on the Windows CMP90HX codebase from
 [`WildFlash1st/cmp90hx-unlock-for-windows`](https://github.com/WildFlash1st/cmp90hx-unlock-for-windows),
-while the CMP40HX-specific boot flow, register state, and cleanup logic
+while its CMP40HX-specific boot flow, register state, and cleanup logic
 substantially build on the CMP40HX research and implementation published in
-this repository. It is a separate project and is not maintained, released, or
-endorsed by `Cyridd/cmpunlocker`.
+this repository. Changes made in this fork — hardware-bound GSP matching,
+correct Windows command-line quoting under UAC elevation, the opt-in
+`NO_AUTO_CHAINLOAD=1` EFI mode, the 8 GiB ReBAR path, and a reproducible
+packaging/verification flow — are documented in
+[`windows/FORK_CHANGES.md`](windows/FORK_CHANGES.md). See
+[Licensing](#licensing) for the third-party components it redistributes.
 
 ## Important distinction: compute is not raster graphics
 
@@ -32,6 +56,10 @@ Earlier versions of this README described the pre-unlock `~0.39 TFLOPS` measurem
 - The severe GSP-enabled gaming slowdown investigated by this project was a separate classic Vulkan pipeline-bind throttle. Its current bypass is the optional `cmp_glcore_patch` userspace patch, not the compute patch.
 
 ## Results
+
+The measurements below are from the Linux implementation. Results observed
+through the Windows/UEFI path are listed separately in
+[`windows/README.md`](windows/README.md#results).
 
 ### Compute unlock
 
@@ -125,7 +153,10 @@ BAR1 Memory Usage
 ```
 ---
 
-## Quick Start
+## Quick Start (Linux)
+
+For the Windows/UEFI installation procedure, see
+[`windows/README.md`](windows/README.md) instead.
 
 ### 1. Prepare the environment
 
@@ -323,7 +354,7 @@ experimental systemd unit is provided separately; neither the helper nor the
 unit is installed by `install.sh`. Review the warnings and full procedure in
 `PCIE_GEN2_DIAGNOSTIC.md` before use.
 
-## Removing the patched modules
+## Removing the patched modules (Linux)
 
 ```bash
 sudo rm -rf /lib/modules/$(uname -r)/updates/cmpunlocker
@@ -332,7 +363,12 @@ sudo depmod -a
 
 Then reinstall the official NVIDIA driver package if necessary.
 
+On Windows, run `40HXUninstaller.exe` (or `40HXInstaller.exe -uninstall`) as
+Administrator instead; it removes the components and restores the boot entry.
+
 ## Compatibility and known issues
+
+### Linux
 
 - **NVIDIA open-gpu-kernel-modules 610.57.04 only.** Other driver versions require porting and revalidation.
 - The project has been tested on CachyOS system with 7.2.0-1-cachyos kernel.
@@ -340,7 +376,6 @@ Then reinstall the official NVIDIA driver package if necessary.
 - The PCIe patch changes the GSP/RM PCIe policy and retrains the link. It does not modify the VBIOS.
 - **PCIe Gen2 x16 is verified.**
 - **PCIe Gen3 is not currently unlocked.**
-- CMP 40HX has no normal display outputs. Graphics use therefore requires a suitable headless, secondary-GPU, remote-display or similar setup.
 - Secure Boot must be disabled or the custom kernel modules must be signed with a trusted key.
 - After a kernel update, rebuild and reinstall the patched modules.
 
@@ -350,7 +385,26 @@ For example:
 sudo ./install.sh --no-download
 ```
 
+### Windows
+
+- Requires a UEFI/GPT installation with **Above 4G Decoding** enabled and
+  **Secure Boot** and **CSM** disabled — the EFI application is unsigned.
+- The unlock is volatile and is reapplied at every boot by the EFI entry. POST,
+  FLR, a driver reset, or a power cycle clears it.
+- The PCIe Gen2 bring-up depends on the platform accepting the retrain, and the
+  8 GiB ReBAR path needs a free 8 GiB-aligned 64-bit MMIO span in the
+  root-complex topology. Both fail closed and roll back.
+- The Gen2 helper loads signed but known-vulnerable drivers on demand. HVCI and
+  Microsoft's vulnerable-driver blocklist can block them.
+- PCIe Gen3 and RT-core unlocks are not implemented here either.
+
+### Both platforms
+
+- CMP 40HX has no normal display outputs. Graphics use therefore requires a suitable headless, secondary-GPU, remote-display or similar setup.
+
 ## File structure
+
+### Linux (repository root)
 
 | File | Description |
 |---|---|
@@ -368,6 +422,22 @@ sudo ./install.sh --no-download
 | `CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |
 | `README.md` | This document |
+
+### Windows / UEFI (`windows/`)
+
+| Path | Description |
+|---|---|
+| `windows/README.md` | Windows user guide: prerequisites, installation, verification, recovery |
+| `windows/FORK_CHANGES.md` | Fork-specific changes, the Limine experiment, and research boundaries |
+| `windows/tools/unlock40x/` | UEFI unlock application source, firmware blobs, and `build_v70.sh` |
+| `windows/tools/inst40hx/` | Installer GUI/CLI (`40HXInstaller.exe`) and its embedded EFI/drivers |
+| `windows/tools/check40x/` | Status and diagnostic utility (`40HXCheck.exe`) |
+| `windows/tools/uninstall40x/` | Component-level uninstaller (`40HXUninstaller.exe`) |
+| `windows/tools/40hxcore/` | Shared Windows operations and Gen2 link logic |
+| `windows/tools/build_release.bat` | Packages a release with a SHA-256 manifest |
+| `windows/tools/verify_source.ps1` | Verifies expected source inputs and prints EFI hashes |
+| `windows/release-files/` | Recovery guide, FAT32 USB helper, and other packaged documents |
+| `windows/40HX_Gen2_Windows/` | Legacy standalone Gen2 scripts, helper drivers, and WinRing0 source |
 
 The compute unlock mainly modifies the GSP/SEC2 initialization path.
 
@@ -541,10 +611,19 @@ This unlock is therefore a **userspace Vulkan command-generation patch**, not a 
 - The pipeline throttle unlock modifies `libnvidia-glcore.so.610.57.04`; keep an untouched copy of the original library for rollback.
 - NVIDIA licensing, warranty, and support terms may be affected.
 - Keep a way to boot without the patched modules so the official driver can be restored.
+- On Windows, the unlock runs from a UEFI application and the Gen2 helper loads
+  signed low-level drivers with known vulnerabilities. Keep a Windows installer
+  or recovery USB available before installing the EFI entry, and review the
+  Secure Boot / HVCI / vulnerable-driver-blocklist notes in
+  [`windows/README.md`](windows/README.md).
 
 ## Licensing
 
-This project contains code derived from multiple authors:
+This project contains code derived from multiple authors. The repository's own
+license is the MIT License in [`LICENSE`](LICENSE); the components below keep
+their original terms.
+
+### Linux
 
 - Compute Unlock — originally developed by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
   Licensed under the MIT License. Original attribution is preserved.
@@ -553,3 +632,31 @@ This project contains code derived from multiple authors:
 - NVIDIA open-gpu-kernel-modules remains subject to NVIDIA's applicable open-source license terms.
 - CMP 40HX pipeline throttle unlock and related modifications —
   Copyright (c) 2026 Cyridd, licensed under the MIT License.
+
+### Windows / UEFI (`windows/`)
+
+- The tree is a fork of [`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock),
+  which builds on [`WildFlash1st/cmp90hx-unlock-for-windows`](https://github.com/WildFlash1st/cmp90hx-unlock-for-windows).
+  Upstream terms apply to the inherited code; see [`windows/FORK_CHANGES.md`](windows/FORK_CHANGES.md)
+  for what this fork changed.
+- **WinRing0** — `WinRing0x64.sys` and its source under
+  `windows/40HX_Gen2_Windows/source/WinRing0-master/` are licensed under the
+  **GNU GPL v3.0** (see that directory's `LICENSE`). The source is kept in the
+  repository so the corresponding source for the redistributed driver binary is
+  available, as GPL-3.0 requires.
+- **ThrottleStop** — `ThrottleStop.sys` is a redistributed third-party
+  proprietary signed driver. It is not covered by this repository's MIT license
+  and remains the property of its author.
+- The TU106/GA102 firmware blobs under `windows/tools/unlock40x/` are NVIDIA
+  firmware images and remain subject to NVIDIA's terms. They are present as
+  research inputs to the EFI build.
+- `windows/release-files/OpenCL.exe` is an optional prebuilt third-party
+  compute smoke-test binary carried over from upstream. Its provenance is not
+  documented upstream and no source is included; it is not required by any
+  unlock step.
+- Remaining fork-specific changes — Copyright (c) 2026 Cyridd, licensed under
+  the MIT License.
+
+Because the Windows tree redistributes a GPL-3.0 driver and a proprietary
+driver, the repository as a whole is not distributable under MIT alone. Honour
+each component's terms when redistributing.

@@ -1,4 +1,4 @@
-name: Build problem
+name: Build problem (Linux)
 description: install.sh / kernel module fails to compile
 title: "[build] "
 labels: ["build-problem"]

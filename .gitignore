@@ -1,3 +1,10 @@
 open-gpu-kernel-modules-610.57.04/
 open-gpu-kernel-modules-610.57.04.tar.gz
 artifacts/
+
+# Windows tree build outputs (see windows/README.md)
+windows/release-fork/
+windows/build-linux/
+windows/tools/unlock40x/*.o
+windows/tools/unlock40x/*.so
+windows/tools/unlock40x/unlock40x_v70.efi

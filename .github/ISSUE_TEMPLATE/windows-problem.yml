@@ -1,0 +1,178 @@
+name: Windows / UEFI problem
+description: The Windows installer, the EFI entry, or the Windows-side unlock isn't working
+title: "[windows] "
+labels: ["windows"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for anything under `windows/` — `40HXInstaller.exe`,
+        `40HXCheck.exe`, `40HXUninstaller.exe`, the `40HXUNLK.EFI` boot entry,
+        or the Gen2 login task.
+
+        For the Linux kernel-module patches and `install.sh`, use the
+        **Build problem** or **Unlock not working** templates instead.
+
+        **If the machine will not boot**, do not wait for a reply: boot a
+        Windows installer or recovery USB, mount the EFI System Partition, and
+        delete `EFI\40HX`. See `windows/README.md` → *Recovery*.
+
+  - type: checkboxes
+    id: prereqs
+    attributes:
+      label: Before reporting
+      options:
+        - label: My installation is UEFI/GPT (not MBR/Legacy)
+          required: true
+        - label: "**Above 4G Decoding** is enabled in firmware setup"
+          required: true
+        - label: "**Secure Boot** and **CSM** are disabled — the EFI application is unsigned and will be skipped otherwise"
+          required: true
+        - label: I ran the tool as Administrator
+          required: true
+        - label: I searched existing issues and this isn't a duplicate or already-fixed problem
+          required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where does it go wrong?
+      options:
+        - "Installer fails or reports an error"
+        - "Installer succeeds, but the EFI screen never appears at boot"
+        - "EFI screen appears, but the unlock doesn't apply (40HXCheck reports failure)"
+        - "Compute unlock works, PCIe Gen2 doesn't"
+        - "Compute unlock works, ReBAR / 8 GiB BAR1 doesn't"
+        - "System won't boot / boot entry hangs"
+        - "Uninstall / cleanup problem"
+        - "Building from source fails"
+        - "Something else"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: binaries
+    attributes:
+      label: Which binaries are you running?
+      options:
+        - "The prebuilt .exe files committed under windows/tools/"
+        - "I built them myself from source"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: check_output
+    attributes:
+      label: 40HXCheck.exe output
+      description: "Full output of `40HXCheck.exe` run as Administrator. A healthy result shows `SS0=0x88888888` and `SS1=0x00000008`. If the tool won't run at all, say so explicitly."
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs. actual
+      description: What did you expect, and what actually happened?
+      placeholder: |
+        Expected: BAR1 reported as 8192 MiB
+        Actual: GPU-Z still shows 256 MB, 40HXCheck says ReBAR not applied
+    validations:
+      required: true
+
+  - type: textarea
+    id: efi_log
+    attributes:
+      label: EFI log
+      description: "Contents of `40hx_log.txt` from the EFI System Partition. Mount the ESP (`mountvol S: /S` from an Administrator prompt) and look under `EFI\\40HX`. If the file is missing, say so — that means the EFI application never ran."
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: installer_log
+    attributes:
+      label: Installer / diagnostic logs
+      description: "Contents of the relevant logs from `%LOCALAPPDATA%\\40HXUnlock\\logs\\`. Paste the full log, not just the last lines."
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windows version
+      description: "Output of `winver`, or `cmd /c ver` (e.g. Windows 11 24H2, build 26100.2314)"
+    validations:
+      required: true
+
+  - type: input
+    id: board
+    attributes:
+      label: Motherboard and firmware version
+      description: "Output of `wmic baseboard get Manufacturer,Product` plus the BIOS/UEFI version from firmware setup. The EFI, Gen2 and ReBAR paths are all firmware-dependent."
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and VBIOS version
+      description: "Confirm it's a CMP 40HX (`10de:1f0b`) and give the VBIOS version from GPU-Z or 40HXCheck.exe (e.g. 90.06.67.00.04)."
+    validations:
+      required: true
+
+  - type: input
+    id: driver
+    attributes:
+      label: NVIDIA driver version
+      description: From the NVIDIA Control Panel, Device Manager, or 40HXCheck.exe output
+    validations:
+      required: true
+
+  - type: dropdown
+    id: security
+    attributes:
+      label: Which of these are active on the system?
+      description: These can block the Gen2 helper drivers from loading. Check Core Isolation in Windows Security, and `msinfo32` for the blocklist state.
+      multiple: true
+      options:
+        - "HVCI / Memory integrity (Core isolation)"
+        - "Microsoft vulnerable driver blocklist"
+        - "Third-party anti-cheat or EDR"
+        - "None of these"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: slot
+    attributes:
+      label: Which slot is the CMP 40HX in?
+      options:
+        - "CPU-connected x16 slot"
+        - "Chipset-connected slot"
+        - "Riser / adapter / mining rig"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Did this ever work for you before?
+      options:
+        - "No, never worked on this system"
+        - "Yes, it worked before and stopped (regression)"
+        - "Not sure / first time trying"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Other GPUs in the system, Fast Startup state, whether you're dual-booting with the Linux patches from this repo, custom boot managers (Limine, rEFInd, GRUB), etc.
+    validations:
+      required: false

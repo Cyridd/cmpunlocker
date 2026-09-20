@@ -1,4 +1,4 @@
-name: Unlock not working
+name: Unlock not working (Linux)
 description: Modules built and installed fine, but the unlock itself doesn't apply
 title: "[runtime] "
 labels: ["runtime-problem"]
