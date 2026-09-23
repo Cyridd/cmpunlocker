@@ -152,12 +152,12 @@ func GspDiag() (string, string, int64) {
 				}
 			}
 		}
-		return "", "(无 40HX 匹配! 实际子键: " + sb.String() + ")", -1
+		return "", T("(no 40HX match! subkeys actually present: ", "(совпадений с 40HX нет! фактические подключи: ", "(无 40HX 匹配! 实际子键: ") + sb.String() + ")", -1
 	}
 	sub := key[strings.LastIndex(key, `\`)+1:]
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, key, registry.QUERY_VALUE)
 	if err != nil {
-		return sub, "(读取失败)", -1
+		return sub, T("(read failed)", "(ошибка чтения)", "(读取失败)"), -1
 	}
 	defer k.Close()
 	adapter, _, _ := k.GetStringValue(GpuAdapterStr)

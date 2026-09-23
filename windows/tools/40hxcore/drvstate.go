@@ -36,13 +36,13 @@ const (
 func (s DrvState) String() string {
 	switch s {
 	case DrvZero:
-		return "0字节(疑似杀软隔离)"
+		return T("0 bytes (likely quarantined by security software)", "0 байт (вероятно, помещен в карантин антивирусом)", "0字节(疑似杀软隔离)")
 	case DrvOk:
 		return "OK"
 	case DrvSizeMismatch:
-		return "大小与备份不一致"
+		return T("size differs from the backup", "размер не совпадает с резервной копией", "大小与备份不一致")
 	default:
-		return "缺失"
+		return T("missing", "отсутствует", "缺失")
 	}
 }
 

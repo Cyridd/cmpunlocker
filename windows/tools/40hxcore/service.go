@@ -24,7 +24,7 @@ func Gen2StatusPath() string {
 func WriteGen2Status(text string) error {
 	p := Gen2StatusPath()
 	os.MkdirAll(filepath.Dir(p), 0o755)
-	head := "==== 40HX Gen2 任务状态 " + time.Now().Format("2006-01-02 15:04:05") + " ====\n"
+	head := T("==== 40HX Gen2 task status ", "==== Состояние задачи 40HX Gen2 ", "==== 40HX Gen2 任务状态 ") + time.Now().Format("2006-01-02 15:04:05") + " ====\n"
 	return os.WriteFile(p, []byte(head+text+"\n"), 0o644)
 }
 
@@ -133,7 +133,7 @@ func TaskInfo(name string) (bool, string, string) {
 		strings.Contains(out, "TaskName") || strings.Contains(out, "任务名") ||
 		taskXMLExists(name) {
 		if status == "" {
-			status = "已注册"
+			status = T("Registered", "Зарегистрировано", "已注册")
 		}
 		return true, status, lastResult
 	}

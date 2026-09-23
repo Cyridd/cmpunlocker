@@ -95,7 +95,7 @@ func HighPerfPlanActive() bool {
 func SetHighPerfPlan() error {
 	out, err := RunOut("powercfg", "/setactive", highPerfPlanGUID)
 	if err != nil {
-		return fmt.Errorf("切换高性能电源计划失败: %s", strings.TrimSpace(out))
+		return fmt.Errorf(T("could not switch to the high-performance power plan: %s", "не удалось переключиться на схему электропитания высокой производительности: %s", "切换高性能电源计划失败: %s"), strings.TrimSpace(out))
 	}
 	return nil
 }

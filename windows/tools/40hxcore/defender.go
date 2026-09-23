@@ -63,10 +63,19 @@ func psArray(ps []string) string {
 
 // ErrMpUnavailable: Defender 管理模块缺失(第三方杀软接管/精简系统把模块拿掉)。
 // 供调用方 errors.Is 判断后显示简短提示, 避免把整段报错嵌套进界面文案。
-var ErrMpUnavailable = errors.New("Defender 管理模块不可用")
+//
+// The sentinel text stays English and untranslated: it is created at package
+// init, before the language has been resolved, and callers match it with
+// errors.Is rather than by string. The translated wording is produced in mpErr.
+var ErrMpUnavailable = errors.New("Defender management module unavailable")
 
 // mpErr: 把 Defender 相关命令的错误转成人话 — 最常见的根因是模块不存在
 // (第三方杀软接管/精简系统把 Defender 模块拿掉), 给出明确后续动作。
+//
+// The Chinese substrings below are matched against PowerShell's own localized
+// error output ("不是内部或外部命令" / "无法将…识别为 cmdlet") on a Chinese
+// Windows install. They are parser input, not display text, and must not be
+// translated.
 func mpErr(action, out string, err error) error {
 	low := strings.ToLower(out)
 	switch {
@@ -74,16 +83,18 @@ func mpErr(action, out string, err error) error {
 		strings.Contains(low, "commandnotfoundexception"),
 		strings.Contains(out, "不是内部"),
 		strings.Contains(out, "无法将"):
-		return fmt.Errorf("%w: 本机未安装 Defender 管理模块(%s)", ErrMpUnavailable, action)
+		return fmt.Errorf(T("%w: the Defender management module is not installed on this system (%s)",
+			"%w: модуль управления Defender не установлен в этой системе (%s)",
+			"%w: 本机未安装 Defender 管理模块(%s)"), ErrMpUnavailable, action)
 	}
 	msg := strings.TrimSpace(out)
 	if len(msg) > 200 {
 		msg = msg[:200]
 	}
 	if msg != "" {
-		return fmt.Errorf("%s 失败: %v %s", action, err, msg)
+		return fmt.Errorf(T("%s failed: %v %s", "%s: сбой: %v %s", "%s 失败: %v %s"), action, err, msg)
 	}
-	return fmt.Errorf("%s 失败: %v", action, err)
+	return fmt.Errorf(T("%s failed: %v", "%s: сбой: %v", "%s 失败: %v"), action, err)
 }
 
 func runMp(cmd string) (string, error) {
@@ -95,11 +106,11 @@ func runMp(cmd string) (string, error) {
 func AddDefenderExclusions() error {
 	ps := ExclusionPaths()
 	if len(ps) == 0 {
-		return fmt.Errorf("无排除路径")
+		return errors.New(T("no exclusion paths", "нет путей для исключения", "无排除路径"))
 	}
 	out, err := runMp("Add-MpPreference -ExclusionPath " + psArray(ps))
 	if err != nil {
-		return mpErr("添加 Defender 排除", out, err)
+		return mpErr(T("Adding Defender exclusions", "Добавление исключений Defender", "添加 Defender 排除"), out, err)
 	}
 	return nil
 }
@@ -112,7 +123,7 @@ func RemoveDefenderExclusions() error {
 	}
 	out, err := runMp("Remove-MpPreference -ExclusionPath " + psArray(ps))
 	if err != nil {
-		return mpErr("移除 Defender 排除", out, err)
+		return mpErr(T("Removing Defender exclusions", "Удаление исключений Defender", "移除 Defender 排除"), out, err)
 	}
 	return nil
 }
@@ -122,7 +133,7 @@ func RemoveDefenderExclusions() error {
 func DefenderExclusionsPresent() (bool, error) {
 	out, err := runMp("@((Get-MpPreference).ExclusionPath) | ConvertTo-Json -Compress")
 	if err != nil {
-		return false, mpErr("查询 Defender 排除", out, err)
+		return false, mpErr(T("Querying Defender exclusions", "Запрос исключений Defender", "查询 Defender 排除"), out, err)
 	}
 	out = strings.TrimSpace(out)
 	if out == "" || out == "null" {
@@ -131,13 +142,13 @@ func DefenderExclusionsPresent() (bool, error) {
 	var paths []string
 	if strings.HasPrefix(out, "[") {
 		if err := json.Unmarshal([]byte(out), &paths); err != nil {
-			return false, fmt.Errorf("解析 Defender 排除列表失败: %v", err)
+			return false, fmt.Errorf(T("failed to parse the Defender exclusion list: %v", "не удалось разобрать список исключений Defender: %v", "解析 Defender 排除列表失败: %v"), err)
 		}
 	} else {
 		// PowerShell ConvertTo-Json 对单元素数组会拍平成标量
 		var s string
 		if err := json.Unmarshal([]byte(out), &s); err != nil {
-			return false, fmt.Errorf("解析 Defender 排除列表失败: %v", err)
+			return false, fmt.Errorf(T("failed to parse the Defender exclusion list: %v", "не удалось разобрать список исключений Defender: %v", "解析 Defender 排除列表失败: %v"), err)
 		}
 		paths = []string{s}
 	}
@@ -167,7 +178,7 @@ func DefenderExclusionsPresent() (bool, error) {
 func DefenderRealtimeProtectionOn() (bool, error) {
 	out, err := runMp("(Get-MpComputerStatus).RealTimeProtectionEnabled | ConvertTo-Json -Compress")
 	if err != nil {
-		return false, mpErr("查询 Defender 实时防护", out, err)
+		return false, mpErr(T("Querying Defender real-time protection", "Запрос защиты Defender в реальном времени", "查询 Defender 实时防护"), out, err)
 	}
 	switch strings.ToLower(strings.TrimSpace(out)) {
 	case "true", "1":
@@ -175,21 +186,27 @@ func DefenderRealtimeProtectionOn() (bool, error) {
 	case "false", "0", "":
 		return false, nil
 	}
-	return false, fmt.Errorf("查询 Defender 实时防护返回异常: %s", strings.TrimSpace(out))
+	return false, fmt.Errorf(T("unexpected reply when querying Defender real-time protection: %s", "неожиданный ответ при запросе защиты Defender в реальном времени: %s", "查询 Defender 实时防护返回异常: %s"), strings.TrimSpace(out))
 }
 
 // SetDefenderRealtimeProtection: 关闭(on=false)或恢复开启(on=true) Defender 实时防护。
 // 高风险操作 — 调用方(GUI)需以显式勾选 + 明确提示为前提。
 func SetDefenderRealtimeProtection(on bool) error {
 	v := "False"
-	act := "关闭"
+	act := T("Disabling Defender real-time protection",
+		"Отключение защиты Defender в реальном времени",
+		"关闭 Defender 实时防护")
 	if on {
 		v = "True"
-		act = "恢复开启"
+		act = T("Re-enabling Defender real-time protection",
+			"Повторное включение защиты Defender в реальном времени",
+			"恢复开启 Defender 实时防护")
 	}
 	out, err := runMp("Set-MpPreference -DisableRealtimeMonitoring $" + v)
 	if err != nil {
-		return mpErr(act+" Defender 实时防护(若 Windows 安全中心开了'篡改防护'会被拒绝, 请先关闭它)", out, err)
+		return mpErr(act+T(" (refused while Tamper Protection is enabled in Windows Security — turn that off first)",
+			" (будет отклонено, пока в Центре безопасности Windows включена защита от подделки — сначала отключите её)",
+			"(若 Windows 安全中心开了'篡改防护'会被拒绝, 请先关闭它)"), out, err)
 	}
 	return nil
 }

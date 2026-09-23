@@ -26,7 +26,7 @@ func UninstallTasks() []string {
 	for _, tn := range UninstallTaskNames {
 		out, err := RunOut("schtasks.exe", "/delete", "/tn", tn, "/f")
 		if err == nil || strings.Contains(out, "成功") || strings.Contains(strings.ToLower(out), "success") {
-			fmt.Printf("  已删除计划任务 %s\n", tn)
+			fmt.Printf(T("  Removed scheduled task %s\n", "  Удалена задача планировщика %s\n", "  已删除计划任务 %s\n"), tn)
 			removed = append(removed, tn)
 		}
 	}
@@ -61,7 +61,7 @@ func UninstallBootEntry() bool {
 		}
 		if strings.Contains(ln, bootDesc40) && curGuid != "" {
 			RunOut("bcdedit.exe", "/delete", "{"+curGuid+"}", "/f")
-			fmt.Printf("  已删除启动项 %s\n", curGuid)
+			fmt.Printf(T("  Removed boot entry %s\n", "  Удалена запись загрузки %s\n", "  已删除启动项 %s\n"), curGuid)
 			removed = true
 			curGuid = ""
 		}
@@ -88,21 +88,21 @@ func UninstallEspEfi() bool {
 	// v3.0.0: EFI 运行时写的历史日志一并清除 — 否则卸载后 40HXCheck 会把它
 	// 当本次日志分析, 给没装 EFI 的用户派无关引导。
 	if err := os.Remove(esp + ":\\40hx_log.txt"); err == nil {
-		fmt.Println("    已删除历史 EFI 日志 40hx_log.txt")
+		fmt.Println(T("    Removed the stale EFI log 40hx_log.txt", "    Удален устаревший журнал EFI 40hx_log.txt", "    已删除历史 EFI 日志 40hx_log.txt"))
 	}
 	std := esp + ":\\EFI\\Boot\\bootx64.efi"
 	bak := esp + ":\\EFI\\Boot\\bootx64.efi.40hx.bak"
 	if data, berr := os.ReadFile(bak); berr == nil {
 		if werr := os.WriteFile(std, data, 0o644); werr != nil {
-			fmt.Println("  [!] 还原 bootx64.efi 写失败:", werr)
-			fmt.Println("      原备份仍保留在 bootx64.efi.40hx.bak, 可手动还原")
+			fmt.Println(T("  [!] Failed to write the restored bootx64.efi:", "  [!] Не удалось записать восстановленный bootx64.efi:", "  [!] 还原 bootx64.efi 写失败:"), werr)
+			fmt.Println(T("      The backup is still at bootx64.efi.40hx.bak and can be restored by hand.", "      Резервная копия по-прежнему лежит в bootx64.efi.40hx.bak — ее можно восстановить вручную.", "      原备份仍保留在 bootx64.efi.40hx.bak, 可手动还原"))
 			return removed
 		}
 		if rb, rerr := os.ReadFile(std); rerr == nil && len(rb) == len(data) {
 			os.Remove(bak)
-			fmt.Println("    已还原原 bootx64.efi (来自 .40hx.bak, 校验 OK)")
+			fmt.Println(T("    Restored the original bootx64.efi from .40hx.bak (verified)", "    Исходный bootx64.efi восстановлен из .40hx.bak (проверка пройдена)", "    已还原原 bootx64.efi (来自 .40hx.bak, 校验 OK)"))
 		} else {
-			fmt.Println("  [!] bootx64.efi 还原后校验不一致 — 保留 .bak 供手动处理")
+			fmt.Println(T("  [!] bootx64.efi did not verify after restore — the .bak is kept for manual recovery", "  [!] bootx64.efi не прошел проверку после восстановления — .bak оставлен для ручного восстановления", "  [!] bootx64.efi 还原后校验不一致 — 保留 .bak 供手动处理"))
 		}
 		removed = true
 	}
@@ -117,11 +117,11 @@ func UninstallDriverServices() {
 		out, err := RunOut("sc.exe", "delete", name)
 		switch {
 		case err == nil || strings.Contains(strings.ToLower(out), "success") || strings.Contains(out, "成功"):
-			fmt.Printf("  服务 %s 已删除\n", name)
+			fmt.Printf(T("  Service %s removed\n", "  Служба %s удалена\n", "  服务 %s 已删除\n"), name)
 		case strings.Contains(out, "不存在") || strings.Contains(strings.ToLower(out), "not") || strings.Contains(out, "1060"):
-			fmt.Printf("  服务 %s 不存在(跳过)\n", name)
+			fmt.Printf(T("  Service %s does not exist (skipped)\n", "  Служба %s не существует (пропущено)\n", "  服务 %s 不存在(跳过)\n"), name)
 		default:
-			fmt.Printf("  服务 %s 删除失败: %s\n", name, strings.TrimSpace(out))
+			fmt.Printf(T("  Could not remove service %s: %s\n", "  Не удалось удалить службу %s: %s\n", "  服务 %s 删除失败: %s\n"), name, strings.TrimSpace(out))
 		}
 	}
 }
@@ -132,10 +132,10 @@ func UninstallDriverFiles() {
 		p := os.Getenv("SystemRoot") + "\\System32\\drivers\\" + name
 		if err := os.Remove(p); err != nil {
 			if _, statErr := os.Stat(p); statErr == nil {
-				fmt.Printf("  %s 删除失败(可能被占用, 重启后自动可删)\n", name)
+				fmt.Printf(T("  Could not delete %s (likely in use; it will be removable after a reboot)\n", "  Не удалось удалить %s (вероятно, файл занят; получится после перезагрузки)\n", "  %s 删除失败(可能被占用, 重启后自动可删)\n"), name)
 			}
 		} else {
-			fmt.Printf("  已删除 %s\n", name)
+			fmt.Printf(T("  Removed %s\n", "  Удалено: %s\n", "  已删除 %s\n"), name)
 		}
 	}
 	os.Remove(os.Getenv("SystemRoot") + "\\System32\\WinRing0x64.dll")
@@ -174,36 +174,36 @@ func UninstallProgramData() {
 	// v2.6.0 修复: 策略键一并删除 — 否则卸载后 DriverStrategy/Gen2AutoHard 等
 	// 残留, 重装会继承旧策略而非默认(README §2.5 承诺"卸载器会一并删除")。
 	DeleteConfig()
-	fmt.Println("  策略键 HKLM\\SOFTWARE\\40HXUnlock 已删除(重装回到默认策略)")
+	fmt.Println(T("  Removed the policy key HKLM\\SOFTWARE\\40HXUnlock (a reinstall starts from defaults)", "  Удален ключ политики HKLM\\SOFTWARE\\40HXUnlock (переустановка начнется со значений по умолчанию)", "  策略键 HKLM\\SOFTWARE\\40HXUnlock 已删除(重装回到默认策略)"))
 }
 
 // CheckLeftover: 卸载收尾的残留清单(供 GUI/卸载器展示)
 func CheckLeftover() []string {
 	var rem []string
 	if out, _ := RunOut("bcdedit.exe", "/enum", "firmware"); strings.Contains(out, bootDesc40) {
-		rem = append(rem, "- 固件启动项 '40HX Unlock'(BIOS 手动删除)")
-		fmt.Println("  [!] 启动项仍有残留: bcdedit /delete {guid} /f (见 BIOS 菜单)")
+		rem = append(rem, T("- Firmware boot entry '40HX Unlock' (remove it by hand in firmware setup)", "- Запись загрузки прошивки '40HX Unlock' (удалите вручную в настройках прошивки)", "- 固件启动项 '40HX Unlock'(BIOS 手动删除)"))
+		fmt.Println(T("  [!] Boot entry left over: bcdedit /delete {guid} /f, or remove it from the firmware menu", "  [!] Осталась запись загрузки: bcdedit /delete {guid} /f либо удалите ее в меню прошивки", "  [!] 启动项仍有残留: bcdedit /delete {guid} /f (见 BIOS 菜单)"))
 	} else {
-		fmt.Println("  启动项: 已清理")
+		fmt.Println(T("  Boot entry: clean", "  Запись загрузки: очищено", "  启动项: 已清理"))
 	}
 	if k, err := registry.OpenKey(registry.CURRENT_USER,
 		`Software\Microsoft\Windows\CurrentVersion\Run`, registry.QUERY_VALUE); err == nil {
 		if _, _, e := k.GetStringValue("40HXGen2"); e == nil {
-			rem = append(rem, "- Run 键 40HXGen2")
-			fmt.Println("  [!] Run 键仍有残留")
+			rem = append(rem, T("- Run key 40HXGen2", "- Ключ Run 40HXGen2", "- Run 键 40HXGen2"))
+			fmt.Println(T("  [!] Run key left over", "  [!] Остался ключ Run", "  [!] Run 键仍有残留"))
 		}
 		k.Close()
 	}
 	taskLeft := false
 	for _, tn := range UninstallTaskNames {
 		if _, err := RunOut("schtasks.exe", "/query", "/tn", tn); err == nil {
-			rem = append(rem, "- 计划任务 "+tn)
-			fmt.Println("  [!] 计划任务 " + tn + " 仍有残留")
+			rem = append(rem, T("- Scheduled task ", "- Задача планировщика ", "- 计划任务 ")+tn)
+			fmt.Println(T("  [!] Scheduled task ", "  [!] Задача планировщика ", "  [!] 计划任务 ") + tn + T(" left over", " осталась", " 仍有残留"))
 			taskLeft = true
 		}
 	}
 	if !taskLeft {
-		fmt.Println("  计划任务: 已清理")
+		fmt.Println(T("  Scheduled tasks: clean", "  Задачи планировщика: очищено", "  计划任务: 已清理"))
 	}
 	// v3.0.0: 补查驱动服务与 System32 驱动文件 — 常驻策略/文件被占用时
 	// 卸载可能只删了服务注册、文件要重启后才能删, 不能假装干净。
@@ -211,13 +211,13 @@ func CheckLeftover() []string {
 	svcLeft := false
 	for _, sn := range svcNames {
 		if _, err := RunOut("sc.exe", "query", sn); err == nil {
-			rem = append(rem, "- 驱动服务 "+sn)
-			fmt.Println("  [!] 驱动服务 " + sn + " 仍有残留(可能仍在运行, 重启后重跑卸载器)")
+			rem = append(rem, T("- Driver service ", "- Служба драйвера ", "- 驱动服务 ")+sn)
+			fmt.Println(T("  [!] Driver service ", "  [!] Служба драйвера ", "  [!] 驱动服务 ") + sn + T(" left over (possibly still running; reboot and run the uninstaller again)", " осталась (возможно, еще работает; перезагрузитесь и запустите деинсталлятор снова)", " 仍有残留(可能仍在运行, 重启后重跑卸载器)"))
 			svcLeft = true
 		}
 	}
 	if !svcLeft {
-		fmt.Println("  驱动服务: 已清理")
+		fmt.Println(T("  Driver services: clean", "  Службы драйверов: очищено", "  驱动服务: 已清理"))
 	}
 	sysRoot := os.Getenv("SystemRoot")
 	if sysRoot == "" {
@@ -226,28 +226,28 @@ func CheckLeftover() []string {
 	fileLeft := false
 	for _, fn := range []string{"ThrottleStop.sys", "40hx_bridge.sys", "40hx_early-d.sys", "40hx_early.sys", "WinRing0x64.sys"} {
 		if _, err := os.Stat(sysRoot + "\\System32\\drivers\\" + fn); err == nil {
-			rem = append(rem, "- 驱动文件 " + fn)
-			fmt.Println("  [!] 驱动文件 " + fn + " 仍有残留(可能被占用, 重启后重跑卸载器)")
+			rem = append(rem, T("- Driver file ", "- Файл драйвера ", "- 驱动文件 ") + fn)
+			fmt.Println(T("  [!] Driver file ", "  [!] Файл драйвера ", "  [!] 驱动文件 ") + fn + T(" left over (possibly in use; reboot and run the uninstaller again)", " остался (возможно, занят; перезагрузитесь и запустите деинсталлятор снова)", " 仍有残留(可能被占用, 重启后重跑卸载器)"))
 			fileLeft = true
 		}
 	}
 	if !fileLeft {
-		fmt.Println("  驱动文件: 已清理")
+		fmt.Println(T("  Driver files: clean", "  Файлы драйверов: очищено", "  驱动文件: 已清理"))
 	}
 	if esp := MountESP(); esp != "" {
 		if _, err := os.Stat(esp + ":\\EFI\\40HX\\40HXUNLK.EFI"); err == nil {
-			rem = append(rem, "- ESP 解锁 EFI 文件")
-			fmt.Println("  [!] ESP 解锁 EFI 仍有残留")
+			rem = append(rem, T("- Unlock EFI file on the ESP", "- Файл разблокировочного EFI на ESP", "- ESP 解锁 EFI 文件"))
+			fmt.Println(T("  [!] Unlock EFI left over on the ESP", "  [!] На ESP остался разблокировочный EFI", "  [!] ESP 解锁 EFI 仍有残留"))
 		} else {
-			fmt.Println("  ESP 解锁 EFI: 已清理")
+			fmt.Println(T("  Unlock EFI on the ESP: clean", "  Разблокировочный EFI на ESP: очищено", "  ESP 解锁 EFI: 已清理"))
 		}
 		if _, err := os.Stat(esp + ":\\EFI\\Boot\\bootx64.efi.40hx.bak"); err == nil {
-			rem = append(rem, "- bootx64.efi.40hx.bak 备份未还原")
-			fmt.Println("  [!] bootx64.efi.40hx.bak 备份仍存在")
+			rem = append(rem, T("- bootx64.efi.40hx.bak backup was not restored", "- Резервная копия bootx64.efi.40hx.bak не восстановлена", "- bootx64.efi.40hx.bak 备份未还原"))
+			fmt.Println(T("  [!] The bootx64.efi.40hx.bak backup is still present", "  [!] Резервная копия bootx64.efi.40hx.bak все еще на месте", "  [!] bootx64.efi.40hx.bak 备份仍存在"))
 		}
 		if _, err := os.Stat(esp + ":\\40hx_log.txt"); err == nil {
-			rem = append(rem, "- ESP 根 40hx_log.txt (历史 EFI 日志)")
-			fmt.Println("  [!] 40hx_log.txt 历史日志仍存在(再跑一次卸载器即清除)")
+			rem = append(rem, T("- 40hx_log.txt in the ESP root (stale EFI log)", "- 40hx_log.txt в корне ESP (устаревший журнал EFI)", "- ESP 根 40hx_log.txt (历史 EFI 日志)"))
+			fmt.Println(T("  [!] The stale 40hx_log.txt is still there (run the uninstaller once more to clear it)", "  [!] Устаревший 40hx_log.txt все еще на месте (запустите деинсталлятор еще раз, чтобы его удалить)", "  [!] 40hx_log.txt 历史日志仍存在(再跑一次卸载器即清除)"))
 		}
 		RunOut("mountvol.exe", esp+":", "/D")
 	}
@@ -257,17 +257,17 @@ func CheckLeftover() []string {
 	}
 	pdDir := base + "\\40HXUnlock"
 	if _, err := os.Stat(pdDir + "\\gen2_status.txt"); err == nil {
-		rem = append(rem, "- ProgramData\\40HXUnlock\\gen2_status.txt (诊断缓存)")
-		fmt.Println("  [!] gen2_status.txt 仍有残留")
+		rem = append(rem, T("- ProgramData\\40HXUnlock\\gen2_status.txt (diagnostic cache)", "- ProgramData\\40HXUnlock\\gen2_status.txt (кэш диагностики)", "- ProgramData\\40HXUnlock\\gen2_status.txt (诊断缓存)"))
+		fmt.Println(T("  [!] gen2_status.txt left over", "  [!] Остался gen2_status.txt", "  [!] gen2_status.txt 仍有残留"))
 	}
 	if _, err := os.Stat(pdDir + "\\drivers"); err == nil {
-		rem = append(rem, "- ProgramData\\40HXUnlock\\drivers (驱动备份)")
-		fmt.Println("  [!] drivers 备份仍有残留")
+		rem = append(rem, T("- ProgramData\\40HXUnlock\\drivers (driver backup)", "- ProgramData\\40HXUnlock\\drivers (резервная копия драйверов)", "- ProgramData\\40HXUnlock\\drivers (驱动备份)"))
+		fmt.Println(T("  [!] The drivers backup is left over", "  [!] Осталась резервная копия drivers", "  [!] drivers 备份仍有残留"))
 	}
 	if k, err := registry.OpenKey(registry.LOCAL_MACHINE, ConfigKeyPath, registry.QUERY_VALUE); err == nil {
 		k.Close()
-		rem = append(rem, "- HKLM\\SOFTWARE\\40HXUnlock 策略键")
-		fmt.Println("  [!] 策略配置键 HKLM\\SOFTWARE\\40HXUnlock 仍有残留")
+		rem = append(rem, T("- Policy key HKLM\\SOFTWARE\\40HXUnlock", "- Ключ политики HKLM\\SOFTWARE\\40HXUnlock", "- HKLM\\SOFTWARE\\40HXUnlock 策略键"))
+		fmt.Println(T("  [!] The policy key HKLM\\SOFTWARE\\40HXUnlock is left over", "  [!] Остался ключ политики HKLM\\SOFTWARE\\40HXUnlock", "  [!] 策略配置键 HKLM\\SOFTWARE\\40HXUnlock 仍有残留"))
 	}
 	return rem
 }

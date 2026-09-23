@@ -18,13 +18,13 @@ type avCandidate struct {
 }
 
 var avCandidates = []avCandidate{
-	{"火绒安全 (Huorong)", []string{"wsctrl", "hipsdaemon", "hipstray", "usysdiag", "huorong"}},
-	{"360 安全卫士/杀毒", []string{"360tray", "360sd", "zhudongfangyu", "qhsafemon", "360safe"}},
-	{"腾讯电脑管家", []string{"qqpctray", "qqpcrtp", "qqpc", "tencent pc manager"}},
-	{"金山毒霸", []string{"kxetray", "kxs", "kavsvc"}},
-	{"2345 安全卫士", []string{"2345safe", "safemon", "2345"}},
-	{"瑞星", []string{"ravtask", "rav"}},
-	{"联想电脑管家", []string{"lenovopcmanager", "lenovo safe"}},
+	{T("Huorong Security", "Huorong Security", "火绒安全 (Huorong)"), []string{"wsctrl", "hipsdaemon", "hipstray", "usysdiag", "huorong"}},
+	{T("360 Total Security / Safeguard", "360 Total Security / Safeguard", "360 安全卫士/杀毒"), []string{"360tray", "360sd", "zhudongfangyu", "qhsafemon", "360safe"}},
+	{T("Tencent PC Manager", "Tencent PC Manager", "腾讯电脑管家"), []string{"qqpctray", "qqpcrtp", "qqpc", "tencent pc manager"}},
+	{T("Kingsoft Antivirus", "Kingsoft Antivirus", "金山毒霸"), []string{"kxetray", "kxs", "kavsvc"}},
+	{T("2345 Security Guard", "2345 Security Guard", "2345 安全卫士"), []string{"2345safe", "safemon", "2345"}},
+	{T("Rising Antivirus", "Rising Antivirus", "瑞星"), []string{"ravtask", "rav"}},
+	{T("Lenovo PC Manager", "Lenovo PC Manager", "联想电脑管家"), []string{"lenovopcmanager", "lenovo safe"}},
 }
 
 // DetectThirdPartyAV: 返回识别到的第三方杀软名列表(空 = 未识别到常见第三方)。

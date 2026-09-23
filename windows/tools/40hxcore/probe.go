@@ -101,12 +101,12 @@ func TestSigningOn() bool {
 func SetTestsigning() (bool, string) {
 	out, err := RunOut("bcdedit.exe", "/set", "testsigning", "on")
 	if err != nil {
-		return false, fmt.Sprintf("bcdedit /set testsigning on 失败: %v\n%s", err, strings.TrimSpace(out))
+		return false, fmt.Sprintf(T("bcdedit /set testsigning on failed: %v\n%s", "bcdedit /set testsigning on завершилась с ошибкой: %v\n%s", "bcdedit /set testsigning on 失败: %v\n%s"), err, strings.TrimSpace(out))
 	}
 	if TestSigningOn() {
 		return true, ""
 	}
-	return false, "bcdedit 返回成功但读回仍为 No\n可能原因: Secure Boot 开启时 testsigning 无法生效\n请进 BIOS 关闭 Secure Boot 后重试"
+	return false, T("bcdedit reported success but the value still reads back as No.\nLikely cause: testsigning cannot take effect while Secure Boot is enabled.\nDisable Secure Boot in firmware setup and try again.", "bcdedit сообщила об успехе, но значение по-прежнему читается как No.\nВероятная причина: testsigning не действует при включенном Secure Boot.\nОтключите Secure Boot в настройках прошивки и повторите.", "bcdedit 返回成功但读回仍为 No\n可能原因: Secure Boot 开启时 testsigning 无法生效\n请进 BIOS 关闭 Secure Boot 后重试")
 }
 
 // MountESP: 挂 ESP 到空闲盘符, 返回盘符字母(如 "S")或 ""。
