@@ -152,6 +152,49 @@ static void u40x_open_log(void) {
     if (EFI_ERROR(st)) u40x_log = NULL;
     root->Close(root);
 }
+
+/* --- runtime load-option probe (ported from 50hx unlock --return-to-grub) ---
+ * Reads EFI_LOADED_IMAGE_PROTOCOL->LoadOptions (UTF-16 command line the boot
+ * manager passes us), tokenizes on whitespace and matches a whole token.
+ * Used by efi_main for the --return-to-bootloader handoff (grub/Limine/rEFInd)
+ * and the "norebar" ReBAR opt-out. Direct HandleProtocol call to match
+ * u40x_open_log above (this board hung on LocateHandleBuffer). */
+static BOOLEAN u40x_has_load_option(EFI_HANDLE IH, const CHAR16 *Option) {
+    EFI_LOADED_IMAGE_PROTOCOL *li = NULL;
+    const CHAR16 *opts;
+    UINTN chars, optionLen = 0, i = 0;
+
+    if (!BS || !IH || !Option)
+        return FALSE;
+    if (EFI_ERROR(BS->HandleProtocol(IH, &u40x_li_guid, (void **)&li)) ||
+        !li || !li->LoadOptions || li->LoadOptionsSize < sizeof(CHAR16))
+        return FALSE;
+
+    while (Option[optionLen])
+        optionLen++;
+    if (!optionLen)
+        return FALSE;
+
+    opts = (const CHAR16 *)li->LoadOptions;
+    chars = li->LoadOptionsSize / sizeof(CHAR16);
+    while (i < chars && opts[i]) {
+        UINTN start;
+        while (i < chars && opts[i] &&
+               (opts[i] == L' ' || opts[i] == L'\t' ||
+                opts[i] == L'\r' || opts[i] == L'\n'))
+            i++;
+        start = i;
+        while (i < chars && opts[i] &&
+               opts[i] != L' ' && opts[i] != L'\t' &&
+               opts[i] != L'\r' && opts[i] != L'\n')
+            i++;
+        if (i - start == optionLen &&
+            CompareMem(opts + start, Option,
+                       optionLen * sizeof(CHAR16)) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
 /* The logger is an internal C variadic function.  Linux/gnu-efi call sites
  * use the SysV ABI; only firmware service function pointers use EFIAPI/MS ABI.
  * Keeping EFIAPI here corrupts %s and later varargs in the ELF build. */
@@ -7323,20 +7366,35 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     GspFwWprMeta *wprMeta = NULL;
     UINT32 boot0 = 0;
     UINTN i;
+    BOOLEAN returnToBootloader = FALSE, rebarDisabled = FALSE;
 
     InitializeLib(ImageHandle, SystemTable);
     Print(L"\n=== CMP40HX Unlock v70-40HX (TU106 GSP WITH_LOADER) ===\n");
 
+    /* Runtime handoff / ReBAR opt-out via boot-entry LoadOptions (ported from
+     * 50hx --return-to-grub). --return-to-bootloader (aliases --return-to-grub /
+     * --return-to-limine) returns EFI_SUCCESS to the parent boot manager
+     * instead of chainloading Windows; "norebar" skips the 8 GiB ReBAR resize. */
+    returnToBootloader =
+        u40x_has_load_option(ImageHandle, L"--return-to-bootloader") ||
+        u40x_has_load_option(ImageHandle, L"--return-to-grub") ||
+        u40x_has_load_option(ImageHandle, L"--return-to-limine");
+    rebarDisabled = u40x_has_load_option(ImageHandle, L"norebar");
+    if (returnToBootloader)
+        Print(L"[40HX] load option: return-to-bootloader (hand back to parent boot manager)\n");
+    if (rebarDisabled)
+        Print(L"[40HX] load option: norebar (ReBAR resize disabled)\n");
+
     /* ---------- [1] 找卡（黑盒 fast-probe + 有界） ---------- */
     if (!u40x_find_gpu()) {
         Print(L"[40HX] GPU not found; abort\n");
-        return EFI_NOT_FOUND;
+        return returnToBootloader ? EFI_SUCCESS : EFI_NOT_FOUND;
     }
 
     /* ---------- [2] BAR0 使能 ---------- */
     if (u40x_enable_bar()) {
         Print(L"[40HX] BAR enable failed; abort\n");
-        return EFI_DEVICE_ERROR;
+        return returnToBootloader ? EFI_SUCCESS : EFI_DEVICE_ERROR;
     }
 #ifdef VBIOS_DUMP
     u40x_vbios_dump();          /* v65: after BAR enable; -> \40hx_vbios.bin */
@@ -7564,27 +7622,30 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 done:
     dump_regs(L"[v55 final]");
     /* ---------- [11] best-effort ReBAR (BAR1, 8 GiB); reverts on any
-     * failed check — see u40x_rebar_try ---------- */
-    if (gBar0Base != 0 && is_unlocked())
+     * failed check — see u40x_rebar_try. "norebar" load option opts out. --- */
+    if (gBar0Base != 0 && is_unlocked() && !rebarDisabled)
         u40x_rebar_try(U40X_REBAR_SIZE, U40X_REBAR_SELECTOR);
+    else if (rebarDisabled)
+        Print(L"[rebar] skipped: disabled by norebar load option\n");
     else
         Print(L"[rebar] skipped: GPU is not in a valid unlocked state\n");
-#ifdef NO_AUTO_CHAINLOAD
     /*
-     * Experimental Limine mode: return to the EFI caller after the unlock.
-     * The normal release path chainloads Windows because returning to firmware
-     * causes a second POST and loses the volatile GPU state.  A boot manager
-     * such as Limine can resume its menu without that firmware reset, but this
-     * path is intentionally opt-in and must be tested on the target board.
+     * Runtime handoff (ported/generalized from 50hx --return-to-grub): when the
+     * boot entry carries --return-to-bootloader (or the grub/limine aliases),
+     * return EFI_SUCCESS so the parent boot manager (grub/Limine/rEFInd) resumes
+     * its menu WITHOUT a second POST — the volatile GPU unlock is preserved.
+     * Otherwise (the normal Windows-first install) chainload Windows directly.
+     *
+     * v71fix: returning to firmware here caused long black screens + dropped
+     * driver — BDS re-runs POST, re-initialises the GPU and loses the unlock.
+     * chainload_preloaded (preload bootmgfw → LoadImage → StartImage → SFS
+     * fallback) avoids the firmware round-trip so SS0 and the driver survive.
      */
-    Print(L"[40HX] Limine mode: returning to parent EFI boot manager\n");
-    BS->Stall(2000000);
-    return EFI_SUCCESS;
-#else
-    /* v71fix: 黑屏很久+驱动掉根因 = return firmware → BDS 重跑 POST →
-     * GPU 重新初始化/unlock 丢失。改用黑盒式链载（chainload_preloaded：
-     * preload bootmgfw → LoadImage → StartImage → SFS fallback），
-     * 不回固件、无第二 POST，SS0 保持、驱动正常。 */
+    if (returnToBootloader) {
+        Print(L"[40HX] returning to parent EFI boot manager (grub/Limine/rEFInd handoff)\n");
+        BS->Stall(2000000);
+        return EFI_SUCCESS;
+    }
     {
         EFI_STATUS cst = chainload_preloaded(ImageHandle);
         Print(L"[40HX] chainload result: %r\n", cst);
@@ -7594,5 +7655,4 @@ done:
     }
     BS->Stall(2000000);
     return EFI_SUCCESS;
-#endif
 }

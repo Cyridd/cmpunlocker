@@ -1,4 +1,4 @@
-// 40HX 一键卸载工具 v2.0.0 (CMP 40HX Windows Unlock Uninstaller)
+// 40HX 一键卸载工具 v2.0.1 (CMP 40HX Windows Unlock Uninstaller)
 // GUI 无窗口版: 双击不弹黑框, 输出入 %TEMP%\40HX_uninstaller.log, 结束弹消息框
 // 移除: 计划任务(含 Gen2 重试任务) / Gen2 Run 键 / 固件启动项 "40HX Unlock"
 //

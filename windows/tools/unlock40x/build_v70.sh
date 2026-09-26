@@ -48,9 +48,6 @@ linked="$stage_dir/unlock40x_v70.so"
 efi="$stage_dir/unlock40x_v70.efi"
 
 extra_defs=()
-if [ "${NO_AUTO_CHAINLOAD:-0}" = 1 ]; then
-    extra_defs+=(-DNO_AUTO_CHAINLOAD)
-fi
 if [ "${VBIOS_DUMP:-0}" = 1 ]; then
     # The 1 MiB BAR0 VBIOS capture is optional and disabled for the normal
     # unlock build.  Enable it explicitly with VBIOS_DUMP=1 when needed.

@@ -184,6 +184,7 @@ type guiState struct {
 
 	ckGsp, ckDrv, ckEfi, ckTask      *walk.CheckBox
 	ckFast, ckAspm, ckPerf, ckDefOff *walk.CheckBox
+	ckRebar                          *walk.CheckBox
 	pbInstall, pbFull                *walk.PushButton
 
 	rbStrategy                    [3]*walk.RadioButton
@@ -227,6 +228,7 @@ func (st *guiState) refreshTexts() {
 	if st.ckGsp != nil {
 		st.ckGsp.SetText(tr("Enable GSP (EnableGpuFirmware=1)", "Включить GSP (EnableGpuFirmware=1)", "GSP 启用 (EnableGpuFirmware=1)"))
 		st.ckEfi.SetText(tr("Compute EFI + firmware boot entry", "EFI разблокировки + запись загрузки", "算力 EFI + 固件启动项"))
+		st.ckRebar.SetText(tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)"))
 		st.ckDrv.SetText(tr("Deploy Gen2 drivers + Defender exclusions", "Установить драйверы Gen2 + исключения Defender", "Gen2 驱动部署 + Defender 排除"))
 		st.ckTask.SetText(tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"))
 		st.ckFast.SetText(tr("Power: disable Fast Startup", "Питание: отключить быстрый запуск", "电源: 关闭快速启动"))
@@ -417,6 +419,7 @@ func (st *guiState) applySmartDefaults() {
 			st.ckGsp.SetChecked(false)
 			st.ckDrv.SetChecked(false)
 			st.ckEfi.SetChecked(false)
+			st.ckRebar.SetChecked(false)
 			st.ckTask.SetChecked(false)
 			st.ckFast.SetChecked(false)
 			st.ckAspm.SetChecked(false)
@@ -473,6 +476,14 @@ func (st *guiState) applySmartDefaults() {
 		st.ckEfi.SetChecked(needEfi)
 		if needEfi {
 			pre = append(pre, tr("Compute EFI+boot entry", "Compute EFI+запись загрузки", "算力 EFI+启动项"))
+		}
+		// ReBAR is applied by that same unlock EFI at boot. Preselect it exactly
+		// when the EFI/boot entry is being (re)deployed so a fresh install turns
+		// it on; when the entry is already in place we leave it unchecked (no
+		// re-assert). Full installation always re-enables it regardless.
+		st.ckRebar.SetChecked(needEfi)
+		if needEfi {
+			pre = append(pre, tr("ReBar 8 GB", "ReBar 8 ГБ", "ReBar 8 GB"))
 		}
 		st.ckTask.SetChecked(needTask)
 		if needTask {
@@ -635,6 +646,7 @@ func runGUI() {
 						Children: []Widget{
 							CheckBox{AssignTo: &st.ckGsp, Text: tr("Enable GSP (EnableGpuFirmware=1)", "Включить GSP (EnableGpuFirmware=1)", "GSP 启用 (EnableGpuFirmware=1)")},
 							CheckBox{AssignTo: &st.ckEfi, Text: tr("Compute EFI + firmware boot entry", "EFI разблокировки + запись загрузки", "算力 EFI + 固件启动项")},
+							CheckBox{AssignTo: &st.ckRebar, Text: tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)")},
 							CheckBox{AssignTo: &st.ckDrv, Text: tr("Deploy Gen2 drivers + Defender exclusions", "Установить драйверы Gen2 + исключения Defender", "Gen2 驱动部署 + Defender 排除")},
 							CheckBox{AssignTo: &st.ckTask, Text: tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启")},
 							CheckBox{AssignTo: &st.ckFast, Text: tr("Power: disable Fast Startup", "Питание: отключить быстрый запуск", "电源: 关闭快速启动")},
@@ -655,6 +667,7 @@ func runGUI() {
 									"gsp":    st.ckGsp.Checked(),
 									"drv":    st.ckDrv.Checked(),
 									"efi":    st.ckEfi.Checked(),
+									"rebar":  st.ckRebar.Checked(),
 									"task":   st.ckTask.Checked(),
 									"fast":   st.ckFast.Checked(),
 									"aspm":   st.ckAspm.Checked(),
@@ -810,11 +823,12 @@ func (st *guiState) installSelected(sel map[string]bool) {
 	defer st.sync(func() { st.pbInstall.SetEnabled(true) })
 	nameOf := map[string]string{
 		"gsp": tr("Enable GSP", "Включить GSP", "GSP 启用"), "drv": tr("Gen2 driver deployment", "Развёртывание драйверов Gen2", "Gen2 驱动部署"), "efi": tr("Compute EFI + boot entry", "Compute EFI + запись загрузки", "算力 EFI + 启动项"),
+		"rebar": tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)"),
 		"task": tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"), "fast": tr("Disable Fast Startup", "Откл. быстрый запуск", "关闭快速启动"), "aspm": tr("Disable ASPM", "Откл. ASPM", "关闭 ASPM"),
 		"perf": tr("High-performance power plan", "План электропитания высокой производительности", "高性能电源计划"), "defoff": tr("Disable Defender real-time protection", "Откл. защиту Defender в реальном времени", "关闭 Defender 实时防护"),
 	}
 	var parts []string
-	for _, k := range []string{"gsp", "drv", "efi", "task", "fast", "aspm", "perf", "defoff"} {
+	for _, k := range []string{"gsp", "drv", "efi", "rebar", "task", "fast", "aspm", "perf", "defoff"} {
 		if sel[k] {
 			parts = append(parts, nameOf[k])
 		}
@@ -844,6 +858,10 @@ func (st *guiState) installSelected(sel map[string]bool) {
 	if sel["efi"] {
 		fmt.Println(tr("──── Compute EFI deployment + firmware boot entry (dual-path write + pin to top) ────", "──── Развёртывание compute EFI + запись загрузки прошивки (двойная запись + закрепление сверху) ────", "──── 算力 EFI 部署 + 固件启动项 (双路写入 + 置顶) ────"))
 		installEFI()
+	}
+	if sel["rebar"] {
+		fmt.Println(tr("──── ReBar Unlock (ensure the boot entry lets the EFI resize BAR1 to 8 GB) ────", "──── Разблокировка ReBar (запись загрузки разрешает EFI увеличить BAR1 до 8 ГБ) ────", "──── ReBar 解锁 (确保启动项允许 EFI 把 BAR1 放大到 8 GB) ────"))
+		applyRebarLoadOption(true)
 	}
 	if sel["task"] {
 		fmt.Println(tr("──── Gen2 login auto-start (SYSTEM task + Run-key fallback) ────", "──── Автозапуск Gen2 при входе (задача SYSTEM + резервный ключ Run) ────", "──── Gen2 登录自启 (SYSTEM 任务 + Run 键兜底) ────"))

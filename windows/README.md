@@ -70,13 +70,110 @@ Use a UEFI/GPT installation and keep a Windows installer USB or another boot
 entry available for recovery. In firmware setup:
 
 1. Enable **Above 4G Decoding**.
-2. Disable **Secure Boot** and **CSM**.
+2. Disable **Secure Boot** and **CSM**. Secure Boot can stay on if you sign the
+   EFI application with your own key — see [Secure Boot](#secure-boot).
 3. Disable **Fast Boot** while testing.
 4. Prefer the CPU-connected PCIe x16 slot for the CMP 40HX.
 5. Leave Resizable BAR on Auto or Enabled when available.
 
 The installer checks the boot mode and reports when an MBR/Legacy conversion
 is required. Do not flash the VBIOS as part of this project.
+
+## Secure Boot
+
+`40HXUNLK.EFI` is registered as a **firmware boot entry**, so the firmware
+itself validates it against the platform's signature database (`db`) before
+executing it. No shim is involved, which means **MOK enrollment does not apply
+here** — `mokutil`/`MokManager` only matter when the firmware loads shim and
+shim loads the next stage. The key has to be in `db`.
+
+The shipped `40HXUNLK.EFI` is deliberately **unsigned**. A signature is bound to
+one person's private key, so signing it upstream would break the reproducible
+build (the SHA-256 in `SHA256SUMS.txt` could no longer be reproduced from
+source) and would be unverifiable for everyone else anyway. So there are two
+supported configurations:
+
+| | Secure Boot | EFI |
+| --- | --- | --- |
+| Default | off | shipped, unsigned |
+| Coexistence | on | signed by you, your key enrolled in `db` |
+
+With Secure Boot on and an unsigned EFI, most firmware silently skips the entry:
+Windows boots normally, the unlock never runs, and nothing reports an error.
+`40HXCheck.exe` names this case explicitly instead of reporting a plain
+"not unlocked" — see [Verify the Unlock](#verify-the-unlock).
+
+### Signing the EFI with your own key
+
+On Linux, with [`sbctl`](https://github.com/Foxboron/sbctl):
+
+```bash
+sudo sbctl create-keys                       # once, if you have no keys yet
+sudo sbctl enroll-keys --microsoft           # once — see the warning below
+cd windows/tools/unlock40x
+./build_v70.sh                               # reproducible, unsigned
+sudo ./sign_efi.sh                           # -> 40HXUNLK.signed.efi
+```
+
+`sign_efi.sh` never overwrites the unsigned build, refuses an already-signed
+input, verifies that the output really carries a certificate table, and prints
+the signer's subject so you can confirm it is your key. It works with `sbsign`
+too if `sbctl` is not installed (`SBSIGN=`, `KEY=`, `CERT=`).
+
+> **`--microsoft` is not optional in practice.** Enrolling your keys without
+> the Microsoft certificates removes them from `db`, which stops Windows' own
+> boot manager — and on many boards the discrete GPU's option ROM — from
+> validating. Keep them unless you know exactly why you don't want them.
+
+On Windows you can sign with the SDK's `signtool` instead, using the same key
+pair exported as a PFX:
+
+```bat
+signtool sign /f db.pfx /fd sha256 /p <password> 40HXUNLK.signed.efi
+```
+
+Then install with the signed image:
+
+```text
+40HXInstaller.exe -efi C:\path\to\40HXUNLK.signed.efi
+```
+
+A file named `40HXUNLK.signed.efi` placed next to `40HXInstaller.exe` is picked
+up automatically, including when the GUI is used. The installer prints which
+image it deployed, its SHA-256, and its signature state; a signed image's hash
+intentionally differs from the one in `SHA256SUMS.txt`, because the signature is
+part of the file. Keep signed copies local — `.gitignore` excludes
+`*.signed.efi` for that reason.
+
+Note that the installer also writes the same image to the standard fallback path
+`\EFI\Boot\bootx64.efi` (backing up the original as `bootx64.efi.40hx.bak`), so
+an unsigned image breaks that path under Secure Boot as well. The uninstaller
+restores the backup.
+
+### Firmware quirks worth knowing
+
+- `sbctl status` reports known firmware quirks. **FQ0001 — "Defaults to
+  executing on Secure Boot policy violation"** means the board runs a binary
+  that fails validation instead of refusing it. If your firmware has this quirk,
+  an unsigned EFI may appear to work with Secure Boot on. Do not rely on it:
+  it is a firmware bug, it can be fixed by a BIOS update, and it also means
+  Secure Boot is not protecting you.
+- Setup Mode must be enabled in firmware setup before `sbctl enroll-keys` can
+  write `PK`/`KEK`/`db`.
+- Some boards clear custom keys on a CMOS reset. After one, re-enroll before
+  expecting the signed entry to boot.
+
+### Confirming it works
+
+Reboot with Secure Boot enabled, then from Windows:
+
+```text
+40HXCheck.exe -json
+```
+
+`firmware.unlock_efi_state` must read `"signed"`, and `verdict.status` must not
+be `"secure_boot_blocks_unsigned_efi"`. `firmware.unlock_efi_signer` shows the
+certificate's Common Name, which should be the key you enrolled.
 
 ## Installation
 
@@ -109,6 +206,7 @@ selection applies to the GUI and translated legacy log messages.
 40HXInstaller.exe -gen2 -hard  # allow the Link Disable fallback
 40HXInstaller.exe -status      # print the current status
 40HXInstaller.exe -uninstall   # uninstall the components
+40HXInstaller.exe -efi <path>  # deploy your own signed EFI (see Secure Boot)
 ```
 
 The default Gen2 strategy is use-and-remove. The optional retry and resident
@@ -130,7 +228,10 @@ shows:
 
 - compute selectors `SS0=0x88888888` and `SS1=0x00000008`;
 - a Gen2 target/link result when the platform completed retraining;
-- GSP and ReBAR status without Code 43.
+- GSP and ReBAR status without Code 43;
+- an `Unlock EFI:` line reporting whether the image deployed on the ESP is
+  signed, and by which certificate. With Secure Boot on and an unsigned image,
+  the verdict says so directly rather than reporting a generic "not unlocked".
 
 The diagnostic bundle is collected under
 `%LOCALAPPDATA%\40HXUnlock\logs\`. The EFI application writes
@@ -150,24 +251,28 @@ entry with the normal Microsoft recovery tools.
 recovery procedure, and `release-files/make_usb_efi.bat` prepares a FAT32 USB
 for a one-time EFI launch.
 
-## Limine (Experimental)
+## Returning to a boot manager (grub / Limine / rEFInd)
 
 The normal EFI build chainloads Windows directly so firmware does not perform a
-second POST and clear the volatile unlock. An experimental build can return to
-the parent EFI boot manager, which is useful for a Limine menu:
+second POST and clear the volatile unlock. If you boot through your own EFI boot
+manager instead (grub, Limine, rEFInd, …), add the `--return-to-bootloader` load
+option to the entry that launches `40HXUNLK.EFI`. The application then applies
+the unlock (and the ReBAR resize) and returns `EFI_SUCCESS` to the parent boot
+manager instead of chainloading Windows itself, so your menu resumes normally.
 
-```bash
-cd tools/unlock40x
-NO_AUTO_CHAINLOAD=1 \
-  EFI_OUT=unlock40x_limine.efi \
-  OBJ=unlock40x_limine.o \
-  OUT=unlock40x_limine.so \
-  ./build_v70.sh
+```
+# example Limine entry (limine.conf)
+/40HX Unlock
+    protocol: efi
+    path: boot():/EFI/40HX/40HXUNLK.EFI
+    cmdline: --return-to-bootloader
 ```
 
-Test this mode on the target board before replacing the normal release EFI.
-If the boot manager performs a reset after the application returns, the unlock
-state is lost.
+`--return-to-grub` and `--return-to-limine` are accepted as aliases. This
+replaces the old experimental `NO_AUTO_CHAINLOAD` build — no separate EFI binary
+is needed; the single shipped `40HXUNLK.EFI` honours the load option at runtime.
+Note the unlock is still volatile: if the boot manager triggers a warm reset
+after the application returns, the unlock state is lost.
 
 ## Source Layout
 
@@ -178,6 +283,7 @@ state is lost.
 | `tools/uninstall40x` | Component-level uninstaller |
 | `tools/40hxcore` | Shared Windows operations and Gen2 logic |
 | `tools/unlock40x` | EFI source, embedded firmware blobs, and build script |
+| `tools/unlock40x/sign_efi.sh` | Signs the built EFI with your own Secure Boot key |
 | `tools/winres_gen` | Generator for the installer's Windows resource object |
 | `tools/build_release.bat` | Packages `release-fork/` with a SHA-256 manifest |
 | `tools/verify_source.ps1` | Checks that expected source inputs are present |
@@ -203,6 +309,10 @@ the tree is complete:
 ```bash
 cd tools/inst40hx
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H=windowsgui -s -w" -o 40HXInstaller.exe .
+cd ../uninstall40x
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H=windowsgui -s -w" -o 40HXUninstaller.exe .
+cd ../check40x
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H=windowsgui -s -w" -o 40HXCheck.exe .
 ```
 
 `tools/inst40hx` embeds `embed/40HXUNLK.EFI`, `embed/ThrottleStop.sys`, and
@@ -221,9 +331,10 @@ files and the resulting `unlock40x_v70.efi` are build outputs and are not
 tracked; the authoritative copy of the built EFI is
 `tools/inst40hx/embed/40HXUNLK.EFI`.
 
-The normal build chainloads Windows after the unlock. `NO_AUTO_CHAINLOAD=1`
-builds the experimental variant that returns to a parent EFI boot manager such
-as Limine. The optional VBIOS capture is disabled in the normal build; enable
+The normal build chainloads Windows after the unlock; add the
+`--return-to-bootloader` load option instead to hand control back to a parent
+EFI boot manager (see *Returning to a boot manager* above) — no separate build
+is required. The optional VBIOS capture is disabled in the normal build; enable
 it with `VBIOS_DUMP=1`. The host-side `FEAT_OVR` write probe is diagnostic only
 and is disabled by default; enable it explicitly with `DIRECT_WRITE_PROBE=1`
 when testing a board that is known to tolerate those MMIO transactions.

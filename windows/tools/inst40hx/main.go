@@ -1,4 +1,4 @@
-// 40HX 一键安装工具 v2.0.0 (CMP 40HX Windows Unlock Installer)
+// 40HX 一键安装工具 v2.0.1 (CMP 40HX Windows Unlock Installer)
 // 功能:
 //
 //	(默认) 安装: GSP 启用(EnableGpuFirmware=1) + ESP 双路部署 40HXUNLK.EFI (V70)
@@ -44,6 +44,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"embed"
 	"errors"
 	"fmt"
@@ -87,12 +88,19 @@ const (
 	gen2TaskName = "40HX PCIe Gen2 Bring-up"
 	// v2.6.0: Gen2 失败后的自动重试任务(一次性, 成功即删, 卸载链按名清理)
 	gen2RetryTask = "40HXGen2Retry"
+	// v3.1: Secure Boot 共存 — 用户用自己的 db 密钥签名后的 EFI 从哪来。
+	// efiPayloadFlag 是显式指定; signedSidecarName 是放在安装器旁边即可自动识别的
+	// 文件名(与 windows/tools/unlock40x/sign_efi.sh 的默认输出同名)。
+	efiPayloadFlag    = "-efi"
+	signedSidecarName = "40HXUNLK.signed.efi"
 )
 
 func main() {
 	initLanguage()
 	// GUI 无窗口版(v1.1): 输出全部镜像到日志(默认 %TEMP%\40HX_installer.log, 可 -log 指定)
 	setupLog("40HX_installer.log")
+	// -efi 的路径要在任何提权/转发之前定死为绝对路径(见 normalizeEFIArg)。
+	normalizeEFIArg()
 	// v2.6.0: 双击(无参数)或 UAC 提权重启(-elevated)默认进入 GUI 管理界面;
 	// 命令行参数(-gen2/-task/-uninstall/-status/-silent/-hard)语义保持不变。
 	if len(os.Args) <= 1 || (len(os.Args) == 2 && os.Args[1] == "-elevated") {
@@ -142,6 +150,13 @@ func main() {
 			// 仅注册 Gen2 登录自启任务(供 -task 模式调用;
 			// 由 Go 构造 /TR 引号, 避免 bat 内嵌引号解析出错/闪退)
 			regTaskOnly()
+			return
+		case "-rebar":
+			// ReBAR 令牌开关(需管理员写 bcdedit loadoptions)。清除 norebar = 开。
+			applyRebarLoadOption(true)
+			return
+		case "-norebar":
+			applyRebarLoadOption(false)
 			return
 		case "-h", "-help", "--help":
 			printHelp()
@@ -315,6 +330,10 @@ func printHelp() {
 	fmt.Println(tr("          40HXInstaller.exe -uninstall # uninstall", "          40HXInstaller.exe -uninstall # удалить", "       40HXInstaller.exe -uninstall # 卸载"))
 	fmt.Println(tr("          40HXInstaller.exe -status    # show status", "          40HXInstaller.exe -status    # показать состояние", "       40HXInstaller.exe -status    # 状态"))
 	fmt.Println(tr("          40HXInstaller.exe -lang en|ru|zh # select language", "          40HXInstaller.exe -lang en|ru|zh # выбрать язык", "       40HXInstaller.exe -lang en|ru|zh # 选择语言"))
+	fmt.Println(tr("          40HXInstaller.exe -rebar      # enable ReBAR (8 GB BAR1) on the boot entry", "          40HXInstaller.exe -rebar      # включить ReBAR (BAR1 8 ГБ) в записи загрузки", "       40HXInstaller.exe -rebar      # 在启动项启用 ReBAR (8 GB BAR1)"))
+	fmt.Println(tr("          40HXInstaller.exe -norebar    # disable ReBAR (skip the BAR1 resize)", "          40HXInstaller.exe -norebar    # отключить ReBAR (пропустить увеличение BAR1)", "       40HXInstaller.exe -norebar    # 关闭 ReBAR (跳过 BAR1 放大)"))
+	fmt.Println(tr("          40HXInstaller.exe -efi <path> # deploy your own signed 40HXUNLK.EFI (Secure Boot; see README)", "          40HXInstaller.exe -efi <путь> # установить собственный подписанный 40HXUNLK.EFI (Secure Boot; см. README)", "       40HXInstaller.exe -efi <路径> # 部署自己签名的 40HXUNLK.EFI (Secure Boot; 见 README)"))
+	fmt.Println(tr("            (a 40HXUNLK.signed.efi next to the installer is picked up automatically)", "            (файл 40HXUNLK.signed.efi рядом с установщиком подхватывается автоматически)", "            (安装器同目录的 40HXUNLK.signed.efi 会自动被采用)"))
 }
 
 // ===================== 底层 =====================
@@ -431,19 +450,82 @@ func copyEmbedTo(target string, src string) error {
 //
 //	bootx64.efi.40hx.bak (卸载时恢复)。已部署过(.bak 已存在)则直接覆盖。
 //
+// resolveEFIPayload 决定要部署到 ESP 的 EFI 字节, 优先级从高到低:
+//
+//	① -efi <path>                       显式指定 — 用户明确表达了意图
+//	② 安装器同目录的 40HXUNLK.signed.efi  — 签完名放在旁边即可, GUI 双击也走这条
+//	③ 内嵌副本(默认, 未签名)
+//
+// 为什么需要 ①②: 开了 Secure Boot 的固件不会执行未签名的内嵌副本。用户用自己的
+// db 密钥签过之后(见 windows/tools/unlock40x/sign_efi.sh), 字节就与发布包里的不同,
+// SHA256SUMS.txt 也不再对得上 —— 所以这条路必须显式, 并且要把来源和签名状态打印
+// 出来, 否则用户分不清自己实际装进去的是哪一个。
+//
+// 显式指定读不到时绝不静默回退到内嵌副本: 那会让用户以为装的是签名版, 而重启后
+// 固件静默拒绝执行, 排查代价极高。
+func resolveEFIPayload() (data []byte, source string, err error) {
+	if i := argIndex(efiPayloadFlag); i >= 0 {
+		if i+1 >= len(os.Args) {
+			return nil, "", errors.New(tr("-efi requires a path to a signed 40HXUNLK.EFI", "-efi требует путь к подписанному 40HXUNLK.EFI", "-efi 需要给出已签名 40HXUNLK.EFI 的路径"))
+		}
+		p := os.Args[i+1]
+		d, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return nil, "", fmt.Errorf(tr("cannot read the EFI given with -efi (%s): %v", "не удалось прочитать EFI, указанный через -efi (%s): %v", "无法读取 -efi 指定的 EFI (%s): %v"), p, rerr)
+		}
+		return d, p, nil
+	}
+	if exe, eerr := os.Executable(); eerr == nil {
+		p := filepath.Join(filepath.Dir(exe), signedSidecarName)
+		if d, rerr := os.ReadFile(p); rerr == nil {
+			return d, p, nil
+		}
+	}
+	d, rerr := embedded.ReadFile("embed/" + efiFile)
+	if rerr != nil {
+		return nil, "", rerr
+	}
+	return d, tr("embedded copy (unsigned)", "встроенная копия (без подписи)", "内嵌副本(未签名)"), nil
+}
+
+// normalizeEFIArg 把 -efi 的路径在提权之前转成绝对路径。
+// UAC 重启后的新进程工作目录通常是 %SystemRoot%\system32, 相对路径在那里解析不到;
+// selfElevate 会原样转发 os.Args, 所以必须在这里就地改写。
+func normalizeEFIArg() {
+	i := argIndex(efiPayloadFlag)
+	if i < 0 || i+1 >= len(os.Args) {
+		return
+	}
+	if abs, err := filepath.Abs(os.Args[i+1]); err == nil {
+		os.Args[i+1] = abs
+	}
+}
+
 // 返回 fallback 是否新备份了原文件。
 func deployEspEfi(esp string) (backedUp bool, err error) {
-	// 读取 embed 一次, 两个路径共用
-	data, rerr := embedded.ReadFile("embed/40HXUNLK.EFI")
+	// 读取一次, 两个路径共用
+	data, source, rerr := resolveEFIPayload()
 	if rerr != nil {
 		return false, rerr
 	}
-	// 写盘前校验 embed 数据本身完整 (PE 头 + 长度合理, 防 embed 损坏)
+	// 写盘前校验数据本身完整 (PE 头 + 长度合理, 防 embed 损坏或用户给错文件)
 	if len(data) < 0x2000 { // < 8KB 的 EFI 文件必为损坏
-		return false, fmt.Errorf(tr("embedded 40HXUNLK.EFI data is abnormal (%d bytes)", "данные встроенного 40HXUNLK.EFI повреждены (%d байт)", "内嵌 40HXUNLK.EFI 数据异常 (%d bytes)"), len(data))
+		return false, fmt.Errorf(tr("the EFI payload from %s is abnormal (%d bytes)", "образ EFI из %s повреждён (%d байт)", "来自 %s 的 EFI 数据异常 (%d bytes)"), source, len(data))
 	}
 	if !bytes.HasPrefix(data, []byte("MZ")) {
-		return false, errors.New(tr("embedded 40HXUNLK.EFI is not a valid PE image (missing MZ header)", "встроенный 40HXUNLK.EFI не является корректным образом PE (нет заголовка MZ)", "内嵌 40HXUNLK.EFI 不是有效 PE 镜像(缺 MZ 头)"))
+		return false, fmt.Errorf(tr("the EFI payload from %s is not a valid PE image (missing MZ header)", "образ EFI из %s не является корректным PE (нет заголовка MZ)", "来自 %s 的 EFI 不是有效 PE 镜像(缺 MZ 头)"), source)
+	}
+	// 打印来源 + 哈希 + 签名状态: 开了 Secure Boot 时, 这三行是唯一能解释
+	// "为什么重启后解锁没跑"的信息。哈希也让用户能与 sign_efi.sh 的输出对上。
+	fmt.Printf(tr("    payload: %s\n", "    образ: %s\n", "    使用的 EFI: %s\n"), source)
+	fmt.Printf("    sha256: %x\n", sha256.Sum256(data))
+	if sig, perr := hxcore.ReadPESignature(data); perr == nil {
+		fmt.Printf("    %s\n", hxcore.FormatSignatureState(sig))
+		if !sig.Present && hxcore.SecureBootOn() {
+			fmt.Println(tr("    WARNING: Secure Boot is enabled and this image is unsigned — the firmware will silently refuse to run it. Sign it with your own db key or turn Secure Boot off (see README, section Secure Boot).",
+				"    ВНИМАНИЕ: Secure Boot включён, а образ без подписи — прошивка молча откажется его запускать. Подпишите его своим ключом db или отключите Secure Boot (см. README, раздел Secure Boot).",
+				"    警告: Secure Boot 已开启而该镜像未签名 — 固件会静默拒绝执行。请用自己的 db 密钥签名, 或关闭 Secure Boot (见 README 的 Secure Boot 一节)。"))
+		}
 	}
 
 	// A. 主路径
@@ -853,6 +935,12 @@ func install() {
 	// 5+6. EFI 部署与启动项 (v2.6.0: 抽取为 installEFI, GUI 按组件复用)
 	fmt.Println(tr("[5/8]+[6/8] Deploying the unlock EFI and firmware boot entry (dual-path write + displayorder on top)...", "[5/8]+[6/8] Развёртывание разблокировочного EFI и записи загрузки прошивки (запись по двум путям + displayorder первым)...", "[5/8]+[6/8] 部署解锁 EFI 与固件启动项(双路写入 + displayorder 置顶)..."))
 	efiOK := installEFI()
+	if efiOK {
+		// ReBAR: the unlock EFI resizes BAR1 to 8 GiB at boot by default. Clear
+		// any stale "norebar" token so a full install always enables it; check
+		// afterwards with 40HXCheck.exe (NVIDIA APP/Control Panel never show it).
+		applyRebarLoadOption(true)
+	}
 
 	// 7. Gen2 自启动(安装时不 retrain!)
 	// 重要: 安装过程中绝不执行 Gen2 PCIe 重训。此时 nvlddmkm 正占用 GPU,
@@ -1114,6 +1202,56 @@ func setupBootEntry() error {
 	}
 	fmt.Printf(tr("    Boot entry %s moved to the top\n", "    Запись загрузки %s перемещена наверх\n", "    启动项 %s 已置顶\n"), guid)
 	return nil
+}
+
+// find40HXBootGUID: 从 bcdedit /enum firmware 输出里定位 "40HX Unlock" 启动项的
+// GUID。按空行分块, 命中 bootDesc 的块里抽 {guid}(中文系统标签乱码但 GUID 为 ASCII)。
+func find40HXBootGUID() string {
+	out, err := hxcore.RunOut("bcdedit.exe", "/enum", "firmware")
+	if err != nil {
+		return ""
+	}
+	re := regexp.MustCompile(`\{([0-9a-fA-F-]{36})\}`)
+	for _, blk := range regexp.MustCompile(`\r?\n\r?\n`).Split(out, -1) {
+		if strings.Contains(blk, bootDesc) {
+			if m := re.FindStringSubmatch(blk); len(m) >= 2 {
+				return m[1]
+			}
+		}
+	}
+	return ""
+}
+
+// applyRebarLoadOption: ReBAR 令牌开关 — 通过 40HX 启动项的 loadoptions 传给解锁 EFI。
+//
+//	enable=true  → 删除任何 "norebar"(ReBAR 开, 即 EFI 默认); 幂等。
+//	enable=false → 写 loadoptions "norebar"(EFI 跳过 8 GiB BAR1 放大)。
+//
+// EFI 默认(无令牌)= 开, 所以即使固件忽略 loadoptions, "开"也不会退化到关 —
+// 启用永不产生回退。生效后用 40HXCheck.exe 验证(NVIDIA APP/控制面板不显示 ReBAR)。
+func applyRebarLoadOption(enable bool) {
+	guid := find40HXBootGUID()
+	if guid == "" {
+		fmt.Println(tr("  [ReBAR] no '40HX Unlock' boot entry found — deploy the compute EFI first (ReBAR is applied at boot by that EFI)",
+			"  [ReBAR] запись загрузки '40HX Unlock' не найдена — сначала разверните compute EFI (ReBAR применяется этим EFI при загрузке)",
+			"  [ReBAR] 未找到 '40HX Unlock' 启动项 — 请先部署算力 EFI(ReBAR 由该 EFI 开机时施加)"))
+		return
+	}
+	if enable {
+		// 删除可能存在的 norebar; 无令牌时 bcdedit 返回非零属正常, 不报错。
+		hxcore.RunOut("bcdedit.exe", "/deletevalue", "{"+guid+"}", "loadoptions")
+		fmt.Println(tr("  [ReBAR] enabled — 'norebar' cleared from the boot entry; the unlock EFI resizes BAR1 to 8 GB at boot. Verify with 40HXCheck.exe.",
+			"  [ReBAR] включён — 'norebar' удалён из записи загрузки; разблокировочный EFI увеличит BAR1 до 8 ГБ при загрузке. Проверьте через 40HXCheck.exe.",
+			"  [ReBAR] 已启用 — 已从启动项清除 'norebar'; 解锁 EFI 会在开机时把 BAR1 放大到 8 GB。用 40HXCheck.exe 验证。"))
+		return
+	}
+	if _, err := hxcore.RunOut("bcdedit.exe", "/set", "{"+guid+"}", "loadoptions", "norebar"); err != nil {
+		fmt.Println(tr("  [ReBAR] failed to set 'norebar': ", "  [ReBAR] не удалось установить 'norebar': ", "  [ReBAR] 设置 'norebar' 失败: "), err)
+		return
+	}
+	fmt.Println(tr("  [ReBAR] disabled — 'norebar' set on the boot entry; the EFI will skip the BAR1 resize (compute unlock is unaffected).",
+		"  [ReBAR] отключён — 'norebar' установлен в записи загрузки; EFI пропустит увеличение BAR1 (разблокировка вычислений не затрагивается).",
+		"  [ReBAR] 已禁用 — 启动项已写入 'norebar'; EFI 将跳过 BAR1 放大(不影响算力解锁)。"))
 }
 
 func setRunKey() {

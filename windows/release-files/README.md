@@ -59,7 +59,8 @@ are collected under `%LOCALAPPDATA%\40HXUnlock\logs\`.
 If Gen2 is not reached, run `40HXInstaller.exe -gen2` or use the GUI's Gen2
 controls. `-gen2 -hard` enables the optional Link Disable fallback.
 
-For full BIOS, recovery, Limine, build, and limitation documentation, see the
+For full BIOS, recovery, boot-manager handoff, build, and limitation
+documentation, see the
 [repository README](../../README.md).
 
 PCIe Gen3 and RT-core unlocks are research-only and are not guaranteed by this

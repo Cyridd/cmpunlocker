@@ -17,11 +17,14 @@ those binaries are reproducible from the v3.0 source.
 2. UAC elevation preserves arguments correctly. Paths containing spaces,
    quotes, or trailing backslashes are encoded with the Windows command-line
    rules instead of being concatenated with `strings.Join`.
-3. The EFI build has an opt-in `NO_AUTO_CHAINLOAD=1` mode. The normal build
-   keeps the proven behaviour of chainloading Windows after unlock. The
-   experimental mode returns to the parent EFI boot manager, which can be
-   useful when launching the application as a Limine entry. It is not included
-   in the default embedded release EFI and must be tested on the target board.
+3. The shipped EFI honours a `--return-to-bootloader` load option at runtime.
+   The normal path chainloads Windows after unlock; when the boot entry carries
+   `--return-to-bootloader` (aliases `--return-to-grub` / `--return-to-limine`)
+   the application applies the unlock and returns `EFI_SUCCESS` to the parent
+   EFI boot manager (grub/Limine/rEFInd) instead. This is a single-binary
+   runtime toggle — it replaces the earlier build-time `NO_AUTO_CHAINLOAD`
+   experiment, which was removed because it required a separate EFI image and
+   never worked reliably.
 4. A source verification script and a reproducible Windows packaging script
    are included. The package manifest records hashes so a tester can distinguish
    the EFI and Go components actually used.
@@ -31,23 +34,41 @@ those binaries are reproducible from the v3.0 source.
    geometry remain explicitly marked as legacy data rather than being relabeled
    as unverified TU106 constants.
 
-## Limine experiment
+6. `40HXCheck.exe` reports Resizable BAR (ReBAR) state directly. NVIDIA APP and
+   the NVIDIA Control Panel never show ReBAR for this card, so the checker reads
+   the XVE Resizable BAR control register (like GPU-Z) and prints whether it is
+   enabled and the current BAR1 size (8 GB when the unlock resize is in effect,
+   256 MB stock).
+7. The installer exposes ReBAR as a component. The unlock EFI resizes BAR1 to
+   8 GiB at boot by default; the installer's *ReBar Unlock* checkbox (and the
+   `-rebar` command line) ensure the boot entry has no `norebar` token, while
+   `-norebar` writes that token to opt out. Because the default (no token) is
+   "on", firmware that ignores load options keeps the previous behaviour.
+8. Secure Boot can stay enabled. `tools/unlock40x/sign_efi.sh` signs the built
+   EFI with the operator's own `db` key (`sbctl`, or `sbsign`), and the installer
+   deploys a user-supplied image via `-efi <path>` or a `40HXUNLK.signed.efi`
+   sitting next to the executable. The shipped image stays unsigned on purpose so
+   that its hash keeps reproducing from source; signing is a local step whose
+   output is gitignored. `40HXCheck.exe` reads the ESP image's Authenticode
+   certificate table directly (`tools/40hxcore/pesign.go`) and reports
+   "Secure Boot is on and the deployed EFI is unsigned" as its own verdict,
+   because that combination otherwise looks identical to a silent failure to
+   unlock. See the *Secure Boot* section of [`README.md`](README.md).
 
-From `windows/tools/unlock40x` in an MSYS2/Git Bash environment:
+## Returning to a boot manager (grub / Limine / rEFInd)
 
-```bash
-NO_AUTO_CHAINLOAD=1 \
-EFI_OUT=unlock40x_limine.efi \
-OBJ=unlock40x_limine.o \
-OUT=unlock40x_limine.so \
-./build_v70.sh
-```
+Add the `--return-to-bootloader` load option to the EFI entry that launches
+`40HXUNLK.EFI` (for example, a Limine `cmdline:` or a grub `chainloader`
+argument). The application applies the unlock and the ReBAR resize, then returns
+`EFI_SUCCESS` to the parent boot manager instead of chainloading Windows itself,
+so your menu resumes normally. `--return-to-grub` and `--return-to-limine` are
+accepted as aliases.
 
-Copy the resulting `unlock40x_limine.efi` to the ESP and add an EFI entry in
-`limine.conf`. The standard `40HXUNLK.EFI` remains the recommended path because
-it chainloads Windows without returning through firmware and triggering a new
-POST. Returning to a boot manager is experimental: if the manager performs a
-reset after the EFI application returns, the volatile unlock state is lost.
+The standard `40HXUNLK.EFI` without the option remains the recommended path
+because it chainloads Windows without returning through firmware and triggering
+a new POST. Returning to a boot manager is still subject to the volatile-unlock
+caveat: if the manager performs a reset after the EFI application returns, the
+unlock state is lost.
 
 ## Research boundaries
 

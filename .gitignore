@@ -8,3 +8,9 @@ windows/build-linux/
 windows/tools/unlock40x/*.o
 windows/tools/unlock40x/*.so
 windows/tools/unlock40x/unlock40x_v70.efi
+
+# Locally signed EFI copies (see windows/tools/unlock40x/sign_efi.sh).
+# A signature is bound to the signer's private key, so these are per-machine
+# files: committing one would break the reproducible-build hash and would be
+# unverifiable for everyone else.
+windows/tools/unlock40x/*.signed.efi

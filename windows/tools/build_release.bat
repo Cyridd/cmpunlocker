@@ -60,7 +60,7 @@ echo [4/5] Writing build metadata...
 >"%OUT%\BUILD_INFO.txt" echo Source tree: %ROOT%
 >>"%OUT%\BUILD_INFO.txt" echo Built: %DATE% %TIME%
 >>"%OUT%\BUILD_INFO.txt" echo EFI default mode: automatic Windows chainload
->>"%OUT%\BUILD_INFO.txt" echo Limine mode: compile separately with NO_AUTO_CHAINLOAD=1
+>>"%OUT%\BUILD_INFO.txt" echo Boot-manager handoff: add the --return-to-bootloader load option to the 40HX boot entry
 
 echo [5/5] Writing SHA256SUMS.txt...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$out=[IO.Path]::GetFullPath('%OUT%'); Get-ChildItem -LiteralPath $out -File -Recurse | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object FullName | ForEach-Object { $h=(Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(); $r=$_.FullName.Substring($out.Length+1); '{0}  {1}' -f $h,$r } | Set-Content -LiteralPath (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii"

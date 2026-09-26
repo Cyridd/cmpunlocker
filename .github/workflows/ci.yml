@@ -1,0 +1,194 @@
+# CI for the CMP 40HX unlock project.
+#
+# Two independent gates over the Windows/UEFI tree:
+#
+#   1. go-tools — builds every Go module, vets it, and runs the unit tests
+#      that can only execute on Windows (40hxcore imports
+#      golang.org/x/sys/windows, so the test binary is Windows-only). The
+#      matrix runs the native Windows build and the Linux cross-build that
+#      the README documents, so both supported paths stay working. A Linux
+#      cross-build is also the cheapest proof that the tree is complete:
+#      inst40hx fails to compile if any //go:embed input went missing.
+#
+#   2. efi — rebuilds unlock40x_v70.c from source inside the pinned toolchain
+#      container and compares the SHA-256 against the committed
+#      embed/40HXUNLK.EFI. The build is byte-for-byte reproducible, so a
+#      mismatch means the committed payload and its source have drifted.
+#
+# The Linux kernel-module tree at the repository root is deliberately NOT
+# built here: it needs the running kernel's headers and root privileges, so
+# install.sh verifies it on the target machine instead.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-tools:
+    name: Go tools (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native build + the unit tests (Windows-only test binary).
+          - name: windows-native
+            os: windows-latest
+            cross: '0'
+          # Cross-build from Linux, the quick completeness check.
+          - name: linux-cross
+            os: ubuntu-latest
+            cross: '1'
+    env:
+      CROSS: ${{ matrix.cross }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: windows/tools/inst40hx/go.mod
+          cache-dependency-path: windows/tools/*/go.sum
+
+      - name: Build every module
+        shell: bash
+        working-directory: windows/tools
+        run: |
+          set -euo pipefail
+          for m in 40hxcore check40x inst40hx uninstall40x winres_gen; do
+            echo "::group::build $m"
+            if [ "$CROSS" = "1" ]; then
+              CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C "$m" ./...
+            else
+              go build -C "$m" ./...
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Vet every module
+        shell: bash
+        working-directory: windows/tools
+        run: |
+          set -euo pipefail
+          for m in 40hxcore check40x inst40hx uninstall40x winres_gen; do
+            echo "::group::vet $m"
+            if [ "$CROSS" = "1" ]; then
+              GOOS=windows GOARCH=amd64 go vet -C "$m" ./...
+            else
+              go vet -C "$m" ./...
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Run unit tests
+        if: matrix.cross == '0'
+        shell: bash
+        working-directory: windows/tools/40hxcore
+        run: go test -v ./...
+
+      - name: Build the shipped executables
+        shell: bash
+        working-directory: windows/tools
+        run: |
+          set -euo pipefail
+          flags=(-trimpath -ldflags='-H=windowsgui -s -w')
+          build() { # <module> <output>
+            echo "::group::package $1 -> $2"
+            if [ "$CROSS" = "1" ]; then
+              CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C "$1" "${flags[@]}" -o "$2" .
+            else
+              go build -C "$1" "${flags[@]}" -o "$2" .
+            fi
+            ls -l "$1/$2"
+            echo "::endgroup::"
+          }
+          build inst40hx     40HXInstaller.exe
+          build uninstall40x 40HXUninstaller.exe
+          build check40x     40HXCheck.exe
+
+      # winres_gen produces a PE resource object, so it cross-generates fine
+      # on Linux. Kept on the Linux leg because the byte comparison uses
+      # `cmp`, which every Linux runner has.
+      - name: Regenerate the Windows resource object and compare
+        if: matrix.cross == '1'
+        shell: bash
+        working-directory: windows/tools/winres_gen
+        run: |
+          set -euo pipefail
+          go run . "$RUNNER_TEMP/rsrc_windows_amd64.syso"
+          if ! cmp -s "$RUNNER_TEMP/rsrc_windows_amd64.syso" \
+                     ../inst40hx/rsrc_windows_amd64.syso; then
+            echo "::error::windows/tools/inst40hx/rsrc_windows_amd64.syso is stale — regenerate it with 'go run . <path>' in windows/tools/winres_gen and commit the result"
+            exit 1
+          fi
+          echo "resource object matches the committed copy"
+
+  efi:
+    name: EFI payload reproducibility
+    runs-on: ubuntu-latest
+    env:
+      # Pinned by digest. The EFI link is sensitive to the exact toolchain:
+      # the committed payload needs gcc 16 / binutils 2.47 / gnu-efi 4.0.4
+      # and does not even build under Ubuntu's older binutils (the .rodata
+      # section disappears and build_v70.sh rejects the output). Pinning the
+      # image keeps the hash comparison meaningful; Arch is a rolling
+      # distribution, so when the digest is refreshed the hash below is
+      # expected to change too.
+      EFI_IMAGE: archlinux:base@sha256:f3691b4dde62ba4c4b6f0ae2c1fbf28e8c0c8c4b9a35c7e06dc1f70e21aa29f6
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild inside the pinned toolchain container
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/efi-out"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/windows/tools/unlock40x:/src:ro" \
+            -v "$RUNNER_TEMP/efi-out:/out" \
+            -w /src \
+            "$EFI_IMAGE" \
+            bash -lc '
+              set -euo pipefail
+              pacman -Sy --noconfirm --quiet gcc binutils make gnu-efi
+              cp -r /src /build
+              cd /build
+              VBIOS_DUMP=0 DIRECT_WRITE_PROBE=0 PRELOAD_PROBE=0 ./build_v70.sh
+              cp unlock40x_v70.efi /out/
+            '
+
+      - name: Compare with the committed embedded EFI
+        run: |
+          set -euo pipefail
+          built=$(sha256sum "$RUNNER_TEMP/efi-out/unlock40x_v70.efi" | cut -d' ' -f1)
+          committed=$(sha256sum windows/tools/inst40hx/embed/40HXUNLK.EFI | cut -d' ' -f1)
+          echo "rebuilt from source : $built"
+          echo "committed payload   : $committed"
+          if [ "$built" != "$committed" ]; then
+            echo "::error::embed/40HXUNLK.EFI does not match a fresh build of tools/unlock40x/unlock40x_v70.c. Either the source changed and the payload needs re-embedding, or the pinned toolchain digest was updated and the payload needs regenerating."
+            exit 1
+          fi
+          echo "EFI payload reproduces byte-for-byte"
+
+      - name: Upload the rebuilt EFI
+        uses: actions/upload-artifact@v4
+        with:
+          name: unlock40x_v70.efi
+          path: ${{ runner.temp }}/efi-out/unlock40x_v70.efi
+          if-no-files-found: error
+          retention-days: 14

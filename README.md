@@ -40,9 +40,10 @@ UEFI unlock is in turn built on the Windows CMP90HX codebase from
 while its CMP40HX-specific boot flow, register state, and cleanup logic
 substantially build on the CMP40HX research and implementation published in
 this repository. Changes made in this fork — hardware-bound GSP matching,
-correct Windows command-line quoting under UAC elevation, the opt-in
-`NO_AUTO_CHAINLOAD=1` EFI mode, the 8 GiB ReBAR path, and a reproducible
-packaging/verification flow — are documented in
+correct Windows command-line quoting under UAC elevation, the runtime
+`--return-to-bootloader` EFI handoff, the 8 GiB ReBAR path with a GPU-Z-style
+ReBAR readout in the checker, and a reproducible packaging/verification flow —
+are documented in
 [`windows/FORK_CHANGES.md`](windows/FORK_CHANGES.md). See
 [Licensing](#licensing) for the third-party components it redistributes.
 
@@ -428,7 +429,7 @@ sudo ./install.sh --no-download
 | Path | Description |
 |---|---|
 | `windows/README.md` | Windows user guide: prerequisites, installation, verification, recovery |
-| `windows/FORK_CHANGES.md` | Fork-specific changes, the Limine experiment, and research boundaries |
+| `windows/FORK_CHANGES.md` | Fork-specific changes, the boot-manager handoff, and research boundaries |
 | `windows/tools/unlock40x/` | UEFI unlock application source, firmware blobs, and `build_v70.sh` |
 | `windows/tools/inst40hx/` | Installer GUI/CLI (`40HXInstaller.exe`) and its embedded EFI/drivers |
 | `windows/tools/check40x/` | Status and diagnostic utility (`40HXCheck.exe`) |

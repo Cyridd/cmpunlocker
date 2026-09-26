@@ -1,4 +1,4 @@
-// 40HXCheck — CMP 40HX 解锁独立诊断工具 v2.0.0
+// 40HXCheck — CMP 40HX 解锁独立诊断工具 v2.0.1
 //
 // 双击即诊, 只读为主; v2.5 起若发现"算力/Gen2 无法实测(驱动未运行)"且驱动文件
 // 在包内, 会临时拉起 ThrottleStop + WinRing0 实测后自清理(用完即卸, 保持无痕):
@@ -353,6 +353,17 @@ func spdName(s uint32) string {
 	return names[s]
 }
 
+// rebarSizeStr: BAR1 大小 (MiB) → 友好显示 ("8 GB" / "256 MB")。0 = 未读到。
+func rebarSizeStr(mb uint32) string {
+	if mb == 0 {
+		return "?"
+	}
+	if mb >= 1024 && mb%1024 == 0 {
+		return fmt.Sprintf("%d GB", mb/1024)
+	}
+	return fmt.Sprintf("%d MB", mb)
+}
+
 // rawPcieDump: 原始 PCIe 链路寄存器 + BAR0 BOOT_0 (Gen2 定位核心证据)
 func rawPcieDump() string {
 	wh, err := hxcore.OpenDevice(`\\.\WinRing0_1_2_0`)
@@ -400,6 +411,16 @@ func rawPcieDump() string {
 				sb.WriteString(fmt.Sprintf(tr("  BAR0+0x00 BOOT_0=0x%08X (family=0x%02X %s)\n", "  BAR0+0x00 BOOT_0=0x%08X (семейство=0x%02X %s)\n", "  BAR0+0x00 BOOT_0=0x%08X (家族=0x%02X %s)\n"), v, fam, tag))
 			} else {
 				sb.WriteString(fmt.Sprintf(tr("  BAR0+0x00 BOOT_0 read failed: %v\n", "  BAR0+0x00 BOOT_0 не прочитан: %v\n", "  BAR0+0x00 BOOT_0 读取失败: %v\n"), e3))
+			}
+			// XVE Resizable BAR Control (0x88bc0) — 当前 BAR1 大小与 size 编码,
+			// 与 EFI/checker 主判定同一寄存器。size 字段 bits[13:8] = log2(MiB)。
+			if rb, e4 := hxcore.TSRead(th, bar0+hxcore.XveRbarCtlOffset); e4 == nil {
+				enc := (rb >> 8) & 0x3F
+				var szMB uint32
+				if enc < 32 {
+					szMB = uint32(1) << enc
+				}
+				sb.WriteString(fmt.Sprintf(tr("  XVE ReBAR CTL=0x%08X sizeField=%d -> BAR1=%s\n", "  XVE ReBAR CTL=0x%08X поле размера=%d -> BAR1=%s\n", "  XVE ReBAR CTL=0x%08X 大小字段=%d -> BAR1=%s\n"), rb, enc, rebarSizeStr(szMB)))
 			}
 		} else {
 			sb.WriteString(tr("  (ThrottleStop unavailable, skipping BOOT_0)\n", "  (ThrottleStop недоступен, BOOT_0 пропущен)\n", "  (ThrottleStop 不可用, 跳过 BOOT_0)\n"))
@@ -513,6 +534,16 @@ func check() {
 	}
 	w(tr("  Compute  : %s\n", "  Вычисления : %s\n", "  算力     : %s\n"), comp)
 	w("  PCIe     : %s\n", spd)
+	// ReBAR (Resizable BAR) — GPU-Z 式判定。NVIDIA APP/控制面板不显示此项。
+	rebar := tr("unreadable (driver not ready)", "нечитаемо (драйвер не готов)", "不可读 (驱动未就绪)")
+	if st.RebarOK {
+		if st.RebarOn {
+			rebar = fmt.Sprintf(tr("✓ enabled (BAR1 %s)", "✓ включён (BAR1 %s)", "✓ 已启用 (BAR1 %s)"), rebarSizeStr(st.RebarSizeMB))
+		} else {
+			rebar = fmt.Sprintf(tr("✗ not enabled (BAR1 %s; stock 256 MB — ReBAR unlock not in effect)", "✗ не включён (BAR1 %s; сток 256 MB — разблокировка ReBAR не действует)", "✗ 未启用 (BAR1 %s; 原生 256 MB — ReBAR 解锁未生效)"), rebarSizeStr(st.RebarSizeMB))
+		}
+	}
+	w("  ReBAR    : %s\n", rebar)
 	w("%s\n", bar)
 
 	// --- B. 基础状态 ---
@@ -527,6 +558,11 @@ func check() {
 		map[bool]string{true: tr("on (must disable!)", "вкл (нужно отключить!)", "开启(需关闭!)"), false: tr("off (OK)", "выкл (OK)", "关闭(OK)")}[sbOn], gspTxt)
 	w(tr("Test signing: %s  (not needed since v2.5, recommend disabling)\n", "Тестовая подпись: %s  (не нужна с v2.5, рекомендуется отключить)\n", "测试签名: %s  (v2.5 不需要, 建议关闭)\n"),
 		map[bool]string{true: tr("on", "вкл", "已开启"), false: tr("off", "выкл", "关闭")}[tsOn])
+	// v3.1: Secure Boot 共存 —— 解锁 EFI 是否带签名, 决定了 Secure Boot 能不能开着用。
+	// 未签名的 EFI 在 Secure Boot 下固件会直接拒绝执行, 这是"装完重启没解锁"的
+	// 常见原因之一; 带签名(且密钥已登记进 db)的则可以共存。这里如实报实测结果。
+	efi := collectEFIFacts()
+	w(tr("Unlock EFI: %s\n", "Разблокировочный EFI: %s\n", "解锁 EFI: %s\n"), efi.Line)
 	// v2.6.0: 引导模式 + 电源设置 — Legacy/MBR、快速启动、ASPM 是三类高频根因
 	// (分别对应"EFI 装不上"/"关机再开 EFI 没跑"/"空闲 Gen1 误报失败")
 	bootMode := "UEFI (OK)"
@@ -643,7 +679,9 @@ func check() {
 		tips = append(tips, tr("· 40HX not detected: make sure the card is seated and its driver is installed", "· 40HX не обнаружена: убедитесь, что карта вставлена и драйвер установлен", "· 未检测到 40HX: 确认显卡已插且驱动已装"))
 	}
 	if sbOn {
-		tips = append(tips, tr("· Secure Boot is on: disable it in BIOS (otherwise the unlock EFI is rejected)", "· Secure Boot включен: отключите в BIOS (иначе разблокировочный EFI отклоняется)", "· Secure Boot 开启: 进 BIOS 关闭 (否则解锁 EFI 被拒)"))
+		tips = append(tips, tr("· Secure Boot is on: the firmware only runs the unlock EFI if it is signed by a key enrolled in db.\n  If the EFI above shows 'unsigned', disable Secure Boot in BIOS — or sign the EFI with your own key and enroll it (see README §Secure Boot).",
+			"· Secure Boot включён: прошивка выполнит разблокировочный EFI, только если он подписан ключом, зарегистрированным в db.\n  Если выше указано «без подписи», отключите Secure Boot в BIOS — либо подпишите EFI своим ключом и зарегистрируйте его (см. README §Secure Boot).",
+			"· Secure Boot 开启: 固件只执行由已登记进 db 的密钥签名的解锁 EFI。\n  若上面显示『未签名』, 请进 BIOS 关闭 Secure Boot — 或用你自己的密钥签名并登记该密钥(见 README §Secure Boot)。"))
 	}
 	if tsOn {
 		tips = append(tips, tr("· Test signing is on (not needed since v2.5): disable with bcdedit /set testsigning off", "· Тестовая подпись включена (не нужна с v2.5): отключите через bcdedit /set testsigning off", "· 测试签名已开启 (v2.5 不需要): bcdedit /set testsigning off 可关闭"))
@@ -740,18 +778,65 @@ func main() {
 	// CMP40HX_LANG env / the value the installer persisted to the registry, else
 	// English. This is what makes the checker follow the installer's choice.
 	hxcore.InitLanguage(os.Args)
-	if len(os.Args) < 2 || os.Args[1] != "-elevated" {
+	// v3.1: -json prints a machine-readable report to stdout. It is still a
+	// hardware probe, so it keeps the same administrator requirement.
+	jsonMode := hasArg("-json")
+	if len(os.Args) < 2 || (os.Args[1] != "-elevated" && !hasArg("-elevated")) {
 		if !isAdmin() {
 			selfElevate()
 			return
 		}
 	}
-	// 输出镜像到统一日志目录
+	// 输出镜像到统一日志目录。JSON 模式下 stdout 必须是纯 JSON 文档,
+	// 因此只在非 JSON 模式把 stdout 重定向到日志(否则 JSON 会被写进文件而不是终端)。
 	dir := logsDir()
-	if f, err := os.Create(filepath.Join(dir, "40HXCheck.log")); err == nil {
-		os.Stdout = f
-		os.Stderr = f
-		fmt.Fprintf(f, "==== 40HXCheck %s ====\n", time.Now().Format("2006-01-02 15:04:05"))
+	if !jsonMode {
+		if f, err := os.Create(filepath.Join(dir, "40HXCheck.log")); err == nil {
+			os.Stdout = f
+			os.Stderr = f
+			fmt.Fprintf(f, "==== 40HXCheck %s ====\n", time.Now().Format("2006-01-02 15:04:05"))
+		}
+	}
+	if jsonMode {
+		runJSON()
+		return
 	}
 	check()
+}
+
+// hasArg reports whether the given switch appears anywhere in os.Args.
+func hasArg(name string) bool {
+	for _, a := range os.Args {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+// runJSON 采集与文本模式同源的状态, 输出 JSON 后按结论设置退出码。
+// 判定逻辑复用 check() 用的同一批探测器, 不重复实现。
+func runJSON() {
+	// ensureDrivers 会按需临时拉起驱动 —— 必须在读状态之前调用,
+	// 否则没有驱动可读, JSON 里所有实测项都会是"未测量"。
+	selfM, drvOK, _ := ensureDrivers()
+	st := hxcore.ReadUnlockStateV2(6, 800)
+	efi := collectEFIFacts()
+	aspm := "unknown"
+	var ac, dc uint32
+	if a, d, ok := hxcore.ASPMSavings(); ok {
+		ac, dc = a, d
+		if a == 0 && d == 0 {
+			aspm = "off"
+		} else {
+			aspm = "on"
+		}
+	}
+	// JSON 只读、不应留痕: 若驱动是本工具临时拉起的, 输出后再清理。
+	// 注意不能用 defer —— writeJSONReport 以 os.Exit 结束, defer 永远不执行。
+	code := writeJSONReport(*st, drvOK, efi, aspm, ac, dc)
+	if selfM {
+		cleanupDrivers()
+	}
+	os.Exit(code)
 }

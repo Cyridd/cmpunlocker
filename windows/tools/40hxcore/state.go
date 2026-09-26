@@ -18,6 +18,12 @@ const SS0Offset = 0x409664
 // 只影响 40HXCheck/诊断的 SS1 显示值, 不影响解锁判定 (判定只看 SS0)。
 const SS1Offset = 0x40966C
 
+// XveRbarCtlOffset: XVE 标准 PCIe Resizable BAR "Control" 寄存器 (BAR0 偏移)。
+// size 字段 bits[13:8] = log2(BAR1 当前大小 / MiB); 2^13 MiB = 8 GiB = 满显存。
+// 与 EFI 端 XVE_RBAR_CTL_OFF 同一寄存器同一编码。只读, 非破坏性。
+// NVIDIA APP / 控制面板不显示 ReBAR — 这是 GPU-Z 式直接判定的读取口。
+const XveRbarCtlOffset = 0x88bc0
+
 // UnlockState: 一次"解锁是否成功"实测快照
 type UnlockState struct {
 	BridgeOK  bool   // \\.\40hxBridge 可打开
@@ -31,6 +37,12 @@ type UnlockState struct {
 	SS1      uint32
 	SS0OK    bool // 成功读到 SS0
 	Unlocked bool // SS0 == 0x88888888
+	// ReBAR (Resizable BAR / BAR1 显存映射窗口) 实测。NVIDIA APP / 控制面板
+	// 完全不显示 ReBAR 状态 — 这里像 GPU-Z 一样读 XVE 标准 Resizable BAR
+	// Control 的 size 字段直接判定当前 BAR1 大小与是否已放大。
+	RebarOK     bool   // 成功读到 ReBAR 控制寄存器
+	RebarSizeMB uint32 // 当前 BAR1 大小 (MiB), 由 size 字段 2^N 解码 (0=未读到)
+	RebarOn     bool   // BAR1 已放大到满显存 (>=8 GiB) — 即 ReBAR 解锁生效
 }
 
 // 40HX 在 PCI 枚举里的 LocationInformation 形如 "PCI bus 1, device 0, function 0"
@@ -228,6 +240,17 @@ func ReadUnlockStateV2(retries int, delayMs int) *UnlockState {
 	}
 	if v, err := TSRead(th, bar0+SS1Offset); err == nil {
 		st.SS1 = v
+	}
+	// ReBAR 实测: 读 XVE 标准 Resizable BAR Control (BAR0+0x88bc0)。size 字段
+	// bits[13:8] = log2(MiB); 2^13 MiB = 8 GiB = 满显存放大 (解锁 EFI 的目标)。
+	// 只读, 与 EFI u40x_rebar_try 读同一寄存器同一编码 — 非破坏性。
+	if v, err := TSRead(th, bar0+XveRbarCtlOffset); err == nil {
+		enc := (v >> 8) & 0x3F
+		if enc < 32 { // 合理范围, 防移位溢出 (实测 8=256MB / 13=8GB)
+			st.RebarOK = true
+			st.RebarSizeMB = uint32(1) << enc
+			st.RebarOn = st.RebarSizeMB >= 8192 // >=8 GiB = 满显存
+		}
 	}
 	return st
 }
