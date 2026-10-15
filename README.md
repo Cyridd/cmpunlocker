@@ -20,13 +20,27 @@ None of these modifications changes the VBIOS or video memory. The compute, PCIe
 
 Measured with the independent [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) on one Windows system, NVIDIA driver `617.14`:
 
-| Before unlock | After unlock |
-|:--:|:--:|
-| ![clpeak CUDA backend, stock CMP 40HX](docs/img/clpeak-cuda-before.png) | ![clpeak CUDA backend, unlocked CMP 40HX](docs/img/clpeak-cuda-after.png) |
+<table>
+  <tr>
+    <td><b>Before unlock</b></td>
+  </tr>
+  <tr>
+    <td><a href="docs/img/clpeak-cuda-before.png"><img alt="clpeak CUDA backend, stock CMP 40HX" src="docs/img/clpeak-cuda-before.png" width="100%" style="max-width: 900px;" /></a></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td><b>After unlock</b></td>
+  </tr>
+  <tr>
+    <td><a href="docs/img/clpeak-cuda-after.png"><img alt="clpeak CUDA backend, unlocked CMP 40HX" src="docs/img/clpeak-cuda-after.png" width="100%" style="max-width: 900px;" /></a></td>
+  </tr>
+</table>
 
 > The unlock restores Tensor Core throughput (about 63x), INT8 `dp4a` (about 33x) and PCIe Gen2 (2x), plus clpeak's plain CUDA FP32/FP16 loops (about 3x). It is **not** a global FP32 lock removal: FP32 through cuBLASLt, OpenCL and Vulkan runs at about 8.3 to 9 TFLOPS before and after. Earlier versions of this README claimed a `~0.39 TFLOPS` FP32 figure; that was wrong. Details in [`docs/how-it-works.md`](docs/how-it-works.md).
 
-The full tables (including OpenCL and Vulkan), PCIe Gen2, ReBAR and pipeline measurements, and how to reproduce the screenshots are in [`docs/results.md`](docs/results.md). Windows results: [`windows/README.md`](windows/README.md#results).
+The full tables (including OpenCL and Vulkan), PCIe Gen2, ReBAR and pipeline measurements, and how to reproduce the screenshots are in [`docs/results.md`](docs/results.md).
 
 ## Quick start
 
@@ -69,6 +83,7 @@ Full list: [`docs/compatibility.md`](docs/compatibility.md).
 | [`docs/licensing.md`](docs/licensing.md) | Per-component licenses and attribution |
 | [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md) | Userspace pipeline-throttle patch usage and rollback |
 | [`docs/research/`](docs/research/README.md) | Research notes and evidence: PCIe Gen2 diagnostics, Gen3 investigation, Link Disable audit, pipeline throttle findings |
+| [`ROADMAP.md`](ROADMAP.md) | Research directions and plans |
 
 **Origin and attribution.** This tree is a fork of
 [`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock), whose

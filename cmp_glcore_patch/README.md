@@ -19,15 +19,25 @@ occurs exactly twice. It always writes a separate library and does not modify
 ## Quick start
 
 ```bash
-./build_patched_lib.sh        # argument 0 (recommended)
-./build_patched_lib.sh 1      # optional: keep one iteration instead
+./build_patched_lib.sh                                  # argument 0 (recommended), source auto-detected
+./build_patched_lib.sh 0 /path/to/libnvidia-glcore.so.610.57.04   # explicit source library
+GLCORE_SRC=/path/to/libnvidia-glcore.so.610.57.04 ./build_patched_lib.sh   # same, via environment
+./build_patched_lib.sh 1                                # optional: keep one iteration instead
 ```
 
 The helper script builds the patcher, finds the installed
 `libnvidia-glcore.so.610.57.04` (`/usr/lib`, `/usr/lib64` or
-`/usr/lib/x86_64-linux-gnu`; override with `GLCORE_SRC=/path/to/library`) and
-writes the patched copy into this directory. It does the same as the two manual
-steps below.
+`/usr/lib/x86_64-linux-gnu`) and writes the patched copy into this directory. It
+does the same as the two manual steps below. Root is not needed, because the
+source library is only read. `GLCORE_SRC` is an environment variable: set it in
+front of the command (with `sudo`, write `sudo GLCORE_SRC=... ./build_patched_lib.sh`),
+not as an argument.
+
+The source must be the **original, unmodified** library. A copy that was patched
+before, or one from another driver version, does not contain the expected command
+and is rejected with `expected exactly 2 CALL_MME_MACRO constants, found 0`; restore
+the original by reinstalling the NVIDIA userspace package and run the script again.
+The patcher also refuses to use the same file as input and output.
 
 The patched library is **not distributed with this repository**: it is a modified
 copy of NVIDIA's proprietary library, so it is always generated locally from your

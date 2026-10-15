@@ -12,9 +12,23 @@ are at the end of this page.
 not part of this project. Its CUDA backend shows, in one window, the Tensor Core
 (WMMA) and cuBLASLt rows, INT8 `dp4a`, the FP32/FP16 loops and the PCIe transfer rate.
 
-| Before unlock | After unlock |
-|:--:|:--:|
-| ![clpeak CUDA backend, stock CMP 40HX](img/clpeak-cuda-before.png) | ![clpeak CUDA backend, unlocked CMP 40HX](img/clpeak-cuda-after.png) |
+<table>
+  <tr>
+    <td><b>Before unlock</b></td>
+  </tr>
+  <tr>
+    <td><a href="img/clpeak-cuda-before.png"><img alt="clpeak CUDA backend, stock CMP 40HX" src="img/clpeak-cuda-before.png" width="100%" style="max-width: 900px;" /></a></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td><b>After unlock</b></td>
+  </tr>
+  <tr>
+    <td><a href="img/clpeak-cuda-after.png"><img alt="clpeak CUDA backend, unlocked CMP 40HX" src="img/clpeak-cuda-after.png" width="100%" style="max-width: 900px;" /></a></td>
+  </tr>
+</table>
 
 **What the unlock changes**
 

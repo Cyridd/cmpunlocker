@@ -58,10 +58,19 @@ int main(int argc, char** argv) {
             replacement[4 + i] = static_cast<uint8_t>(value >> (i * 8));
 
         auto data = readFile(argv[1]);
+        if (std::filesystem::exists(argv[2]) &&
+            std::filesystem::equivalent(argv[1], argv[2])) {
+            throw std::runtime_error(
+                "INPUT and OUTPUT are the same file; refusing to overwrite the original library");
+        }
         const auto matches = findAll(data, original);
         if (matches.size() != 2) {
-            throw std::runtime_error("expected exactly 2 CALL_MME_MACRO constants, found " +
-                                     std::to_string(matches.size()));
+            throw std::runtime_error(
+                "expected exactly 2 CALL_MME_MACRO constants, found " +
+                std::to_string(matches.size()) +
+                "; the input must be the original, unmodified libnvidia-glcore.so.610.57.04 "
+                "(a library that was already patched, or one from another driver version, "
+                "does not match)");
         }
         for (const size_t offset : matches)
             std::copy(replacement.begin(), replacement.end(), data.begin() + offset);
