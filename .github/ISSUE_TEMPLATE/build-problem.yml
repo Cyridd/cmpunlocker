@@ -15,7 +15,7 @@ body:
     attributes:
       label: Prerequisites
       options:
-        - label: I installed all packages listed in the README's Quick Start for my distro (build-essential/base-devel, matching kernel headers, bc, flex, bison, libelf-dev, libssl-dev, etc.)
+        - label: I installed all packages listed in docs/linux-install.md for my distro (build-essential/base-devel, matching kernel headers, bc, flex, bison, libelf-dev, libssl-dev, etc.)
           required: true
         - label: My installed NVIDIA userspace/firmware version is exactly 610.57.04
           required: true

@@ -60,9 +60,9 @@ body:
     id: expected_actual
     attributes:
       label: Expected vs. actual
-      description: What result did you expect (per the README's "Results" tables), and what did you actually get?
+      description: What result did you expect (per docs/results.md), and what did you actually get?
       placeholder: |
-        Expected: BAR1 size 8192 MiB (per README)
+        Expected: BAR1 size 8192 MiB (per docs/results.md)
         Actual: BAR1 still shows 64 MiB
     validations:
       required: true

@@ -14,7 +14,7 @@ applied again after a full GPU reset or power cycle.
 
 | Area | Observed result |
 | --- | --- |
-| Compute | `SS0=0x88888888`, `SS1=0x00000008`; about 50 TFLOPS FP16 on the reference card |
+| Compute | `SS0=0x88888888`, `SS1=0x00000008`; Tensor Core FP16 from about 1.1 to about 72 TFLOPS (clpeak WMMA) and INT8 `dp4a` from about 1 to about 34 TOPS on the reference card; see [`docs/results.md`](../docs/results.md) |
 | PCIe | Gen2 x16 when the platform accepts the retrain |
 | NVIDIA driver | GSP remains enabled; no Code 43 on the tested systems |
 
@@ -47,18 +47,22 @@ aperture or when another bridge already occupies the candidate range.
 
 ## Package Contents
 
-This repository ships the source tree and the prebuilt tools, not a zipped
-release. `tools/build_release.bat` assembles a package into `release-fork/`
-from the following inputs:
+This repository ships the source tree only. Prebuilt executables are not
+committed: download them from the GitHub Releases page (each release includes
+`SHA256SUMS.txt`), or build them yourself. `tools/build_release.bat` builds the
+tools and assembles a package into `release-fork/` from the following inputs:
 
-- `tools/inst40hx/40HXInstaller.exe` - GUI and command-line installer.
-- `tools/uninstall40x/40HXUninstaller.exe` - component-level cleanup and restore.
-- `tools/check40x/40HXCheck.exe` - read-mostly status and diagnostic tool.
+- `tools/inst40hx/` - GUI and command-line installer (`40HXInstaller.exe`).
+- `tools/uninstall40x/` - component-level cleanup and restore (`40HXUninstaller.exe`).
+- `tools/check40x/` - read-mostly status and diagnostic tool (`40HXCheck.exe`).
 - `tools/inst40hx/embed/40HXUNLK.EFI` - the UEFI unlock application.
 - [`release-files/`](release-files/) - documents and helpers that ship alongside
   the binaries: `make_usb_efi.bat` (FAT32 recovery USB),
   `EFI应急修复指南.md` (recovery guide), `README.md` (release readme),
-  `AI辅助安装提示词.txt`, and the optional `OpenCL.exe` compute smoke test.
+  `AI辅助安装提示词.txt`. No benchmark is bundled; for an independent compute
+  check use a third-party tool such as
+  [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) or
+  [OpenCL-Benchmark](https://github.com/ProjectPhysX/OpenCL-Benchmark).
 
 The source EFI application is [`tools/unlock40x`](tools/unlock40x).
 Fork-specific changes and research boundaries are documented in
@@ -377,4 +381,4 @@ platform-dependent: it needs Above 4G Decoding and a free 8 GiB-aligned
 
 Use the code for hardware research and comply with local law, vendor terms,
 and the licensing terms described in the
-[root README](../README.md#licensing).
+[licensing notes](../docs/licensing.md).

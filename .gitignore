@@ -14,3 +14,12 @@ windows/tools/unlock40x/unlock40x_v70.efi
 # files: committing one would break the reproducible-build hash and would be
 # unverifiable for everyone else.
 windows/tools/unlock40x/*.signed.efi
+
+# Prebuilt executables are published through GitHub Releases (with SHA256SUMS.txt),
+# not committed. CI and windows/tools/build_release.bat build them from source.
+*.exe
+
+# Userspace pipeline patch: the patched library is a modified copy of NVIDIA's
+# proprietary libnvidia-glcore.so and is generated locally, never committed.
+cmp_glcore_patch/patch_glcore
+cmp_glcore_patch/libnvidia-glcore.so*

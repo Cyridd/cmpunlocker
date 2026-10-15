@@ -22,9 +22,12 @@ English is the default. The same choice can be made with
 - `40HXInstaller.exe` - install and configure the components.
 - `40HXUninstaller.exe` - remove the components and restore the boot entry.
 - `40HXCheck.exe` - verify compute selectors, GSP, ReBAR, and PCIe status.
-- `OpenCL.exe` - optional compute smoke test.
 - `files/40HXUNLK.EFI` - UEFI unlock application.
 - `make_usb_efi.bat` - prepare a FAT32 USB fallback.
+
+No benchmark is bundled. For an independent compute check, use a third-party
+tool such as [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) or
+[OpenCL-Benchmark](https://github.com/ProjectPhysX/OpenCL-Benchmark).
 
 The unlock is volatile. POST, a driver reset, FLR, or a power cycle can clear
 it. No VBIOS flash is required or recommended.

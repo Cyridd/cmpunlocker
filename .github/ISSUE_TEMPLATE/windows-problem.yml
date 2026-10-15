@@ -55,7 +55,7 @@ body:
     attributes:
       label: Which binaries are you running?
       options:
-        - "The prebuilt .exe files committed under windows/tools/ or from Github Releases"
+        - "The prebuilt .exe files from GitHub Releases"
         - "I built them myself from source"
         - "Not sure"
     validations:

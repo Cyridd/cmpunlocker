@@ -7,31 +7,68 @@ Hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f
 
 The two halves are independent: they unlock the same hardware by different means and share no code. Pick the one matching your OS.
 
-The project currently provides four independent unlocks on Linux:
+## What it unlocks
 
-- **Compute / SM configuration unlock** - changes the protected GSP/SEC2 initialization state used by the tested compute paths.
-- **PCIe Gen2 x16 unlock** — raises the link from the stock PCIe Gen1 x16 (2.5 GT/s) to PCIe Gen2 x16 (5 GT/s) using the GSP/RM policy path plus a real link retrain.
-- **Resizable BAR unlock** — enables an 8 GiB BAR1 aperture on the CMP 40HX.
-- **Pipeline bind / MME throttle unlock** - eliminates the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so` emitter.
+- **Compute / SM configuration unlock** — changes the protected GSP/SEC2 initialization state used by the tested compute paths.
+- **PCIe Gen2 x16 unlock** — raises the link from the stock PCIe Gen1 x16 (2.5 GT/s) to Gen2 x16 (5 GT/s) using the GSP/RM policy path plus a real link retrain.
+- **Resizable BAR unlock** — enables an 8 GiB BAR1 aperture.
+- **Pipeline bind / MME throttle unlock** (Linux, optional) — removes the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so` emitter.
 
-None of these modifications changes the VBIOS or video memory. The compute, PCIe and ReBAR unlocks patch the NVIDIA open kernel module. The pipeline unlock is separate and patches a local copy of a proprietary userspace library.
+None of these modifications changes the VBIOS or video memory. The compute, PCIe and ReBAR unlocks patch the NVIDIA open kernel module (Linux) or run from a UEFI application (Windows). The pipeline unlock is separate and patches a local copy of a proprietary userspace library. The unlocks are volatile and must be reapplied after a full GPU reset or power cycle.
 
-## Windows / UEFI implementation
+## Results
 
-The Windows path lives in [`windows/`](windows/). Instead of patching a kernel
-module, it applies the unlock from a UEFI application that runs before Windows
-boots and then chainloads it, with Windows-side tools handling GSP state, the
-PCIe Gen2 bring-up after the NVIDIA driver loads, and cleanup:
+Measured with the independent [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) on one Windows system, NVIDIA driver `617.14`:
 
-- compute/Tensor unlock through the UEFI application (`40HXUNLK.EFI`);
-- an 8 GiB Resizable BAR path in the same EFI application;
-- optional PCIe Gen2 bring-up after the NVIDIA driver loads;
-- GUI, command-line, status-check and uninstall tools, in English, Russian and Chinese.
+| Before unlock | After unlock |
+|:--:|:--:|
+| ![clpeak CUDA backend, stock CMP 40HX](docs/img/clpeak-cuda-before.png) | ![clpeak CUDA backend, unlocked CMP 40HX](docs/img/clpeak-cuda-after.png) |
 
-Like the Linux patches, this is a volatile unlock: it does not flash the VBIOS
-and must be reapplied after a full GPU reset or power cycle. Read
-[`windows/README.md`](windows/README.md) for firmware prerequisites, the
-recovery procedure, and the current limitations before installing.
+> The unlock restores Tensor Core throughput (about 63x), INT8 `dp4a` (about 33x) and PCIe Gen2 (2x), plus clpeak's plain CUDA FP32/FP16 loops (about 3x). It is **not** a global FP32 lock removal: FP32 through cuBLASLt, OpenCL and Vulkan runs at about 8.3 to 9 TFLOPS before and after. Earlier versions of this README claimed a `~0.39 TFLOPS` FP32 figure; that was wrong. Details in [`docs/how-it-works.md`](docs/how-it-works.md).
+
+The full tables (including OpenCL and Vulkan), PCIe Gen2, ReBAR and pipeline measurements, and how to reproduce the screenshots are in [`docs/results.md`](docs/results.md). Windows results: [`windows/README.md`](windows/README.md#results).
+
+## Quick start
+
+### Linux
+
+Requires the NVIDIA open kernel module stack and userspace/firmware version exactly `610.57.04`, a matching kernel headers package, and a C toolchain. Per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).
+
+```bash
+lspci -nn | grep -i nvidia   # expected: 10de:1f0b
+sudo ./install.sh            # download -> SHA256 check -> patch -> build -> install
+sudo shutdown -h now         # full cold power-off, not a warm reboot
+sudo dmesg | grep CMP40      # expect SS0=0x88888888 SS1=0x00000008 FECS_PLM=0xffffff8f
+```
+
+The optional pipeline unlock is separate: see [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md).
+
+### Windows
+
+Download the latest build from the [Releases page](https://github.com/Cyridd/cmpunlocker/releases) (each release includes `SHA256SUMS.txt`; prebuilt executables are no longer committed to the repository), then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
+
+## Compatibility at a glance
+
+- **Linux:** NVIDIA `610.57.04` only; other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
+- **Windows:** UEFI/GPT, Above 4G Decoding on, Secure Boot and CSM off.
+- **PCIe Gen2 x16 is verified; Gen3 and RT-core unlocks are not implemented.**
+- The CMP 40HX has no display outputs; graphics use needs a headless, secondary-GPU or remote-display setup.
+
+Full list: [`docs/compatibility.md`](docs/compatibility.md).
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/linux-install.md`](docs/linux-install.md) | Linux prerequisites, installer options, verification, removal |
+| [`windows/README.md`](windows/README.md) | Windows/UEFI guide: prerequisites, installation, Secure Boot, recovery |
+| [`docs/how-it-works.md`](docs/how-it-works.md) | Technical description of the four unlocks |
+| [`docs/results.md`](docs/results.md) | Benchmark screenshots and measured results |
+| [`docs/compatibility.md`](docs/compatibility.md) | Supported versions, platform notes, known issues |
+| [`docs/file-structure.md`](docs/file-structure.md) | What each file and directory is |
+| [`docs/licensing.md`](docs/licensing.md) | Per-component licenses and attribution |
+| [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md) | Userspace pipeline-throttle patch usage and rollback |
+| [`docs/research/`](docs/research/README.md) | Research notes and evidence: PCIe Gen2 diagnostics, Gen3 investigation, Link Disable audit, pipeline throttle findings |
 
 **Origin and attribution.** This tree is a fork of
 [`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock), whose
@@ -45,571 +82,14 @@ correct Windows command-line quoting under UAC elevation, the runtime
 ReBAR readout in the checker, and a reproducible packaging/verification flow —
 are documented in
 [`windows/FORK_CHANGES.md`](windows/FORK_CHANGES.md). See
-[Licensing](#licensing) for the third-party components it redistributes.
-
-## Important distinction: compute is not raster graphics
-
-Earlier versions of this README described the pre-unlock `~0.39 TFLOPS` measurements as if the CMP 40HX had a global FP16/FP32 lock. That conclusion was too broad.
-
-- The `~0.39 TFLOPS` values came from specific compute benchmarks and execution paths. They are not a measurement of all FP16/FP32 work performed by the GPU.
-- Ordinary raster games already ran at normal performance before the compute patch, so their regular graphics-shader FP32/FP16 execution was not globally limited to `~0.39 TFLOPS`.
-- The compute patch changes protected SM/security initialization state and restores performance or availability in the tested compute and Tensor Core paths.
-- The severe GSP-enabled gaming slowdown investigated by this project was a separate classic Vulkan pipeline-bind throttle. Its current bypass is the optional `cmp_glcore_patch` userspace patch, not the compute patch.
-
-## Results
-
-The measurements below are from the Linux implementation. Results observed
-through the Windows/UEFI path are listed separately in
-[`windows/README.md`](windows/README.md#results).
-
-### Compute unlock
-
-Measured on the tested CMP 40HX system:
-
-| Tested workload/path | Before unlock | After unlock |
-|---|---:|---:|
-| FP16 cuBLAS benchmark | ~0.39 TFLOPS | **11.42 TFLOPS** |
-| FP32 compute benchmark | ~0.39 TFLOPS | **7.0 TFLOPS** |
-| FP16 Tensor Core MMA benchmark | Unavailable in the tested configuration | **63.8 TFLOPS** |
-
-These numbers describe the named compute tests on one system. In particular, the pre-unlock values must not be interpreted as the total FP32/FP16 capability available to graphics workloads.
-
-### PCIe Gen2 unlock
-
-Verified on real hardware:
-
-| Metric | Stock | After unlock |
-|---|---|---|
-| PCIe link | **Gen1 x16 (2.5 GT/s)** | **Gen2 x16 (5 GT/s)** |
-| `LnkCap` / `LnkSta` | 2.5 GT/s x16 | **5 GT/s x16** |
-| FurMark average FPS (one test setup) | ~110 | **~120** |
-
-The PCIe result is a real trained link state, not just a spoofed capability value.
-
-## How it works
-
-### Compute unlock
-
-The tested CMP 40HX exposes a restricted SM/security configuration during GSP/SEC2 initialization. The patch injects a payload into the standard SEC2 Booter flow and, during its privileged execution phase, restores the state used by the validated compute workloads:
-
-- `SS0 = 0x88888888`
-- `SS1 = 0x00000008`
-- `FECS_PLM = 0xFFFFFF8F`
-- required `WPR2` / `SEC2 RESET_PLM` state
-
-Expected driver log:
-
-`CMP40_COMPUTE_UNLOCK_V525: ... SS0=0x88888888 SS1=0x00000008 FECS_PLM=0xffffff8f`
-
-### PCIe Gen2 unlock
-
-The CMP 40HX is restricted to PCIe Gen1 x16 (2.5 GT/s) by default.
-
-The PCIe patch uses a protected GSP/RM policy path to enable the higher PCIe link rate, then performs an actual PCIe link retrain. It sets the Gen2 target on both ends and asserts Retrain Link on the upstream bridge. This normal retrain is the supported kernel path in this repository. A separate Link Disable experiment is documented in `PCIE_LINK_DISABLE_AUDIT.md`; it is not integrated because it can detach GSP/RM after the driver has initialized. The resulting hardware state is:
-
-```text
-LnkSta: Speed 5GT/s, Width x16
-LnkCap2: Supported Link Speeds: 2.5-5GT/s
-LnkCtl2: Target Link Speed: 5GT/s
-```
-
-This is a genuine PCIe Gen2 x16 link.
-
-The normal sequence is verified on the maintainer's AMD root port. On Intel
-Alder Lake, a manual Link Disable experiment can train the physical link to
-Gen2 x16 but can also leave `nvidia-smi` unable to access the GPU; that
-platform-specific experiment is intentionally excluded from the kernel patch.
-
-Repeated community testing on VBIOS `90.06.67.00.04` confirmed that a
-cold-boot Gen2 failure (`CAP2=0x02`, retrain status `1101`) recovers after an
-NVIDIA driver unbind/bind cycle. On the second bootstrap, `before_ovr` already
-reports `CAP2=0x06`, showing that the reprobe materializes the Gen2 capability
-before the host retrain phase. The optional helper
-[`tools/cmp40hx-driver-reprobe-gen2.sh`](tools/cmp40hx-driver-reprobe-gen2.sh)
-performs this recovery only when the endpoint is a CMP 40HX and does not
-advertise Gen2. Stop GPU workloads first; the helper does not use Link Disable
-and is not installed or enabled automatically. A disabled-by-default
-experimental systemd unit is also available for testing before the display
-manager starts. The full evidence, safeguards and installation procedure are in
-[`PCIE_GEN2_DIAGNOSTIC.md`](PCIE_GEN2_DIAGNOSTIC.md).
-
-> PCIe Gen3 is **not** currently implemented by this project. The CMP 40HX
-> investigation found that the endpoint advertises only Gen1 before the stock
-> Booter and canonicalizes runtime capability writes to Gen2. See
-> [PCIE_GEN3_CMP40HX_RESEARCH.md](PCIE_GEN3_CMP40HX_RESEARCH.md) for the
-> collected evidence and the remaining VBIOS/FWSEC research boundary.
-
-### Resizable BAR unlock
-
-The patch configures the required XVE registers and BAR1 size selector, then lets the NVIDIA driver perform its normal PCI BAR resizing.
-
-The current configuration uses selector 7, corresponding to an 8 GiB BAR1 aperture.
-
-The resulting hardware and driver state is:
-
-```text
-BAR 1: current size: 8GB
-BAR1 Memory Usage
-    Total : 8192 MiB
-```
----
-
-## Quick Start (Linux)
-
-For the Windows/UEFI installation procedure, see
-[`windows/README.md`](windows/README.md) instead.
-
-### 1. Prepare the environment
-
-The installer is distribution-agnostic: it does not install packages or
-require a specific package manager. Install the prerequisites with the package
-manager used by your distribution, then run the same `install.sh` command.
-You need a matching kernel headers/devel package, a C toolchain, `make`, GNU
-`patch`, `tar`, `sha256sum`, `pciutils`, `kmod`/`depmod`, and `curl` or `wget`
-if the NVIDIA source is downloaded automatically. The installed NVIDIA
-userspace and firmware must be version `610.57.04`.
-The distribution's NVIDIA installation must provide a compatible open kernel
-module stack; this project does not install the NVIDIA driver or firmware.
-
-#### Arch Linux / CachyOS
-
-```bash
-sudo pacman -S --needed base-devel pciutils patch curl \
-  ca-certificates tar gzip xz bzip2 kmod bc flex bison libelf openssl
-
-# Standard Arch kernel:
-# sudo pacman -S linux-headers
-# For CachyOS, install the headers matching the running kernel instead:
-# sudo pacman -S linux-cachyos-headers
-# sudo pacman -S linux-cachyos-bore-headers
-# sudo pacman -S linux-cachyos-lto-headers
-```
-
-#### Ubuntu / Debian
-
-```bash
-sudo apt update
-sudo apt install build-essential linux-headers-$(uname -r) pciutils patch \
-  curl ca-certificates tar gzip xz-utils bzip2 kmod initramfs-tools \
-  bc flex bison libelf-dev libssl-dev
-```
-
-#### Fedora / RHEL / Rocky / AlmaLinux
-
-```bash
-sudo dnf group install "Development Tools"
-sudo dnf install kernel-devel-$(uname -r) kernel-headers \
-  pciutils patch curl ca-certificates tar gzip xz bzip2 kmod dracut \
-  bc flex bison elfutils-libelf-devel openssl-devel
-```
-
-#### openSUSE
-
-```bash
-sudo zypper install -t pattern devel_basis pciutils patch curl \
-  ca-certificates tar gzip xz bzip2 kmod dracut bc flex bison \
-  libelf-devel libopenssl-devel
-# Also install the -devel package matching the running kernel flavor,
-# for example kernel-default-devel.
-```
-
-Other Linux distributions need the equivalent packages. The installer only
-requires the standard Linux module build layout and accepts a non-standard
-kernel build directory through `KERNEL_HDRS`.
-The unlock itself is hardware- and driver-version-specific; the commands
-above cover common packaging layouts, but distro kernels and NVIDIA packages
-still need to be tested on the target system.
-
-Verify that the 40HX is detected:
-
-```bash
-lspci -nn | grep -i nvidia   # expected: 10de:1f0b
-```
-
-### 2. Obtain the source code
-
-**Option A — automatic download (recommended):**
-
-`install.sh` downloads `open-gpu-kernel-modules` 610.57.04 from GitHub and verifies its SHA256.
-
-**Option B — place a local archive:**
-
-If you do not want the script to download the source automatically, place one of the following archives next to `install.sh`:
-
-- `open-gpu-kernel-modules-610.57.04.tar.gz`
-- `NVIDIA-610.57.04.tar.xz`
-- `NVIDIA-kernel-module-source-610.57.04.tar.xz`
-- `NVIDIA-kernel-module-source-610.57.04.tar.bz2`
-
-The official GitHub `.tar.gz` archive is verified automatically:
-
-`619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681`
-
-For a differently named or compressed local archive, provide its own digest
-explicitly; the installer will not silently accept an unverified archive:
-
-```bash
-sudo env SOURCE_SHA256=<sha256-of-your-archive> ./install.sh --no-download
-```
-
-### 3. Install
-
-```bash
-chmod +x install.sh
-sudo ./install.sh
-```
-
-The installer performs:
-
-`download → SHA256 verification → patch application → kernel module build → installation`
-
-Patches are applied with GNU `patch -p1`; the NVIDIA source is treated as a
-source tree, not as a Git checkout. This also works when the source directory
-is located inside another Git repository.
-
-The patched modules are installed under:
-
-`/lib/modules/$(uname -r)/updates/cmpunlocker/`
-
-The installer applies:
-
-- `0001-cmp40hx-unlock.patch`
-- `0002-cmp40hx-pcie2-unlock.patch`
-- `0003-cmp40hx-rebar-unlock.patch`
-
-This installs only the three kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.
-It also does not install or replace the NVIDIA userspace driver or firmware;
-install a matching `610.57.04` NVIDIA stack through your distribution first.
-
-Useful options and environment overrides:
-
-```bash
-sudo ./install.sh --pcie-diagnostic
-sudo ./install.sh --source-dir=/absolute/path/to/open-gpu-kernel-modules-610.57.04
-sudo ./install.sh --no-download
-sudo env KERNEL_UNAME=6.12.1-custom KERNEL_HDRS=/path/to/kernel/build ./install.sh
-sudo env JOBS=4 INITRAMFS_TOOL=dracut ./install.sh
-```
-
-`KERNEL_HDRS` defaults to `/lib/modules/$(uname -r)/build` and then
-`/usr/lib/modules/$(uname -r)/build`. `INITRAMFS_TOOL=auto` follows the
-distribution configuration: it uses `mkinitcpio` when its configuration is
-present, `update-initramfs` on Debian-style systems, and otherwise `dracut`
-when available (or `mkinitrd` on systems that provide only that command).
-Use `INITRAMFS_TOOL=none` only when you will rebuild the initramfs yourself.
-`JOBS` controls parallel compilation and must be a positive integer.
-`--no-download` uses an existing source directory next to the installer or a
-local source archive; the archive is still SHA256-verified.
-
-### 4. Cold reboot (required)
-
-```bash
-sudo shutdown -h now
-```
-
-A full power-off is recommended. Do not rely on a simple warm reboot when validating the unlock. If an earlier experimental build containing the Link Disable sequence was installed, reinstall the current patch and perform a full cold power-off before testing again.
-
-### 5. Verify
-
-```bash
-sudo dmesg | grep CMP40
-```
-
-For the compute unlock, expect messages containing:
-
-```text
-SS0=0x88888888
-SS1=0x00000008
-FECS_PLM=0xffffff8f
-```
-
-For the PCIe unlock:
-
-```bash
-sudo lspci -vvv -s 10:00.0 | grep -iE 'LnkCap|LnkSta|LnkCtl2'
-```
-
-Expected:
-
-```text
-LnkSta: Speed 5GT/s, Width x16
-LnkCtl2: Target Link Speed: 5GT/s
-```
-
-Also verify the GPU is usable:
-
-```bash
-nvidia-smi
-```
-
-If the diagnostic log shows `CAP2=00000002` after cold boot and the GPU is
-otherwise healthy, the optional `.04` recovery experiment can be run from a
-root shell after stopping GPU clients:
-
-```bash
-sudo ./tools/cmp40hx-driver-reprobe-gen2.sh --confirm-driver-reprobe
-```
-
-This resets the NVIDIA driver for the selected GPU. A disabled-by-default
-experimental systemd unit is provided separately; neither the helper nor the
-unit is installed by `install.sh`. Review the warnings and full procedure in
-`PCIE_GEN2_DIAGNOSTIC.md` before use.
-
-## Removing the patched modules (Linux)
-
-```bash
-sudo rm -rf /lib/modules/$(uname -r)/updates/cmpunlocker
-sudo depmod -a
-```
-
-Then reinstall the official NVIDIA driver package if necessary.
-
-On Windows, run `40HXUninstaller.exe` (or `40HXInstaller.exe -uninstall`) as
-Administrator instead; it removes the components and restores the boot entry.
-
-## Compatibility and known issues
-
-### Linux
-
-- **NVIDIA open-gpu-kernel-modules 610.57.04 only.** Other driver versions require porting and revalidation.
-- The project has been tested on CachyOS system with 7.2.0-1-cachyos kernel.
-- The compute unlock changes the GSP/SEC2 boot payload. The VBIOS and VRAM are not modified.
-- The PCIe patch changes the GSP/RM PCIe policy and retrains the link. It does not modify the VBIOS.
-- **PCIe Gen2 x16 is verified.**
-- **PCIe Gen3 is not currently unlocked.**
-- Secure Boot must be disabled or the custom kernel modules must be signed with a trusted key.
-- After a kernel update, rebuild and reinstall the patched modules.
-
-For example:
-
-```bash
-sudo ./install.sh --no-download
-```
-
-### Windows
-
-- Requires a UEFI/GPT installation with **Above 4G Decoding** enabled and
-  **Secure Boot** and **CSM** disabled — the EFI application is unsigned.
-- The unlock is volatile and is reapplied at every boot by the EFI entry. POST,
-  FLR, a driver reset, or a power cycle clears it.
-- The PCIe Gen2 bring-up depends on the platform accepting the retrain, and the
-  8 GiB ReBAR path needs a free 8 GiB-aligned 64-bit MMIO span in the
-  root-complex topology. Both fail closed and roll back.
-- The Gen2 helper loads signed but known-vulnerable drivers on demand. HVCI and
-  Microsoft's vulnerable-driver blocklist can block them.
-- PCIe Gen3 and RT-core unlocks are not implemented here either.
-
-### Both platforms
-
-- CMP 40HX has no normal display outputs. Graphics use therefore requires a suitable headless, secondary-GPU, remote-display or similar setup.
-
-## File structure
-
-### Linux (repository root)
-
-| File | Description |
-|---|---|
-| `0001-cmp40hx-unlock.patch` | Compute / SM unlock for NVIDIA 610.57.04 |
-| `0002-cmp40hx-pcie2-unlock.patch` | PCIe Gen2 x16 unlock |
-| `0002-cmp40hx-pcie2-diagnostic.patch` | Verbose replacement for `0002`; captures XVE/BAR0 and PCI capability state |
-| `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
-| `PCIE_GEN2_DIAGNOSTIC.md` | Diagnostic installation, collection and interpretation guide |
-| `PCIE_GEN3_CMP40HX_RESEARCH.md` | Gen3 capability/policy investigation and negative results |
-| `PCIE_LINK_DISABLE_AUDIT.md` | Evidence and limitations of the Link Disable experiment |
-| `tools/cmp40hx-alder-lake-link-disable-test.sh` | Manual, explicitly-confirmed research reproducer |
-| `tools/cmp40hx-driver-reprobe-gen2.sh` | Optional driver unbind/bind recovery for cold-boot Gen1 capability state |
-| `tools/cmp40hx-driver-reprobe-gen2.service` | Disabled-by-default experimental systemd boot unit for the reprobe helper |
-| `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04` |
-| `CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
-| `install.sh` | Build and installation script |
-| `README.md` | This document |
-
-### Windows / UEFI (`windows/`)
-
-| Path | Description |
-|---|---|
-| `windows/README.md` | Windows user guide: prerequisites, installation, verification, recovery |
-| `windows/FORK_CHANGES.md` | Fork-specific changes, the boot-manager handoff, and research boundaries |
-| `windows/tools/unlock40x/` | UEFI unlock application source, firmware blobs, and `build_v70.sh` |
-| `windows/tools/inst40hx/` | Installer GUI/CLI (`40HXInstaller.exe`) and its embedded EFI/drivers |
-| `windows/tools/check40x/` | Status and diagnostic utility (`40HXCheck.exe`) |
-| `windows/tools/uninstall40x/` | Component-level uninstaller (`40HXUninstaller.exe`) |
-| `windows/tools/40hxcore/` | Shared Windows operations and Gen2 link logic |
-| `windows/tools/build_release.bat` | Packages a release with a SHA-256 manifest |
-| `windows/tools/verify_source.ps1` | Verifies expected source inputs and prints EFI hashes |
-| `windows/release-files/` | Recovery guide, FAT32 USB helper, and other packaged documents |
-| `windows/40HX_Gen2_Windows/` | Legacy standalone Gen2 scripts, helper drivers, and WinRing0 source |
-
-The compute unlock mainly modifies the GSP/SEC2 initialization path.
-
-The PCIe unlock extends the GSP/RM PCIe policy and adds a host-side retrain path to bring the link up at 5 GT/s x16.
-
-## Technical summary
-
-### Compute unlock
-
-The tested CMP 40HX exposes a restricted SM/security configuration. The patch injects a custom payload into the SEC2 Booter flow and uses privileged HS execution to restore the FECS/SM state exercised by the compute benchmarks.
-
-Key values:
-
-```text
-SS0      = 0x88888888
-SS1      = 0x00000008
-FECS_PLM = 0xFFFFFF8F
-```
-
-These writes cannot be reliably replaced with normal `setpci` or `devmem` writes because the relevant registers are protected during the secure initialization path.
-
-### PCIe Gen2 unlock
-
-The CMP 40HX is stock-limited to PCIe Gen1 x16.
-
-The PCIe patch:
-
-1. opens the required GSP/RM PCIe policy;
-2. requests a 5 GT/s link;
-3. retrains the endpoint/upstream bridge;
-4. verifies the resulting `LnkSta`.
-
-The validated final state is:
-
-```text
-Speed 5GT/s
-Width x16
-```
-
-One test setup improved from roughly 110 FPS to roughly 120 FPS in FurMark. This is an observed workload result, not a guaranteed consequence of Gen2 on every system.
-
-### Resizable BAR unlock
-
-Verified on real hardware:
-
-| Metric | Stock | After unlock |
-|---|---|---|
-| BAR1 size | 64 MiB | **8 GiB** |
-| `lspci` BAR 1 | 64 MB | **8 GB** |
-| NVIDIA `BAR1 Total` | 64 MiB | **8192 MiB** |
-
-The 8 GiB BAR1 aperture is exposed to the NVIDIA driver and was usable by applications in the tested system. For example, War Thunder was observed using approximately 80 MiB of BAR1 memory in the main menu.
-
-A FurMark test on the same system showed a small change from approximately 120 FPS to **~122 FPS** with ReBAR enabled. This result is setup-dependent and should not be treated as a general ReBAR performance claim.
-
-### Pipeline bind / MME throttle unlock
-
-The CMP 40HX also has a separate userspace performance restriction affecting classic Vulkan pipeline binding.
-
-The reproduced trigger is the classic pipeline path. The shader-object binding diagnostic did not reproduce the same delay, so this README does not claim a global shader-execution throttle.
-
-The throttle was identified experimentally in the NVIDIA userspace driver. Each classic `vkCmdBindPipeline` path invokes:
-
-```text
-NVC597_CALL_MME_MACRO(52), argument 0xf0
-```
-
-The selected MME macro executes a repeated sequence of:
-
-```text
-NVC597_PIPE_NOP
-NVC597_WAIT_FOR_IDLE
-```
-
-for 240 iterations. The important point is that the slowdown is caused by the **combination** of the two operations in the MME macro, not by either operation in isolation.
-
-The relevant emitters were located in:
-
-```text
-/usr/lib/libnvidia-glcore.so.610.57.04
-```
-
-at file offsets:
-
-```text
-0xb20c2d
-0xdcbf60
-```
-
-The supplied patcher changes only the emitted MME loop argument from `0xf0` (240) to a user-selected DWORD. The bundled library uses `0`, retaining the macro call and command shape while eliminating all 240 delay iterations.
-
-Verified results:
-
-| Test | Stock | After pipeline unlock |
-|---|---:|---:|
-| 4 binds | ~0.739 ms | **~0.0023 ms** (argument 0) |
-| 1000 binds | ~183.3 ms | **~0.0054 ms** (argument 0) |
-| 1000 binds speed-up | 1× | **~33,700x** (argument 0) |
-
-The argument-0 value is the bundled-library configuration. Three follow-up
-runs measured `0.005248`, `0.005440` and `0.005568 ms` (median
-`0.005440 ms`). The ratio is a GPU timestamp microbenchmark result: it shows
-that the artificial loop has effectively disappeared, and is not a claim that
-every application will become 33,700 times faster.
-
-The unlock was additionally validated in real applications:
-
-- FurMark improved from approximately **131 FPS average / 134 FPS max** to **134 FPS average / 137 FPS max** in one tested configuration.
-- War Thunder native Vulkan reached approximately **90 FPS average during gameplay at Ultra with DLAA 4**.
-- Cyberpunk 2077 through Proton-CachyOS reached approximately **66 FPS average in the benchmark at High settings with DLSS 4 Quality**.
-
-Before the userspace pipeline fix, the affected game configurations showed a very large slowdown, reported as up to roughly 10-15x. The application figures above are observations from one system, not universal performance guarantees.
-
-### How the pipeline unlock works
-
-Unlike the compute, PCIe and ReBAR patches, this unlock does **not** modify the open kernel module.
-
-The restriction is present in the proprietary userspace component:
-
-```text
-libnvidia-glcore.so.610.57.04
-```
-
-The supplied `cmp_glcore_patch` directory contains:
-
-```text
-cmp_glcore_patch/
-├── libnvidia-glcore.so.610.57.04   # patched library
-├── patch_glcore                    # patcher
-├── patch_glcore.cpp                # patcher source
-└── README.md                       # dedicated installation / usage instructions
-```
-
-The supplied patched library can be tested locally without replacing the system copy. Follow the instructions in `cmp_glcore_patch/README.md` for installation and rollback.
-
-See [cmp_glcore_patch/README.md](cmp_glcore_patch/README.md) for usage and [CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md](CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md) for the command-level evidence.
-
-Important:
-
-- This unlock is currently specific to **`libnvidia-glcore.so.610.57.04`**.
-- The validated patch signatures cover the 64-bit library only.
-- Other NVIDIA driver versions require new emitter signatures and revalidation.
-- NVIDIA 32-bit userspace components require separate signatures / patching.
-- Do not replace the system `/usr/lib/libnvidia-glcore.so.*`; use the local library through `LD_LIBRARY_PATH` as documented in `cmp_glcore_patch/README.md`.
-- The kernel-module unlocks (`0001`–`0003`) are independent of this userspace patch and are not modified by it.
-
-## Technical summary: pipeline throttle unlock
-
-The classic Vulkan pipeline bind path in the tested NVIDIA userspace driver emits:
-
-```text
-NVC597_CALL_MME_MACRO(52), argument 0xf0
-```
-
-The corresponding MME code performs 240 `PIPE_NOP` + `WAIT_FOR_IDLE` pairs. Microbenchmarks demonstrated that changing the emitter argument from 240 to 0 removes the dominant bind overhead while leaving the actual pipeline bind functionality intact in the tested applications.
-
-The patch is applied to the two identified emitter locations in `libnvidia-glcore.so.610.57.04`:
-
-```text
-0xb20c2d
-0xdcbf60
-```
-
-This unlock is therefore a **userspace Vulkan command-generation patch**, not a GSP/SEC2 hardware-security unlock.
-
+[Licensing](#licensing) and [`docs/licensing.md`](docs/licensing.md) for the third-party components it redistributes.
 
 ## Disclaimer
+
 - This project is intended for hardware research and experimentation.
 - Use it at your own risk.
 - Modified kernel modules or NVIDIA userspace libraries may cause driver initialization failures, application crashes, or system instability.
-- The pipeline throttle unlock modifies `libnvidia-glcore.so.610.57.04`; keep an untouched copy of the original library for rollback.
+- The pipeline throttle unlock creates a modified local copy of `libnvidia-glcore.so.610.57.04`; never overwrite the original system library, so rollback stays trivial.
 - NVIDIA licensing, warranty, and support terms may be affected.
 - Keep a way to boot without the patched modules so the official driver can be restored.
 - On Windows, the unlock runs from a UEFI application and the Gen2 helper loads
@@ -620,44 +100,4 @@ This unlock is therefore a **userspace Vulkan command-generation patch**, not a 
 
 ## Licensing
 
-This project contains code derived from multiple authors. The repository's own
-license is the MIT License in [`LICENSE`](LICENSE); the components below keep
-their original terms.
-
-### Linux
-
-- Compute Unlock — originally developed by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
-  Licensed under the MIT License. Original attribution is preserved.
-- PCIe / ReBAR patches - ported from @xrip (https://github.com/xrip/cmp50hx-unlock). 
-  Licensed under copyleft-next 0.3.1. Original attribution is preserved.
-- NVIDIA open-gpu-kernel-modules remains subject to NVIDIA's applicable open-source license terms.
-- CMP 40HX pipeline throttle unlock and related modifications —
-  Copyright (c) 2026 Cyridd, licensed under the MIT License.
-
-### Windows / UEFI (`windows/`)
-
-- The tree is a fork of [`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock),
-  which builds on [`WildFlash1st/cmp90hx-unlock-for-windows`](https://github.com/WildFlash1st/cmp90hx-unlock-for-windows).
-  Upstream terms apply to the inherited code; see [`windows/FORK_CHANGES.md`](windows/FORK_CHANGES.md)
-  for what this fork changed.
-- **WinRing0** — `WinRing0x64.sys` and its source under
-  `windows/40HX_Gen2_Windows/source/WinRing0-master/` are licensed under the
-  **GNU GPL v3.0** (see that directory's `LICENSE`). The source is kept in the
-  repository so the corresponding source for the redistributed driver binary is
-  available, as GPL-3.0 requires.
-- **ThrottleStop** — `ThrottleStop.sys` is a redistributed third-party
-  proprietary signed driver. It is not covered by this repository's MIT license
-  and remains the property of its author.
-- The TU106/GA102 firmware blobs under `windows/tools/unlock40x/` are NVIDIA
-  firmware images and remain subject to NVIDIA's terms. They are present as
-  research inputs to the EFI build.
-- `windows/release-files/OpenCL.exe` is an optional prebuilt third-party
-  compute smoke-test binary carried over from upstream. Its provenance is not
-  documented upstream and no source is included; it is not required by any
-  unlock step.
-- Remaining fork-specific changes — Copyright (c) 2026 Cyridd, licensed under
-  the MIT License.
-
-Because the Windows tree redistributes a GPL-3.0 driver and a proprietary
-driver, the repository as a whole is not distributable under MIT alone. Honour
-each component's terms when redistributing.
+The repository's own license is the MIT License in [`LICENSE`](LICENSE). The repository also contains code derived from other authors and redistributes third-party components (a GPL-3.0 driver, a proprietary signed driver, NVIDIA firmware images) that keep their original terms, so the repository as a whole is not distributable under MIT alone. See [`docs/licensing.md`](docs/licensing.md) for the per-component list.

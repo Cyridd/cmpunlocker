@@ -16,13 +16,31 @@ The patcher refuses to operate unless the exact eight-byte command constant
 occurs exactly twice. It always writes a separate library and does not modify
 `/usr/lib`.
 
-## Build the patcher
+## Quick start
+
+```bash
+./build_patched_lib.sh        # argument 0 (recommended)
+./build_patched_lib.sh 1      # optional: keep one iteration instead
+```
+
+The helper script builds the patcher, finds the installed
+`libnvidia-glcore.so.610.57.04` (`/usr/lib`, `/usr/lib64` or
+`/usr/lib/x86_64-linux-gnu`; override with `GLCORE_SRC=/path/to/library`) and
+writes the patched copy into this directory. It does the same as the two manual
+steps below.
+
+The patched library is **not distributed with this repository**: it is a modified
+copy of NVIDIA's proprietary library, so it is always generated locally from your
+own installed copy. Neither the patched library nor the compiled patcher is
+tracked in git.
+
+## Build the patcher (manual)
 
 ```bash
 g++ -std=c++17 -O2 -Wall -Wextra patch_glcore.cpp -o patch_glcore
 ```
 
-## Create the patched library
+## Create the patched library (manual)
 
 Use the installed NVIDIA userspace library as the input and write the patched
 copy into this directory:
@@ -186,7 +204,7 @@ The observed microbenchmark results on CMP 40HX were:
   argument 1: 0.769792 ms
 ```
 
-The bundled library uses argument 0. Three argument-0 runs measured
+The recommended configuration is argument 0. Three argument-0 runs measured
 `0.005248`, `0.005440` and `0.005568 ms`; the median is `0.005440 ms`, or
 approximately **33,700x faster than stock** in this specific timestamp test.
 The argument-1 result is included as a separate controlled comparison and is

@@ -100,8 +100,8 @@ Measured with the local patched library:
 
 The 1000-bind result is about 238 times faster.
 
-The bundled repository library uses argument `0`. A follow-up three-run
-measurement of that exact library at 1000 binds produced `0.005248`,
+The recommended configuration (and the one measured here) uses argument `0`. A
+follow-up three-run measurement of a library patched that way at 1000 binds produced `0.005248`,
 `0.005440` and `0.005568 ms` (median `0.005440 ms`). Relative to the same
 `183.297 ms` stock capture, that is approximately `33,700x` in this GPU
 timestamp microbenchmark. The large ratio reflects removal of the artificial
