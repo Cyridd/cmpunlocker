@@ -226,7 +226,7 @@ func CheckLeftover() []string {
 	fileLeft := false
 	for _, fn := range []string{"ThrottleStop.sys", "40hx_bridge.sys", "40hx_early-d.sys", "40hx_early.sys", "WinRing0x64.sys"} {
 		if _, err := os.Stat(sysRoot + "\\System32\\drivers\\" + fn); err == nil {
-			rem = append(rem, T("- Driver file ", "- Файл драйвера ", "- 驱动文件 ") + fn)
+			rem = append(rem, T("- Driver file ", "- Файл драйвера ", "- 驱动文件 ")+fn)
 			fmt.Println(T("  [!] Driver file ", "  [!] Файл драйвера ", "  [!] 驱动文件 ") + fn + T(" left over (possibly in use; reboot and run the uninstaller again)", " остался (возможно, занят; перезагрузитесь и запустите деинсталлятор снова)", " 仍有残留(可能被占用, 重启后重跑卸载器)"))
 			fileLeft = true
 		}

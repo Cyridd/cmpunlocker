@@ -212,9 +212,25 @@ application through `LD_LIBRARY_PATH` and never replaces the system library.
 ## Removing the patched modules
 
 ```bash
-sudo rm -rf /lib/modules/$(uname -r)/updates/cmpunlocker
-sudo depmod -a
+sudo ./install.sh --uninstall
 ```
+
+The installer records what it installed (module names and SHA-256 hashes, the
+driver version, and the patch hashes) in
+`/var/lib/cmp40hx/install-<kernel>.manifest`. `--uninstall` removes exactly
+those files, then runs `depmod` and rebuilds the initramfs. Installs made by
+older versions have no manifest; for those the installer lists the files it
+found and refuses to delete anything unless you pass `--force`, so it cannot
+remove modules that another tool put next to them.
+
+To check an installation without changing anything:
+
+```bash
+sudo ./install.sh --verify
+```
+
+This compares the installed modules against the manifest and reports any file
+that is missing or does not match.
 
 Then reinstall the official NVIDIA driver package if necessary.
 

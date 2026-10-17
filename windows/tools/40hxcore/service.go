@@ -88,7 +88,9 @@ func ServiceInfo(name string) (bool, string, string) {
 // v2.5.1 补丁(诊断仍误报"未注册"根因): 上述以 schtasks /query 退出码为唯一存在性
 // 判据在中文/非管理员环境下会偶发误报——SYSTEM 主体的任务在部分机器上 /query 退出
 // 非零(权限/代码页/瞬时服务抖动), 而任务 XML 文件其实已落盘。故改为:
-//   **任务 XML 文件存在 = 权威存在性铁证**; schtasks /query 仅补充状态/结果字段。
+//
+//	**任务 XML 文件存在 = 权威存在性铁证**; schtasks /query 仅补充状态/结果字段。
+//
 // 只要文件在, 即判定已注册, 彻底消除"任务真在却诊断说没注册"的假阴性。
 func TaskInfo(name string) (bool, string, string) {
 	out, err := RunOut("schtasks.exe", "/query", "/tn", name, "/fo", "LIST", "/v")

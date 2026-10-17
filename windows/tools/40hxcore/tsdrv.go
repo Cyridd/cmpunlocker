@@ -11,9 +11,9 @@ import (
 // 诊断读取改用 TechPowerUp ThrottleStop 驱动(预签名, 普通模式可载),
 // 它暴露任意物理地址读(≤8B/次)。此处只封装"读", 不写。
 //
-//   device: \\.\ThrottleStop
-//   ioctl  0x80006498  in: <u64 physAddr>  out: ≤8B data
-//   ioctl  0x8000649C  in: <u64 physAddr><data(≤8B)>
+//	device: \\.\ThrottleStop
+//	ioctl  0x80006498  in: <u64 physAddr>  out: ≤8B data
+//	ioctl  0x8000649C  in: <u64 physAddr><data(≤8B)>
 const (
 	ioctlTsR = 0x80006498
 	ioctlTsW = 0x8000649C

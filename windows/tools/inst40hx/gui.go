@@ -824,7 +824,7 @@ func (st *guiState) installSelected(sel map[string]bool) {
 	nameOf := map[string]string{
 		"gsp": tr("Enable GSP", "Включить GSP", "GSP 启用"), "drv": tr("Gen2 driver deployment", "Развёртывание драйверов Gen2", "Gen2 驱动部署"), "efi": tr("Compute EFI + boot entry", "Compute EFI + запись загрузки", "算力 EFI + 启动项"),
 		"rebar": tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)"),
-		"task": tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"), "fast": tr("Disable Fast Startup", "Откл. быстрый запуск", "关闭快速启动"), "aspm": tr("Disable ASPM", "Откл. ASPM", "关闭 ASPM"),
+		"task":  tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"), "fast": tr("Disable Fast Startup", "Откл. быстрый запуск", "关闭快速启动"), "aspm": tr("Disable ASPM", "Откл. ASPM", "关闭 ASPM"),
 		"perf": tr("High-performance power plan", "План электропитания высокой производительности", "高性能电源计划"), "defoff": tr("Disable Defender real-time protection", "Откл. защиту Defender в реальном времени", "关闭 Defender 实时防护"),
 	}
 	var parts []string

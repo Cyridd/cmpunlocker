@@ -49,8 +49,8 @@ func OpenDevice(name string) (syscall.Handle, error) {
 		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(name))),
 		0xC0000000, // GENERIC_READ|GENERIC_WRITE
 		0, 0,       // shareMode=0, securityAttributes=NULL
-		3,          // OPEN_EXISTING
-		0x80, 0)    // FILE_ATTRIBUTE_NORMAL, no template
+		3,       // OPEN_EXISTING
+		0x80, 0) // FILE_ATTRIBUTE_NORMAL, no template
 	if ptr == uintptr(syscall.InvalidHandle) {
 		return 0, errors.New("open " + name + " failed")
 	}

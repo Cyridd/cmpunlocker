@@ -1,0 +1,99 @@
+# Build and publish a release when a version tag is pushed.
+#
+# Replaces the manual windows/tools/build_release.bat step for published
+# releases: the binaries attached to a GitHub release are always built by CI
+# from the tagged commit, with the same flags as the ci.yml smoke build, and
+# accompanied by SHA256SUMS.txt.
+#
+# The release is created as a draft so the notes can be reviewed (and the
+# assets verified) before it becomes public.
+#
+# Tag format: vX.Y.Z
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build release assets
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: windows/tools/inst40hx/go.mod
+          cache-dependency-path: windows/tools/*/go.sum
+
+      - name: Build the executables
+        shell: bash
+        env:
+          OUT: ${{ github.workspace }}/windows/release
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT"
+          flags=(-trimpath -ldflags='-H=windowsgui -s -w')
+          # -C changes the module directory, so -o needs an absolute path.
+          build() { # <module> <output>
+            go build -C "windows/tools/$1" "${flags[@]}" -o "$OUT/$2" .
+          }
+          build inst40hx     40HXInstaller.exe
+          build uninstall40x 40HXUninstaller.exe
+          build check40x     40HXCheck.exe
+
+      - name: Collect the packaged files
+        shell: bash
+        env:
+          OUT: ${{ github.workspace }}/windows/release
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT/gen2/drivers" "$OUT/files"
+          cp windows/tools/inst40hx/embed/40HXUNLK.EFI "$OUT/files/40HXUNLK.EFI"
+          cp windows/tools/inst40hx/embed/ThrottleStop.sys "$OUT/gen2/drivers/ThrottleStop.sys"
+          cp windows/tools/inst40hx/embed/WinRing0x64.sys "$OUT/gen2/drivers/WinRing0x64.sys"
+          cp windows/tools/inst40hx/embed/WinRing0x64.sys "$OUT/files/WinRing0x64.sys"
+          cp windows/FORK_CHANGES.md "$OUT/FORK_CHANGES.md"
+          cp windows/release-files/README.md "$OUT/README.md"
+          cp windows/release-files/EFI应急修复指南.md "$OUT/"
+          cp windows/release-files/AI辅助安装提示词.txt "$OUT/"
+          cp windows/release-files/make_usb_efi.bat "$OUT/"
+          cp windows/tools/verify_source.ps1 "$OUT/"
+
+      - name: Write SHA256SUMS.txt
+        shell: bash
+        env:
+          OUT: ${{ github.workspace }}/windows/release
+        run: |
+          set -euo pipefail
+          cd "$OUT"
+          find . -type f ! -name SHA256SUMS.txt -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed 's|\./||' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish a draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUT: ${{ github.workspace }}/windows/release
+        run: |
+          set -euo pipefail
+          # gh release create takes files, not directories.
+          mapfile -d '' assets < <(cd "$OUT" && find . -type f -print0)
+          (cd "$OUT" && gh release create "${GITHUB_REF_NAME}" \
+            --draft \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Automated build of ${GITHUB_REF_NAME}. Verify every file against \`SHA256SUMS.txt\` before use. See FORK_CHANGES.md for what changed in this fork." \
+            "${assets[@]}")

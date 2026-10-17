@@ -103,10 +103,10 @@ func FindGPUBDFFromRegistry() (uint32, bool) {
 // 原实现只扫 bus 0-7。在 B450+APU/寨板/多级桥接等拓扑下, 40HX 常被枚举到
 // bus>=8(甚至更高), 导致扫描永远漏掉它 → gen2Main 直接报"未能在 PCI 总线上
 // 定位 40HX"而放弃。现改为三层定位:
-//   1) 快速路径: bus 0-7 (覆盖绝大多数单卡)
-//   2) 兜底1: 从注册表 LocationInformation 取已知 BDF 并验证(最快最稳,
-//      不依赖 PCI config 能否被 WinRing0 扫到)
-//   3) 兜底2: 补扫 bus 8-255 (多级桥接/高总线拓扑)
+//  1. 快速路径: bus 0-7 (覆盖绝大多数单卡)
+//  2. 兜底1: 从注册表 LocationInformation 取已知 BDF 并验证(最快最稳,
+//     不依赖 PCI config 能否被 WinRing0 扫到)
+//  3. 兜底2: 补扫 bus 8-255 (多级桥接/高总线拓扑)
 func FindGPUPCI(wh syscall.Handle) (uint32, bool) {
 	// 1) 快速路径 bus 0-7
 	for bus := uint32(0); bus < 8; bus++ {

@@ -190,8 +190,8 @@ printf 'Initial PCIe state: '
 INITIAL_SNAPSHOT="$(read_snapshot)" || die 'unable to read PCIe capability registers.'
 printf '%s\n' "$INITIAL_SNAPSHOT"
 
-read -r INITIAL_CAP2 INITIAL_CTL2 INITIAL_LNKSTA <<< "$INITIAL_SNAPSHOT"
-read -r CAP2_NUM SPEED WIDTH HAS_GEN2 <<< \
+read -r INITIAL_CAP2 _ INITIAL_LNKSTA <<< "$INITIAL_SNAPSHOT"
+read -r _ SPEED WIDTH HAS_GEN2 <<< \
     "$(snapshot_values "${INITIAL_CAP2#CAP2=}" "${INITIAL_LNKSTA#LNKSTA=}")"
 
 if (( SPEED >= 2 )); then
@@ -280,8 +280,8 @@ done
 
 FINAL_SNAPSHOT="$(read_snapshot)" || die 'unable to read final PCIe capability registers.'
 printf 'Final PCIe state: %s\n' "$FINAL_SNAPSHOT"
-read -r FINAL_CAP2 FINAL_CTL2 FINAL_LNKSTA <<< "$FINAL_SNAPSHOT"
-read -r FINAL_CAP2_NUM FINAL_SPEED FINAL_WIDTH FINAL_HAS_GEN2 <<< \
+read -r FINAL_CAP2 _ FINAL_LNKSTA <<< "$FINAL_SNAPSHOT"
+read -r _ FINAL_SPEED FINAL_WIDTH FINAL_HAS_GEN2 <<< \
     "$(snapshot_values "${FINAL_CAP2#CAP2=}" "${FINAL_LNKSTA#LNKSTA=}")"
 lspci -Dvv -s "$GPU" | grep -E 'LnkCap:|LnkSta:|LnkCap2:|LnkCtl2:|LnkSta2:' || true
 

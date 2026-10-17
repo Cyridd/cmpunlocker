@@ -9,11 +9,12 @@ import (
 // 分类给出精确解决步骤。SS0 锁定时调用; 返回诊断建议字符串(可多行)。
 //
 // v2.4.4: 社区 #1 (X99 双卡 code43) 教训 — 相同症状可能来自不同根因:
-//   A. "WPR2 NOT up" + "IMEM[0]=0xffffffff"  → GPU DMA 够不到 >4GB 载荷
-//      = 主板 Above 4G Decoding 未开 (开发机 Z170 开了才成功)
-//   B. "not-OK (m0=0x89 halted)" → booter 注入失败 (时序/槽位问题)
-//   C. 日志显示已 UNLOCKED 但 SS0 锁 → 驱动层覆盖(重跑安装器)
-//   D. 无日志 → EFI 没跑 (启动项未置顶/Secure Boot)
+//
+//	A. "WPR2 NOT up" + "IMEM[0]=0xffffffff"  → GPU DMA 够不到 >4GB 载荷
+//	   = 主板 Above 4G Decoding 未开 (开发机 Z170 开了才成功)
+//	B. "not-OK (m0=0x89 halted)" → booter 注入失败 (时序/槽位问题)
+//	C. 日志显示已 UNLOCKED 但 SS0 锁 → 驱动层覆盖(重跑安装器)
+//	D. 无日志 → EFI 没跑 (启动项未置顶/Secure Boot)
 func AnalyzeEfiLog() string {
 	esp := MountESP()
 	if esp == "" {

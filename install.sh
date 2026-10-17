@@ -48,6 +48,9 @@ PATCH_PCIE="${SCRIPT_DIR}/0002-cmp40hx-pcie2-unlock.patch"
 PATCH_PCIE_DIAG="${SCRIPT_DIR}/0002-cmp40hx-pcie2-diagnostic.patch"
 PATCH_REBAR="${SCRIPT_DIR}/0003-cmp40hx-rebar-unlock.patch"
 
+# Set when a local archive was used; stays empty for --source-dir installs.
+TARBALL=""
+
 ARTIFACTS_DIR="${SCRIPT_DIR}/artifacts"
 
 KERNEL_UNAME="${KERNEL_UNAME:-$(uname -r)}"
@@ -75,11 +78,18 @@ LOCAL_TARBALLS=(
 )
 
 # ---------- Output ----------
-RED='\033[0;31m'
-YEL='\033[1;33m'
-GRN='\033[0;32m'
-BLU='\033[0;34m'
-NC='\033[0m'
+# Colours are opt-in: only when stdout is a terminal and NO_COLOR is unset.
+# Otherwise every escape is empty, so logs stay clean in CI and when piped
+# through tee/journal/cat.
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    RED='\033[0;31m'
+    YEL='\033[1;33m'
+    GRN='\033[0;32m'
+    BLU='\033[0;34m'
+    NC='\033[0m'
+else
+    RED='' YEL='' GRN='' BLU='' NC=''
+fi
 
 info()  { echo -e "${GRN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YEL}[WARN]${NC}  $*"; }
@@ -95,6 +105,10 @@ die() {
 USE_LOCAL_SRC=0
 USE_PCIE_DIAGNOSTIC=0
 SOURCE_DIR_EXPLICIT=0
+ASSUME_YES=0
+DRY_RUN=0
+FORCE_UNINSTALL=0
+ACTION="install"
 
 for arg in "$@"; do
     case "${arg}" in
@@ -109,9 +123,31 @@ for arg in "$@"; do
         --pcie-diagnostic)
             USE_PCIE_DIAGNOSTIC=1
             ;;
+        -y|--yes)
+            ASSUME_YES=1
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            ;;
+        --uninstall)
+            ACTION="uninstall"
+            ;;
+        --force)
+            FORCE_UNINSTALL=1
+            ;;
+        --verify)
+            ACTION="verify"
+            ;;
         -h|--help)
             cat <<EOF
 Usage: sudo ./install.sh [OPTIONS]
+
+Actions:
+  (default)              Build and install the patched modules
+  --verify               Check the installed modules against the manifest
+                         written by the last install; changes nothing
+  --uninstall            Remove the installed patched modules, and rebuild
+                         depmod/initramfs; asks for confirmation unless --yes
 
 Options:
   --source-dir=PATH      Use an existing NVIDIA source tree
@@ -119,6 +155,13 @@ Options:
                          local source archive
   --pcie-diagnostic      Use 0002-cmp40hx-pcie2-diagnostic.patch instead of
                          the normal PCIe Gen2 patch
+  -y, --yes              Do not ask questions; use the default answer. Also
+                         implied when stdin is not a terminal. Questions
+                         default to "no", so --yes alone never removes files
+  --force                With --uninstall, allow removing modules that no
+                         manifest records (installs made by older versions)
+  --dry-run              Run every check (tools, headers, driver version,
+                         patch application) but do not build or install
   -h, --help             Show this help
 
 Environment:
@@ -130,11 +173,15 @@ Environment:
   CC=clang               Force Clang/LLVM
   CC=gcc                 Force GCC
   JOBS=N                 Number of parallel build jobs (default: nproc)
+  NO_COLOR=1             Disable coloured output
 
 Examples:
   sudo ./install.sh
+  sudo ./install.sh --dry-run
   sudo ./install.sh --pcie-diagnostic
   sudo ./install.sh --source-dir=/path/to/open-gpu-kernel-modules-${DRIVER_VERSION}
+  sudo ./install.sh --verify
+  sudo ./install.sh --uninstall --yes
   sudo env KERNEL_UNAME=6.12.1-cachyos ./install.sh
   sudo env CC=clang ./install.sh
   sudo env JOBS=4 INITRAMFS_TOOL=dracut ./install.sh
@@ -147,12 +194,186 @@ EOF
     esac
 done
 
-# ---------- Environment ----------
+# Questions are skipped with --yes or when there is no terminal to answer on.
+# Without this, `read` returns EOF under `set -e` and the script dies with no
+# explanation in CI, cron, or `sudo ./install.sh < /dev/null`.
+ask() { # ask <question> <default: y|n>
+    local question="$1" default="$2" answer=""
+    if [[ "${ASSUME_YES}" -eq 1 || ! -t 0 ]]; then
+        info "${question} — assuming '${default}' (--yes or non-interactive)."
+        [[ "${default}" == "y" ]]
+        return
+    fi
+    read -r -p "${question} [$( [[ "${default}" == "y" ]] && echo "Y/n" || echo "y/N" )] " answer
+    answer="${answer:-${default}}"
+    [[ "${answer,,}" == "y" ]]
+}
+
+INSTALL_DIR="/lib/modules/${KERNEL_UNAME}/updates/cmpunlocker"
+MANIFEST_DIR="/var/lib/cmp40hx"
+MANIFEST_FILE="${MANIFEST_DIR}/install-${KERNEL_UNAME}.manifest"
+
+# Remove only the files the previous install recorded, plus the manifest
+# itself. Anything else in the module tree is left alone.
+#
+# Without a manifest there is no record of what this project installed, and the
+# directory may also hold modules from other tools — so the no-manifest path
+# lists the files and does nothing unless the operator passes --force.
+uninstall_modules() {
+    if [[ -f "${MANIFEST_FILE}" ]]; then
+        info "Using manifest: ${MANIFEST_FILE}"
+        local removed=0 name _file
+        while IFS=$'\t' read -r kind _file _; do
+            [[ "${kind}" == "module" ]] || continue
+            name="$(basename -- "${_file}")"
+            [[ "${name}" =~ ^[A-Za-z0-9_-]+\.ko$ ]] \
+                || { warn "Skipping unexpected module name in manifest: ${name}"; continue; }
+            if [[ -f "${INSTALL_DIR}/${name}" ]]; then
+                rm -f -- "${INSTALL_DIR}/${name}"
+                removed=$((removed + 1))
+            fi
+        done < "${MANIFEST_FILE}"
+        info "Removed ${removed} module(s) recorded in the manifest."
+    elif [[ -d "${INSTALL_DIR}" ]]; then
+        local candidates=()
+        while IFS= read -r -d '' f; do
+            candidates+=("$(basename -- "${f}")")
+        done < <(find "${INSTALL_DIR}" -maxdepth 1 -type f -name '*.ko' -print0)
+
+        if [[ ${#candidates[@]} -eq 0 ]]; then
+            info "No .ko files and no manifest in ${INSTALL_DIR}; nothing to remove."
+        elif [[ "${FORCE_UNINSTALL}" -ne 1 ]]; then
+            warn "No manifest records what was installed for kernel ${KERNEL_UNAME}."
+            warn "This install predates the manifest, so these files cannot be"
+            warn "verified as the project's own. Found in ${INSTALL_DIR}:"
+            local f
+            for f in "${candidates[@]}"; do
+                echo "        ${f}"
+            done
+            echo
+            error "Refusing to delete unrecorded files."
+            echo "  Remove them explicitly if you are sure:"
+            echo "      sudo ./install.sh --uninstall --force"
+            echo "  Or remove the directory yourself after inspecting it:"
+            echo "      ls -la ${INSTALL_DIR}"
+            exit 1
+        else
+            warn "--force: removing ${#candidates[@]} unrecorded module(s) from ${INSTALL_DIR}."
+            local f
+            for f in "${candidates[@]}"; do
+                rm -f -- "${INSTALL_DIR}/${f}"
+            done
+        fi
+    else
+        info "Nothing to remove: ${INSTALL_DIR} does not exist."
+    fi
+
+    rmdir -- "${INSTALL_DIR}" 2>/dev/null || true
+    rm -f -- "${MANIFEST_FILE}"
+    rmdir -- "${MANIFEST_DIR}" 2>/dev/null || true
+
+    depmod -a "${KERNEL_UNAME}"
+    info "depmod completed."
+    rebuild_initramfs
+}
+
+# Compare the installed modules with the hashes recorded at install time.
+verify_modules() {
+    [[ -f "${MANIFEST_FILE}" ]] \
+        || die "No manifest for ${KERNEL_UNAME}: ${MANIFEST_FILE}. Run install.sh first."
+
+    local ok=0 bad=0 kind file expected actual
+    info "Manifest: ${MANIFEST_FILE}"
+    while IFS=$'\t' read -r kind file expected; do
+        [[ "${kind}" == "module" ]] || continue
+        actual=""
+        if [[ -f "${INSTALL_DIR}/$(basename -- "${file}")" ]]; then
+            actual="$(sha256sum "${INSTALL_DIR}/$(basename -- "${file}")" | awk '{print $1}')"
+        fi
+        if [[ "${actual}" == "${expected}" ]]; then
+            info "OK      $(basename -- "${file}")"
+            ok=$((ok + 1))
+        else
+            error "MISMATCH $(basename -- "${file}") (installed: ${actual:-missing}, expected: ${expected})"
+            bad=$((bad + 1))
+        fi
+    done < "${MANIFEST_FILE}"
+
+    if [[ "${bad}" -gt 0 ]]; then
+        die "${bad} module(s) do not match; rebuild with install.sh or remove them with --uninstall."
+    fi
+    info "${ok} module(s) verified against the manifest."
+}
+# The initramfs tool is detected once here and used by both the install path
+# and --uninstall. INITRAMFS_TOOL can be forced from the environment; "auto"
+# picks the tool the distribution actually uses.
+detect_initramfs_tool() {
+    case "${INITRAMFS_TOOL}" in
+        auto)
+            if [[ -f /etc/mkinitcpio.conf ]] \
+                && command -v mkinitcpio >/dev/null 2>&1; then
+                INITRAMFS_TOOL="mkinitcpio"
+            elif [[ -d /etc/initramfs-tools ]] \
+                && command -v update-initramfs >/dev/null 2>&1; then
+                INITRAMFS_TOOL="update-initramfs"
+            elif command -v dracut >/dev/null 2>&1; then
+                INITRAMFS_TOOL="dracut"
+            elif command -v mkinitrd >/dev/null 2>&1; then
+                INITRAMFS_TOOL="mkinitrd"
+            elif command -v update-initramfs >/dev/null 2>&1; then
+                INITRAMFS_TOOL="update-initramfs"
+            elif command -v mkinitcpio >/dev/null 2>&1; then
+                INITRAMFS_TOOL="mkinitcpio"
+            else
+                INITRAMFS_TOOL="none"
+            fi
+            ;;
+    esac
+}
+
+rebuild_initramfs() {
+    case "${INITRAMFS_TOOL}" in
+        mkinitcpio)
+            command -v mkinitcpio >/dev/null 2>&1 \
+                || die "INITRAMFS_TOOL=mkinitcpio but mkinitcpio is not installed."
+            info "Rebuilding initramfs with mkinitcpio..."
+            mkinitcpio -P
+            info "mkinitcpio completed."
+            ;;
+        update-initramfs)
+            command -v update-initramfs >/dev/null 2>&1 \
+                || die "INITRAMFS_TOOL=update-initramfs but update-initramfs is not installed."
+            info "Rebuilding initramfs with update-initramfs..."
+            update-initramfs -u -k "${KERNEL_UNAME}"
+            info "update-initramfs completed."
+            ;;
+        dracut)
+            command -v dracut >/dev/null 2>&1 \
+                || die "INITRAMFS_TOOL=dracut but dracut is not installed."
+            info "Rebuilding initramfs with dracut..."
+            dracut --force --kver "${KERNEL_UNAME}"
+            info "dracut completed."
+            ;;
+        mkinitrd)
+            command -v mkinitrd >/dev/null 2>&1 \
+                || die "INITRAMFS_TOOL=mkinitrd but mkinitrd is not installed."
+            info "Rebuilding initramfs with mkinitrd..."
+            mkinitrd -f "/boot/initramfs-${KERNEL_UNAME}.img" "${KERNEL_UNAME}"
+            info "mkinitrd completed."
+            ;;
+        none)
+            warn "Skipping initramfs rebuild. Rebuild it with your distribution's "\
+                 "tool before rebooting if NVIDIA modules are included in initramfs."
+            ;;
+    esac
+}
+
 echo
 echo "======================================================================"
 echo "  CMP 40HX — Unlock Installer"
 echo "  NVIDIA source: ${DRIVER_VERSION}"
 echo "  Kernel: ${KERNEL_UNAME}"
+echo "  Action: ${ACTION}"
 echo "======================================================================"
 echo
 
@@ -164,11 +385,6 @@ if [[ -n "${SOURCE_SHA256}" && ! "${SOURCE_SHA256}" =~ ^[[:xdigit:]]{64}$ ]]; th
     die "Invalid SOURCE_SHA256: expected 64 hexadecimal characters."
 fi
 
-for tool in make patch sha256sum tar lspci depmod install grep awk sed find date dirname basename head; do
-    command -v "${tool}" >/dev/null 2>&1 \
-        || die "Required tool not found: ${tool}"
-done
-
 [[ -n "${KERNEL_UNAME}" ]] || die "KERNEL_UNAME is empty."
 [[ "${KERNEL_UNAME}" =~ ^[A-Za-z0-9._+-]+$ ]] \
     || die "Invalid KERNEL_UNAME: ${KERNEL_UNAME}"
@@ -177,6 +393,41 @@ case "${INITRAMFS_TOOL}" in
     auto|mkinitcpio|update-initramfs|dracut|mkinitrd|none) ;;
     *) die "Invalid INITRAMFS_TOOL: ${INITRAMFS_TOOL}" ;;
 esac
+
+detect_initramfs_tool
+
+# --verify and --uninstall never download, patch, or build anything, so they
+# do not require headers, a compiler, or a network tool.
+if [[ "${ACTION}" == "verify" ]]; then
+    step "Verifying installed modules"
+    verify_modules
+    exit 0
+fi
+
+if [[ "${ACTION}" == "uninstall" ]]; then
+    step "Removing installed modules"
+    if [[ -d "${INSTALL_DIR}" || -f "${MANIFEST_FILE}" ]]; then
+        # A manifest proves exactly what is being removed, so non-interactive
+        # runs may proceed. Without one, the answer is "no" unless the
+        # operator explicitly passed --force.
+        if [[ -f "${MANIFEST_FILE}" || "${FORCE_UNINSTALL}" -eq 1 ]]; then
+            ask "Remove the patched NVIDIA modules from ${INSTALL_DIR}?" y \
+                || { echo "Cancelled."; exit 0; }
+        else
+            ask "Remove the patched NVIDIA modules from ${INSTALL_DIR}?" n \
+                || { echo "Cancelled."; exit 0; }
+        fi
+        uninstall_modules
+    else
+        info "Nothing to remove for kernel ${KERNEL_UNAME}."
+    fi
+    exit 0
+fi
+
+for tool in make patch sha256sum tar lspci depmod install grep awk sed find date dirname basename head; do
+    command -v "${tool}" >/dev/null 2>&1 \
+        || die "Required tool not found: ${tool}"
+done
 
 if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
     if [[ "${USE_LOCAL_SRC}" -eq 0 ]]; then
@@ -275,8 +526,7 @@ if [[ -n "${NVIDIA_USERSPACE_VER}" ]]; then
         warn "NVIDIA userspace: ${NVIDIA_USERSPACE_VER}"
         warn "This installer targets NVIDIA ${DRIVER_VERSION}."
         warn "A userspace/kernel-module version mismatch can cause crashes."
-        read -r -p "Continue anyway? [y/N] " answer
-        [[ "${answer,,}" == "y" ]] || { echo "Cancelled."; exit 0; }
+        ask "Continue anyway?" n || { echo "Cancelled."; exit 0; }
     fi
 else
     warn "Could not determine the installed NVIDIA userspace version."
@@ -287,8 +537,7 @@ if command -v mokutil >/dev/null 2>&1; then
     SB_STATE="$(mokutil --sb-state 2>/dev/null || true)"
     if echo "${SB_STATE}" | grep -qi "enabled"; then
         warn "Secure Boot is enabled. Unsigned modules will not load."
-        read -r -p "Continue anyway? [y/N] " answer
-        [[ "${answer,,}" == "y" ]] || { echo "Cancelled."; exit 0; }
+        ask "Continue anyway?" n || { echo "Cancelled."; exit 0; }
     fi
 fi
 
@@ -368,13 +617,13 @@ else
 
     case "${TARBALL}" in
         *.tar.gz|*.tgz)
-            tar xzf "${TARBALL}" -C "${SCRIPT_DIR}"
+            tar --no-same-owner --no-same-permissions -xzf "${TARBALL}" -C "${SCRIPT_DIR}"
             ;;
         *.tar.xz)
-            tar xJf "${TARBALL}" -C "${SCRIPT_DIR}"
+            tar --no-same-owner --no-same-permissions -xJf "${TARBALL}" -C "${SCRIPT_DIR}"
             ;;
         *.tar.bz2)
-            tar xjf "${TARBALL}" -C "${SCRIPT_DIR}"
+            tar --no-same-owner --no-same-permissions -xjf "${TARBALL}" -C "${SCRIPT_DIR}"
             ;;
         *)
             die "Unsupported archive format: ${TARBALL}"
@@ -445,6 +694,29 @@ apply_patch() {
     error "or the patch has already been partially modified."
     exit 1
 }
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+    # Apply the whole series to a throwaway copy: this proves the patches
+    # apply cleanly without touching the user's source tree.
+    step "[3/6] Checking patches on a temporary copy (--dry-run)"
+    DRY_COPY="$(mktemp -d "${TMPDIR:-/tmp}/cmp-unlock-dry.XXXXXXXX")"
+    trap 'rm -rf -- "${DRY_COPY}"' EXIT
+    cp -a -- "${SRC_DIR}/." "${DRY_COPY}/"
+    cd "${DRY_COPY}"
+
+    for patch_file in "${PATCH_COMPUTE}" \
+        "$( [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]] && echo "${PATCH_PCIE_DIAG}" || echo "${PATCH_PCIE}" )" \
+        "${PATCH_REBAR}"; do
+        patch --dry-run -p1 < "${patch_file}" >/dev/null 2>&1 \
+            || die "$(basename "${patch_file}"): does not apply to this source tree."
+        info "$(basename "${patch_file}"): applies cleanly"
+        patch -p1 --silent < "${patch_file}"
+    done
+
+    info "All patches apply cleanly."
+    info "Dry run complete: nothing was built or installed."
+    exit 0
+fi
 
 apply_patch "${PATCH_COMPUTE}"
 
@@ -577,64 +849,34 @@ info "Installed ${INSTALLED} module(s) into ${INSTALL_DIR}"
 depmod -a "${KERNEL_UNAME}"
 info "depmod completed."
 
-# Rebuild initramfs with the tool used by the distribution. This can be
-# overridden with INITRAMFS_TOOL when more than one tool is installed.
-case "${INITRAMFS_TOOL}" in
-    auto)
-        if [[ -f /etc/mkinitcpio.conf ]] \
-            && command -v mkinitcpio >/dev/null 2>&1; then
-            INITRAMFS_TOOL="mkinitcpio"
-        elif [[ -d /etc/initramfs-tools ]] \
-            && command -v update-initramfs >/dev/null 2>&1; then
-            INITRAMFS_TOOL="update-initramfs"
-        elif command -v dracut >/dev/null 2>&1; then
-            INITRAMFS_TOOL="dracut"
-        elif command -v mkinitrd >/dev/null 2>&1; then
-            INITRAMFS_TOOL="mkinitrd"
-        elif command -v update-initramfs >/dev/null 2>&1; then
-            INITRAMFS_TOOL="update-initramfs"
-        elif command -v mkinitcpio >/dev/null 2>&1; then
-            INITRAMFS_TOOL="mkinitcpio"
-        else
-            INITRAMFS_TOOL="none"
-        fi
-        ;;
-esac
+rebuild_initramfs
 
-case "${INITRAMFS_TOOL}" in
-    mkinitcpio)
-        command -v mkinitcpio >/dev/null 2>&1 \
-            || die "INITRAMFS_TOOL=mkinitcpio but mkinitcpio is not installed."
-        info "Rebuilding initramfs with mkinitcpio..."
-        mkinitcpio -P
-        info "mkinitcpio completed."
-        ;;
-    update-initramfs)
-        command -v update-initramfs >/dev/null 2>&1 \
-            || die "INITRAMFS_TOOL=update-initramfs but update-initramfs is not installed."
-        info "Rebuilding initramfs with update-initramfs..."
-        update-initramfs -u -k "${KERNEL_UNAME}"
-        info "update-initramfs completed."
-        ;;
-    dracut)
-        command -v dracut >/dev/null 2>&1 \
-            || die "INITRAMFS_TOOL=dracut but dracut is not installed."
-        info "Rebuilding initramfs with dracut..."
-        dracut --force --kver "${KERNEL_UNAME}"
-        info "dracut completed."
-        ;;
-    mkinitrd)
-        command -v mkinitrd >/dev/null 2>&1 \
-            || die "INITRAMFS_TOOL=mkinitrd but mkinitrd is not installed."
-        info "Rebuilding initramfs with mkinitrd..."
-        mkinitrd -f "/boot/initramfs-${KERNEL_UNAME}.img" "${KERNEL_UNAME}"
-        info "mkinitrd completed."
-        ;;
-    none)
-        warn "Skipping initramfs rebuild. Rebuild it with your distribution's "\
-             "tool before rebooting if NVIDIA modules are included in initramfs."
-        ;;
-esac
+# ---------- Installation manifest ----------
+# Records exactly what was installed, from which source and with which patches,
+# so --verify and --uninstall operate on facts instead of globs, and so a bug
+# report can state the installed state unambiguously.
+mkdir -p "${MANIFEST_DIR}"
+{
+    printf 'format\t1\n'
+    printf 'kernel\t%s\n' "${KERNEL_UNAME}"
+    printf 'driver\t%s\n' "${DRIVER_VERSION}"
+    printf 'source_sha256\t%s\n' "$(sha256sum "${TARBALL}" 2>/dev/null | awk '{print $1}' || true)"
+    printf 'installed_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'pcie_mode\t%s\n' "$( [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]] && echo diagnostic || echo normal )"
+    printf 'patch\t%s\t%s\n' "$(basename "${PATCH_COMPUTE}")" "$(sha256sum "${PATCH_COMPUTE}" | awk '{print $1}')"
+    if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]]; then
+        printf 'patch\t%s\t%s\n' "$(basename "${PATCH_PCIE_DIAG}")" "$(sha256sum "${PATCH_PCIE_DIAG}" | awk '{print $1}')"
+    else
+        printf 'patch\t%s\t%s\n' "$(basename "${PATCH_PCIE}")" "$(sha256sum "${PATCH_PCIE}" | awk '{print $1}')"
+    fi
+    printf 'patch\t%s\t%s\n' "$(basename "${PATCH_REBAR}")" "$(sha256sum "${PATCH_REBAR}" | awk '{print $1}')"
+    for module in "${INSTALL_DIR}"/*.ko; do
+        [[ -e "${module}" ]] || continue
+        printf 'module\t%s\t%s\n' "$(basename "${module}")" "$(sha256sum "${module}" | awk '{print $1}')"
+    done
+} > "${MANIFEST_FILE}"
+
+info "Manifest written to: ${MANIFEST_FILE}"
 
 # ---------- Save artifacts ----------
 step "[6/6] Saving build artifacts"
@@ -677,8 +919,8 @@ echo "      sudo dmesg | grep CMP40"
 echo "      nvidia-smi"
 echo
 echo "  Uninstall:"
-echo "      sudo rm -rf /lib/modules/\$(uname -r)/updates/cmpunlocker"
-echo "      sudo depmod -a"
+echo "      sudo ./install.sh --uninstall"
+echo "      sudo ./install.sh --verify   # compare installed modules with the manifest"
 echo
 echo "  For PCIe diagnostic mode:"
 echo "      sudo ./install.sh --pcie-diagnostic"

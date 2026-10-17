@@ -33,9 +33,10 @@ func Gen2DrvFiles() []string {
 }
 
 // ExclusionPaths: 需要加白的具体路径(精确到文件/目录)。
-//   1-2. System32\drivers 下的两个驱动文件
-//   3.   %ProgramData%\40HXUnlock\drivers 备份源
-//   4.   当前 exe 所在目录(随入口变化, 不作查询判定项)
+//
+//	1-2. System32\drivers 下的两个驱动文件
+//	3.   %ProgramData%\40HXUnlock\drivers 备份源
+//	4.   当前 exe 所在目录(随入口变化, 不作查询判定项)
 func ExclusionPaths() []string {
 	var ps []string
 	sys := os.Getenv("SystemRoot")

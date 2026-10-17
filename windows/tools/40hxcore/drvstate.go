@@ -121,7 +121,9 @@ func Gen2DriversDeployedOnce() bool {
 }
 
 // Gen2DriversNeedDeploy: 页②预勾选判据 — 出现下列任一情况才需要(重新)部署:
-//   从未部署(备份源无) / 服务被 DISABLED / System32 文件 0 字节或与备份不一致。
+//
+//	从未部署(备份源无) / 服务被 DISABLED / System32 文件 0 字节或与备份不一致。
+//
 // "用完即卸"后 System32 缺失但备份源在 → 不需要部署(登录任务会自动重放)。
 func Gen2DriversNeedDeploy() bool {
 	if !Gen2DriversDeployedOnce() {
@@ -148,4 +150,3 @@ func fileState(p string) (DrvState, int64) {
 	}
 	return DrvOk, fi.Size()
 }
-

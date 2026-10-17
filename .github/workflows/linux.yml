@@ -1,0 +1,121 @@
+# CI for the Linux half of the project (repository root).
+#
+# The patches in the repository root are pinned to NVIDIA open-gpu-kernel-modules
+# 610.57.04. They are applied to the user's source tree at install time, so any
+# drift — an edited patch, a retagged upstream archive, a changed SHA256 — only
+# surfaces on a user's machine. This workflow reproduces that step without
+# kernel headers, a compiler, or root:
+#
+#   patches  — download the pinned archive, verify its SHA256, and apply the
+#              full patch series for both PCIe variants (normal and
+#              diagnostic), then assert the unlock markers are present.
+#   lint     — shellcheck every shell script in the repository.
+#   gofmt    — formatting gate for the Windows Go tree (Linux runners already
+#              have gofmt; the Go modules themselves are built in ci.yml).
+#
+# The kernel-module build itself is deliberately not attempted here: it needs
+# the target kernel's headers and is verified by install.sh on the target.
+
+name: Linux
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.patch'
+      - 'install.sh'
+      - 'tools/**'
+      - 'cmp_glcore_patch/*.sh'
+      - '.github/workflows/linux.yml'
+  pull_request:
+    paths:
+      - '*.patch'
+      - 'install.sh'
+      - 'tools/**'
+      - 'cmp_glcore_patch/*.sh'
+      - '.github/workflows/linux.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patches:
+    name: Patch series applies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Keep the pinned NVIDIA archive on the runner
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/nvidia-source
+          # Key on the archive hash: a changed pin produces a cache miss. Even
+          # on a hit, check-linux-patches.sh verifies the SHA256 before use.
+          key: nvidia-open-${{ hashFiles('install.sh', 'tools/check-linux-patches.sh') }}
+
+      - name: Download the pinned archive on a cache miss
+        env:
+          CACHE_DIR: ${{ runner.temp }}/nvidia-source
+        run: |
+          set -euo pipefail
+          archive="$CACHE_DIR/open-gpu-kernel-modules-610.57.04.tar.gz"
+          if [ -s "$archive" ]; then
+            echo "using cached archive"
+            exit 0
+          fi
+          mkdir -p "$CACHE_DIR"
+          curl -fL --retry 3 --silent --show-error \
+            https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/610.57.04.tar.gz \
+            -o "$archive"
+
+      - name: Apply the patch set to the pinned source
+        env:
+          ARCHIVE: ${{ runner.temp }}/nvidia-source/open-gpu-kernel-modules-610.57.04.tar.gz
+        run: ./tools/check-linux-patches.sh --source "$ARCHIVE"
+
+  lint:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: Lint every shell script
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(
+            printf '%s\n' install.sh
+            find tools cmp_glcore_patch -maxdepth 1 -name '*.sh' -print
+            find windows/tools -name '*.sh' -print
+          )
+          printf 'linting %d script(s)\n' "${#scripts[@]}"
+          shellcheck -x -S warning "${scripts[@]}"
+
+  gofmt:
+    name: gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: windows/tools/inst40hx/go.mod
+
+      - name: Fail on unformatted Go files
+        working-directory: windows/tools
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf '::error::gofmt found unformatted files:\n%s\n' "$unformatted"
+            gofmt -d . | head -200
+            exit 1
+          fi
+          echo "all Go files are gofmt-clean"

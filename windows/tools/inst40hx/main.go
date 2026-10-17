@@ -816,7 +816,7 @@ func installEFI() bool {
 
 func install() {
 	fmt.Println("==============================================")
-	fmt.Println("  CMP 40HX Windows Unlock Installer "+hxcore.Version)
+	fmt.Println("  CMP 40HX Windows Unlock Installer " + hxcore.Version)
 	fmt.Println(tr("  Tensor unlock (EFI V70 + GSP enable) + PCIe Gen2 + autostart", "  Разблокировка Tensor (EFI V70 + включение GSP) + PCIe Gen2 + автозапуск", "  Tensor 解锁(EFI V70 + GSP 启用) + PCIe Gen2 + 自启动"))
 	fmt.Println("==============================================")
 

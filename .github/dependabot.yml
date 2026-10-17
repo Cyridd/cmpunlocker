@@ -1,0 +1,52 @@
+# Keep GitHub Actions pinned by commit SHA and Go modules current.
+#
+# Workflows pin actions to commit SHAs (see the trailing `# vN` comments);
+# this keeps those pins from silently ageing out, and tracks the five Go
+# modules under windows/tools/.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /windows/tools/40hxcore
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: gomod
+    directory: /windows/tools/check40x
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: gomod
+    directory: /windows/tools/inst40hx
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: gomod
+    directory: /windows/tools/uninstall40x
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: gomod
+    directory: /windows/tools/winres_gen
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"

@@ -35,7 +35,9 @@ func tr(en, ru, zh string) string { return hxcore.T(en, ru, zh) }
 
 // appTitle is the message-box caption. It is a function, not a const, because the
 // display language is only resolved at runtime (hxcore.InitLanguage in main).
-func appTitle() string { return tr("CMP 40HX Unlock Diagnostics", "Диагностика разблокировки CMP 40HX", "CMP 40HX 解锁诊断") }
+func appTitle() string {
+	return tr("CMP 40HX Unlock Diagnostics", "Диагностика разблокировки CMP 40HX", "CMP 40HX 解锁诊断")
+}
 
 var (
 	procMsgBoxW = syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")
@@ -647,23 +649,23 @@ func check() {
 		verdict = tr(">>> Full compute; Gen2 not reached — the logon task already runs at every logon (including automatic Stage2); if it still fails, click [Run Gen2 now] in GUI section ② (see README §5.2)", ">>> Полная мощность; Gen2 не достигнут — задача входа уже выполняется при каждом входе (включая автоматический Stage2); если не помогло, нажмите [Выполнить Gen2 сейчас] в разделе ② GUI (см. README §5.2)", ">>> 算力满血; Gen2 未达成 — 登录任务每次登录已自动执行(含自动 Stage2); 仍失败可在 GUI ② 区点[立即执行 Gen2] 再试(详见 README §5.2)")
 	case st.SS0OK:
 		verdict = tr(">>> Not unlocked this boot (SS0 locked)", ">>> В этой загрузке не разблокировано (SS0 заблокирован)", ">>> 本次开机未解锁 (SS0 锁定)")
-		default:
-			if !drvOK {
-				if !isAdmin() {
-					verdict = tr(">>> Driver not loaded: this tool needs administrator rights to load the kernel driver and measure state. Right-click this program -> Run as administrator", ">>> Драйвер не загружен: инструменту нужны права администратора для загрузки драйвера ядра и измерения состояния. Щелкните правой кнопкой -> Запуск от имени администратора", ">>> 驱动未加载: 本工具需管理员权限加载内核驱动以实测状态。请右键本程序 -> 以管理员身份运行")
-				} else if gpuOK && gsOn {
-					if ever, ev := drvLogEvidence(); ever {
-						verdict = tr(">>> The driver is not running now, but logs show Gen2 was reached successfully before (", ">>> Драйвер сейчас не работает, но журналы показывают, что Gen2 ранее был достигнут (", ">>> 驱动当前未运行, 但日志显示此前已成功达成 Gen2 (") + ev + tr(").  Unlock is in effect; right-click and run this tool as administrator to read live state", "). Разблокировка действует; щелкните правой кнопкой и запустите инструмент от имени администратора для чтения состояния в реальном времени", ")。解锁已生效, 右键以管理员运行本工具可读实时状态")
-					} else {
-						verdict = tr(">>> Driver unavailable — run from the 40HXUnlock release folder (which contains gen2\\drivers), or re-run 40HXInstaller.exe as administrator to install the driver first", ">>> Драйвер недоступен — запустите из папки выпуска 40HXUnlock (в ней есть gen2\\drivers) или сначала перезапустите 40HXInstaller.exe от имени администратора для установки драйвера", ">>> 驱动不可用 — 请从 40HXUnlock 发布目录(含 gen2\\drivers)运行, 或先管理员重跑 40HXInstaller.exe 安装驱动")
-					}
+	default:
+		if !drvOK {
+			if !isAdmin() {
+				verdict = tr(">>> Driver not loaded: this tool needs administrator rights to load the kernel driver and measure state. Right-click this program -> Run as administrator", ">>> Драйвер не загружен: инструменту нужны права администратора для загрузки драйвера ядра и измерения состояния. Щелкните правой кнопкой -> Запуск от имени администратора", ">>> 驱动未加载: 本工具需管理员权限加载内核驱动以实测状态。请右键本程序 -> 以管理员身份运行")
+			} else if gpuOK && gsOn {
+				if ever, ev := drvLogEvidence(); ever {
+					verdict = tr(">>> The driver is not running now, but logs show Gen2 was reached successfully before (", ">>> Драйвер сейчас не работает, но журналы показывают, что Gen2 ранее был достигнут (", ">>> 驱动当前未运行, 但日志显示此前已成功达成 Gen2 (") + ev + tr(").  Unlock is in effect; right-click and run this tool as administrator to read live state", "). Разблокировка действует; щелкните правой кнопкой и запустите инструмент от имени администратора для чтения состояния в реальном времени", ")。解锁已生效, 右键以管理员运行本工具可读实时状态")
 				} else {
-					verdict = tr(">>> Cannot complete the unlock verdict (see the items above)", ">>> Не удалось вынести заключение о разблокировке (см. пункты выше)", ">>> 无法完成解锁判定 (见上方分项)")
+					verdict = tr(">>> Driver unavailable — run from the 40HXUnlock release folder (which contains gen2\\drivers), or re-run 40HXInstaller.exe as administrator to install the driver first", ">>> Драйвер недоступен — запустите из папки выпуска 40HXUnlock (в ней есть gen2\\drivers) или сначала перезапустите 40HXInstaller.exe от имени администратора для установки драйвера", ">>> 驱动不可用 — 请从 40HXUnlock 发布目录(含 gen2\\drivers)运行, 或先管理员重跑 40HXInstaller.exe 安装驱动")
 				}
 			} else {
 				verdict = tr(">>> Cannot complete the unlock verdict (see the items above)", ">>> Не удалось вынести заключение о разблокировке (см. пункты выше)", ">>> 无法完成解锁判定 (见上方分项)")
 			}
+		} else {
+			verdict = tr(">>> Cannot complete the unlock verdict (see the items above)", ">>> Не удалось вынести заключение о разблокировке (см. пункты выше)", ">>> 无法完成解锁判定 (见上方分项)")
 		}
+	}
 	w("\n%s\n", verdict)
 	if st.SS0OK && !st.Unlocked {
 		if reason := hxcore.AnalyzeEfiLog(); reason != "" {

@@ -59,9 +59,9 @@ jobs:
     env:
       CROSS: ${{ matrix.cross }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: windows/tools/inst40hx/go.mod
           cache-dependency-path: windows/tools/*/go.sum
@@ -99,8 +99,14 @@ jobs:
       - name: Run unit tests
         if: matrix.cross == '0'
         shell: bash
-        working-directory: windows/tools/40hxcore
-        run: go test -v ./...
+        working-directory: windows/tools
+        run: |
+          set -euo pipefail
+          for m in 40hxcore check40x inst40hx uninstall40x winres_gen; do
+            echo "::group::test $m"
+            go test -C "$m" ./...
+            echo "::endgroup::"
+          done
 
       - name: Build the shipped executables
         shell: bash
@@ -152,7 +158,7 @@ jobs:
       # expected to change too.
       EFI_IMAGE: archlinux:base@sha256:f3691b4dde62ba4c4b6f0ae2c1fbf28e8c0c8c4b9a35c7e06dc1f70e21aa29f6
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Rebuild inside the pinned toolchain container
         run: |
@@ -166,6 +172,26 @@ jobs:
             bash -lc '
               set -euo pipefail
               pacman -Sy --noconfirm --quiet gcc binutils make gnu-efi
+
+              # The image digest fixes the package database, not the packages:
+              # Arch is a rolling distribution, so `pacman -Sy` resolves to
+              # whatever is current. The EFI link is byte-sensitive to the
+              # exact gcc/binutils. Fail here, with a precise message, when
+              # the versions drift — otherwise the payload comparison below
+              # reports a misleading "source and payload have drifted".
+              check_pkg() { # <name> <expected>
+                local actual
+                actual="$(pacman -Q "$1" | awk "{print \$2}")"
+                case "$actual" in
+                  "$2"*|"$2") ;;
+                  *) echo "::error::package $1 is $actual, expected $2*; re-pin EFI_EXPECTED_${1^^}_VERSION in ci.yml and regenerate windows/tools/inst40hx/embed/40HXUNLK.EFI" >&2; exit 1 ;;
+                esac
+              }
+              check_pkg gcc     16.2.1
+              check_pkg binutils 2.47
+              check_pkg make    4.4.1
+              check_pkg gnu-efi 4.0.4
+
               cp -r /src /build
               cd /build
               VBIOS_DUMP=0 DIRECT_WRITE_PROBE=0 PRELOAD_PROBE=0 ./build_v70.sh
@@ -186,7 +212,7 @@ jobs:
           echo "EFI payload reproduces byte-for-byte"
 
       - name: Upload the rebuilt EFI
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: unlock40x_v70.efi
           path: ${{ runner.temp }}/efi-out/unlock40x_v70.efi
