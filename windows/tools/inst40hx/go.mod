@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	40hxcore v0.0.0
 	github.com/lxn/walk v0.0.0-20210112085537-c389da54e794
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
