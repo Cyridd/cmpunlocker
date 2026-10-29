@@ -58,7 +58,7 @@ func (e pl0Entry) next(old uint32) uint32 {
 	return e.val
 }
 
-// Опция: для PRIV_MISC_1 / CYA_0 использовать RMW по рецепту вашего EFI вместо
+// Опция: для PRIV_MISC_1 / CYA_0 использовать RMW как в EFI-приложении вместо
 // констант 3.2.0. Констант 3.2.0 на машине репортёра работает без BSOD, поэтому
 // по умолчанию выключено; включать только для A/B (reg Gen2Pl0EfiRmw=1).
 func (e pl0Entry) nextEfi(old uint32) uint32 {

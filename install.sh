@@ -779,7 +779,7 @@ apply_patch() {
 
 if [[ "${DRY_RUN}" -eq 1 ]]; then
     # Apply the whole series to a throwaway copy: this proves the patches
-    # apply cleanly without touching the user's source tree.
+    # apply cleanly without touching the original source tree.
     step "[3/6] Checking patches on a temporary copy (--dry-run)"
     DRY_COPY="$(mktemp -d "${TMPDIR:-/tmp}/cmp-unlock-dry.XXXXXXXX")"
     trap 'rm -rf -- "${DRY_COPY}"' EXIT

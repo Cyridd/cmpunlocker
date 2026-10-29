@@ -90,7 +90,7 @@ Full list: [`docs/compatibility.md`](docs/compatibility.md).
 | [`docs/file-structure.md`](docs/file-structure.md) | What each file and directory is |
 | [`docs/licensing.md`](docs/licensing.md) | Per-component licenses and attribution |
 | [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md) | Userspace pipeline-throttle patch usage and rollback |
-| [`docs/research/`](docs/research/README.md) | Research notes and evidence: PCIe Gen2 diagnostics, Gen3 investigation, Link Disable audit, pipeline throttle findings |
+| [`docs/research/`](docs/research/README.md) | Research conclusions and validation: Booter compatibility, PCIe Gen2/Gen3, profiling and pipeline throttle |
 | [`ROADMAP.md`](ROADMAP.md) | Research directions and plans |
 
 **Origin and attribution.** This tree is a fork of

@@ -37,8 +37,8 @@ their original terms.
 - Prebuilt executables are no longer committed. The Windows tools are built from
   source by CI and published on GitHub Releases with SHA-256 checksums. The
   patched `libnvidia-glcore.so` is not distributed at all: it is a modified copy
-  of NVIDIA's proprietary library, so it is generated locally from the user's own
-  installed copy.
+  of NVIDIA's proprietary library, so it is generated locally from the installed
+  original copy.
 - Remaining fork-specific changes — Copyright (c) 2026 Cyridd, licensed under
   the MIT License.
 

@@ -17,8 +17,7 @@
  * The feature masks — PLM (protected-layer mask) and speed-selects SS0/SS1 —
  * live in fuse-shadow registers on BAR0 and are writable only from GPU-side
  * privileged firmware. The NVIDIA-signed SEC2 "booter" microcode has a stack
- * protector canary bug (Jon Pry, "A Canary in the Crypto Mine",
- * DOI 10.5281/zenodo.20916112): when it processes an oversized "signature"
+ * protector canary bug: when it processes an oversized "signature"
  * blob (our 0xFA00-byte V67 payload instead of the stock 4 KB), execution
  * runs into a ROP gadget chain that performs arbitrary privileged register
  * writes — including PLM open and SS0/SS1 unlock.
@@ -71,7 +70,7 @@
  * ---------------------------------------------------------------------------
  * Embedded blobs (objcopy'd in by src/build.sh; NOT distributed in git)
  * ---------------------------------------------------------------------------
- *   v67_payload.bin                canary exploit payload (bendy2 research)
+ *   v67_payload.bin                privileged register-write payload
  *   booter_ucode_prod_patched.bin  SEC2 booter ucode from driver bindata,
  *                                  SIG_PROD[0] patched at offset 0x8A10
  *   gsp_rm_boot_dbg.bin            GSP bootloader (GspRmBoot), 0x6000 bytes
@@ -2946,7 +2945,7 @@ early_unlock_path(UINT64 ucodePhys, UINT64 fwsecPhys, UINT64 wprMetaPhys)
  * at 0x100000 instead of 0x27FE000) -> [3] probes + SEC2 booter load
  * with correct sizes, DMA vs ports, plus a GSP-direct attempt.
  * Legacy fallback ladder member — early_unlock_path() supersedes it.
- * Идея пользователя: «вывалить на GPU то, что шлёт патченный драйвер».
+ * Эксперимент: воспроизвести на GPU последовательность патченного драйвера.
  * Из полного трейса (V2-41) драйвер 610.43.03 при инициализации делает ТРИ
  * загрузки в строгом порядке:
  *   1) GSP ucodeId=1 (booter): BCR=0, RM=chipId0(0xb72000a1), DMACTL=0,

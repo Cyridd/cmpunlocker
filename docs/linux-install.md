@@ -258,6 +258,3 @@ This compares the installed modules against the manifest and reports any file
 that is missing or does not match.
 
 Then reinstall the official NVIDIA driver package if necessary.
-
-On Windows, run `40HXUninstaller.exe` (or `40HXInstaller.exe -uninstall`) as
-Administrator instead; it removes the components and restores the boot entry.

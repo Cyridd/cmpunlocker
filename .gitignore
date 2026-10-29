@@ -1,6 +1,16 @@
-open-gpu-kernel-modules-610.57.04/
-open-gpu-kernel-modules-610.57.04.tar.gz
+# NVIDIA source trees and archives downloaded by install.sh for any supported
+# driver version, plus the copies it moves aside on re-download.
+open-gpu-kernel-modules-*/
+open-gpu-kernel-modules-*.tar.gz
+NVIDIA-*/
+NVIDIA-*.tar.xz
+NVIDIA-kernel-module-source-*/
+NVIDIA-kernel-module-source-*.tar.*
 artifacts/
+
+# Python helper bytecode.
+__pycache__/
+*.py[cod]
 
 # Windows tree build outputs (see windows/README.md)
 windows/release-fork/
