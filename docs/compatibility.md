@@ -14,6 +14,9 @@ and `LnkSta: Speed 5GT/s, Width x16`. See
 [`615_BOOTER_COMPATIBILITY.md`](research/615_BOOTER_COMPATIBILITY.md) for the
 failure analysis and validation procedure.
 
+- The optional glcore pipeline patch has runtime confirmation on `610.57.04`
+  and `615.78.08`, plus offline signature validation on `580.173.02`. Its helper
+  selects the matching version automatically; unknown binary layouts are rejected.
 - The optional `--profiling` patch is available for `615.78.08` and masks the
   CMP SKU query for 40HX. CUPTI gate support is hardware-confirmed; counter
   collection awaits validation. See

@@ -27,14 +27,14 @@ on:
       - 'patches/**'
       - 'install.sh'
       - 'tools/**'
-      - 'cmp_glcore_patch/*.sh'
+      - 'cmp_glcore_patch/**'
       - '.github/workflows/linux.yml'
   pull_request:
     paths:
       - 'patches/**'
       - 'install.sh'
       - 'tools/**'
-      - 'cmp_glcore_patch/*.sh'
+      - 'cmp_glcore_patch/**'
       - '.github/workflows/linux.yml'
   workflow_dispatch:
 
@@ -46,6 +46,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  glcore:
+    name: glcore patcher checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check binary patching and rejection paths
+        run: python3 cmp_glcore_patch/test_patch_glcore.py
+
   patches:
     name: Patch series applies (${{ matrix.version }})
     runs-on: ubuntu-latest

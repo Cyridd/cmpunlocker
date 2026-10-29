@@ -1,6 +1,8 @@
 # CMP 40HX GSP pipeline throttle findings
 
-Driver: NVIDIA 610.57.04, GSP enabled, CMP 40HX / TU106.
+Initial research: NVIDIA 610.57.04, GSP enabled, CMP 40HX / TU106.
+Follow-up: 615.78.08 runtime confirmation and 580.173.02 offline analysis on
+2026-10-18.
 
 ## Proven trigger
 
@@ -86,7 +88,9 @@ the throttle loop from 240 iterations to one.
 
 The checked patcher is in `cmp_glcore_patch/patch_glcore.cpp`. It refuses to
 patch unless the exact original eight-byte constant occurs exactly twice and
-writes a separate local library rather than changing `/usr/lib`.
+writes a separate local library rather than changing `/usr/lib`. The current
+patcher also recognizes the equivalent slot-51 emitter, checks the MME program
+and surrounding instructions, and rejects incompatible ELF architectures.
 
 Measured with the local patched library:
 
@@ -116,6 +120,22 @@ registry key. `RMPriorityThrottleDelay` is unrelated: NVIDIA's open registry
 header documents it as a CPU thread-priority throttle delay while holding a
 GPU lock.
 
-The binary offsets and match count are version- and architecture-specific.
-The same MME body exists in NVIDIA 580 libraries too, but its emitter needs a
-separate signature analysis before patching.
+## Additional releases
+
+615.78.08 uses the same slot-52 eight-byte constant at `0xb227ad` and
+`0xdae680`. A `vk_shader_bind_matrix` run on 2026-10-18 measured 1000 same
+pipeline binds at `138.716384 ms` stock and `0.005856 ms` patched; alternating
+two pipelines measured `138.715072 ms` and `0.005952 ms`. Shader-object binds
+remained in the microsecond range in both runs. The regenerated 615 output
+matches the runtime-tested library byte for byte.
+
+580.173.02 uses `66 0e 01 20 f0 00 00 00` at `0xb51c8d` and `0xde8560`,
+corresponding to slot 51. Disassembly shows the same `movabs` constant/store
+emitter structure, and the library contains the exact known MME delay program.
+The current patcher accepts this variant and changes only the argument DWORDs.
+That is offline validation; a runtime benchmark needs the matching 580 stack.
+
+The helper no longer pins a driver release. Binary signatures and instruction
+layout still determine compatibility; unknown releases/layouts are rejected.
+See [`cmp_glcore_patch/README.md`](../../cmp_glcore_patch/README.md) for the
+complete 615 comparison and automatic version-selection rules.

@@ -116,7 +116,7 @@ BAR1 Memory Usage
 The CMP 40HX also has a separate **userspace** performance restriction affecting
 classic Vulkan pipeline binding. Unlike the compute, PCIe and ReBAR patches, this
 unlock does **not** modify the open kernel module: the restriction lives in the
-proprietary `libnvidia-glcore.so.610.57.04`.
+proprietary `libnvidia-glcore.so` (runtime-confirmed on 610.57.04 and 615.78.08).
 
 The reproduced trigger is the classic pipeline path. The shader-object binding
 diagnostic did not reproduce the same delay, so this project does not claim a
@@ -140,7 +140,7 @@ for 240 iterations. The important point is that the slowdown is caused by the
 **combination** of the two operations in the MME macro, not by either operation in
 isolation.
 
-The relevant emitters were located in the 64-bit library at file offsets:
+The relevant emitters were located in the 64-bit 610.57.04 library at file offsets:
 
 ```text
 0xb20c2d
@@ -169,9 +169,11 @@ evidence see [`CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md`](research/CMP40_GSP_PIPE
 
 ### Limitations
 
-- This unlock is currently specific to **`libnvidia-glcore.so.610.57.04`**.
+- Runtime performance is confirmed on **610.57.04 and 615.78.08**;
+  **580.173.02** passes offline validation with the slot-51 signature.
 - The validated patch signatures cover the 64-bit library only.
-- Other NVIDIA driver versions require new emitter signatures and revalidation.
+- The helper selects the library version automatically. Releases with unknown
+  emitter signatures or delay programs require further analysis and validation.
 - NVIDIA 32-bit userspace components require separate signatures / patching.
 - Do not replace the system `/usr/lib/libnvidia-glcore.so.*`; use the local
   library through `LD_LIBRARY_PATH` as documented in `cmp_glcore_patch/README.md`.

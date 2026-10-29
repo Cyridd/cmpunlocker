@@ -18,7 +18,7 @@
 | `tools/check-linux-patches.sh` | Verifies that each version's patch set still applies to its pinned NVIDIA source, in both PCIe modes where available; used by CI and runnable locally |
 | `tools/cmp40hx-driver-reprobe-gen2.sh` | Optional driver unbind/bind recovery for cold-boot Gen1 capability state |
 | `tools/cmp40hx-driver-reprobe-gen2.service` | Disabled-by-default experimental systemd boot unit for the reprobe helper |
-| `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04`: patcher source, `build_patched_lib.sh` helper, usage guide |
+| `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock: version-selecting build helper, signature-checked x86-64 patcher, rejection-path tests and usage guide (610/615 runtime-confirmed, 580 offline-checked) |
 | `docs/research/CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |
 | `README.md` | Project overview |

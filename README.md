@@ -55,7 +55,9 @@ sudo shutdown -h now         # full cold power-off, not a warm reboot
 sudo dmesg | grep CMP40      # expect SS0=0x88888888 SS1=0x00000008 FECS_PLM=0xffffff8f
 ```
 
-The optional pipeline unlock is separate: see [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md).
+The optional pipeline unlock is separate, selects the library version automatically,
+and has runtime confirmation on 610.57.04 and 615.78.08. See
+[`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md).
 
 An optional profiling unlock for 615.78.08 is available with
 `sudo ./install.sh --profiling`. It ports CMP170HX's CMP SKU query mask;
@@ -110,7 +112,7 @@ are documented in
 - This project is intended for hardware research and experimentation.
 - Use it at your own risk.
 - Modified kernel modules or NVIDIA userspace libraries may cause driver initialization failures, application crashes, or system instability.
-- The pipeline throttle unlock creates a modified local copy of `libnvidia-glcore.so.610.57.04`; never overwrite the original system library, so rollback stays trivial.
+- The pipeline throttle unlock creates a modified local copy of the matching `libnvidia-glcore.so.<version>`; never overwrite the original system library, so rollback stays trivial.
 - NVIDIA licensing, warranty, and support terms may be affected.
 - Keep a way to boot without the patched modules so the official driver can be restored.
 - On Windows, the unlock runs from a UEFI application and the Gen2 helper loads
