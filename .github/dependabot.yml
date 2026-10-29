@@ -16,37 +16,21 @@ updates:
       actions:
         patterns: ["*"]
 
+  # All five modules form one dependency chain: the four tools resolve
+  # `40hxcore` through `replace ../40hxcore` and share its go.sum entries.
+  # Bumping one module alone leaves the others with a stale go.sum and breaks
+  # `go build` ("updates to go.mod needed"), so they are updated together.
   - package-ecosystem: gomod
-    directory: /windows/tools/40hxcore
+    directories:
+      - /windows/tools/40hxcore
+      - /windows/tools/check40x
+      - /windows/tools/inst40hx
+      - /windows/tools/uninstall40x
+      - /windows/tools/winres_gen
     schedule:
       interval: weekly
     commit-message:
       prefix: "deps"
-
-  - package-ecosystem: gomod
-    directory: /windows/tools/check40x
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "deps"
-
-  - package-ecosystem: gomod
-    directory: /windows/tools/inst40hx
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "deps"
-
-  - package-ecosystem: gomod
-    directory: /windows/tools/uninstall40x
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "deps"
-
-  - package-ecosystem: gomod
-    directory: /windows/tools/winres_gen
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "deps"
+    groups:
+      go-modules:
+        patterns: ["*"]
