@@ -7,6 +7,7 @@ install or use the project; start from the [main README](../../README.md) and th
 | Note | Contents |
 |---|---|
 | [`615_BOOTER_COMPATIBILITY.md`](615_BOOTER_COMPATIBILITY.md) | 615.78.08 Booter compatibility and PCIe policy fixes, with hardware-validated compute unlock and Gen2 x16 |
+| [`CMP170HX_PATCH_PORTABILITY.md`](CMP170HX_PATCH_PORTABILITY.md) | Source assessment of 170HX patch candidates for 40HX, existing equivalents and memory-specific workarounds |
 | [`CMP40_PROFILING.md`](CMP40_PROFILING.md) | Optional profiling patch, confirmed CUPTI support gate and counter-collection checks |
 | [`PCIE_GEN2_DIAGNOSTIC.md`](PCIE_GEN2_DIAGNOSTIC.md) | Diagnostic installation, collection and interpretation guide for the PCIe Gen2 path |
 | [`PCIE_GEN3_CMP40HX_RESEARCH.md`](PCIE_GEN3_CMP40HX_RESEARCH.md) | Gen3 capability/policy investigation and negative results |

@@ -5,6 +5,79 @@ PCIe Gen2 x16. This document records the Gen3 investigation so that future
 work can start from the observed hardware boundary instead of repeating the
 same runtime experiments.
 
+## Fuse, VBIOS and GC6 findings (October 19–23, 2026)
+
+Offline analysis of the 615.78.08 GSP and host RM identifies these TU106
+read-side conditions:
+
+| BAR0 offset | Observed RM use |
+| --- | --- |
+| `0x21250[0]` | BIF Gen3 veto when set |
+| `0x2157c[0]` | CMP SKU classification and a conditional BIF full-word write request |
+| `0x21580[0]` | CMP SKU classification together with `0x2157c[0]` |
+
+The corresponding GA100 Gen3/CMP pair is `0x820250/0x820580`, but a shared
+read-side role does not establish a portable write sequence. The recovered
+software filter is `bIsFmodel`, a simulation-mode field. It does not identify
+the hardware override-enable gate. Several GA100 writer callbacks instead
+select zero-return stubs or different functions on TU106. The cached CMP
+classification is exported through NVKV branding key `0x1000`, bit 8;
+changing a host query alone does not rewrite that firmware state.
+
+During the October 21 test on the B550 host with driver 615.78.08, a read-only
+diagnostic add-on recorded all three words as `0x00000001` at each of four
+bootstrap points: before local FWSEC, after FWSEC, after compute unlock and
+after GSP initialization. All 12 reads were valid. The boot log contained
+no NVIDIA Xid, PCIe AER or GPU-loss errors, and a later snapshot retained
+Gen2 x16, 8192 MiB FB/BAR1 and zero PCIe replay counters. These host reads
+support the Gen3-veto interpretation but do not trace GSP logical reads or
+prove fuse-shadow writability. The first phase was after earlier driver/POST
+actions, rather than immediately after hardware reset.
+
+Source-log SHA256 values for that observation:
+
+| Log | SHA256 |
+| --- | --- |
+| `kernel-test.log` | `8a4b259919c4323d40edb71aa42714b5cd123e65276223069d2e0b6aa6012a73` |
+| `nvidia-smi-test.txt` | `b59250d55129a718f89946de547d935e15294d86757741c99c9e91d9a9b51c37` |
+
+The reviewed CMP and RTX 2060 Super BIT V tables share 15 register records
+and 16 fields; CMP adds ID 23 at `0x214ac[11:0]`. They contain none of the
+three offsets above. Both devinit streams include a guarded zero-write to
+`0x21040`, conditional on bit 0 already being zero. TU106's address-remapping
+callback keeps that address unchanged. The devinit pre-write list uses
+`(word & mask) | value`; the distinct Graphics override list uses tagged
+addresses and `(old & ~mask) | value`. Its discovery did not recover the
+producer of the devinit preserve masks or an override-enable sequence.
+
+The GC6 investigation connects register/value stream capture to MemorySystem,
+conversion into record 10, preparation/upload through the PGC6 aperture and
+PMU firmware loading. TU106 and GA100 select different capture callbacks.
+BIT `p` application `0x82` supplies preparation payloads, while application
+`0x83` reaches PMU bootstrap/STARTCPU and completion. The primary ROM IFR
+loader selects FWSEC images; shared CMP/RTX loader bytes do not identify the
+secure record-10 interpreter. Hardware execution, live ownership/order,
+override acceptance and preservation of the `_CP` fuse-shadow values remain
+unverified. The selector, filter and stream audits were offline observations,
+without a GC6 transition or a demonstrated Gen3 unlock.
+
+The CMP170HX method remains a research lead: it changes fuse-visible values
+before RM/GSP consumes them, then requests Gen1 → Gen2 → Gen3 through
+`NV2080_CTRL_CMD_BUS_SET_PCIE_SPEED` (`0x20801805`). The public 610/615 SDK
+uses generation codes `1/2/3` for that request. `RMPcieLinkSpeed=5` enables
+both Gen2 and Gen3 fields, whereas the earlier value `4` selected only Gen3.
+Neither difference resolves TU106's override gate, protected-shadow retention
+or sampling time. GA100 fuse addresses and permanent RIR repair procedures
+cannot be assumed valid for TU106.
+
+Pinned inputs for the offline conclusions:
+
+| Input | SHA256 |
+| --- | --- |
+| GSP inner ELF, 615.78.08 | `f4bfaa6aa20a167df9e6cdeb5e67673901119a104b51308eeb9eecea32760157` |
+| Host `nv-kernel.o_binary`, 615.78.08 | `034e1cd85361b264f02e4462e9abeb80b8ae96683c560c59a6d122592e0828d6` |
+| Open kernel source archive, 615.78.08 | `eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf` |
+
 ## Scope and test systems
 
 The target was an ASUS CMP 40HX 8 GB (`10de:1f0b`, subsystem `1043:8804`)
