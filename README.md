@@ -2,7 +2,7 @@
 
 Hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`), covering both Linux and Windows.
 
-- **Linux** (repository root) — three open-kernel-module patches for NVIDIA `610.57.04` plus one optional proprietary-userspace patch, installed by `install.sh`.
+- **Linux** (repository root) — open-kernel-module patches for NVIDIA `580.173.02`, `610.57.04` and `615.78.08` (default), plus one optional proprietary-userspace patch, installed by `install.sh`.
 - **Windows / UEFI** ([`windows/`](windows/)) — a UEFI unlock application and Go installer/checker/uninstaller tools. See [`windows/README.md`](windows/README.md).
 
 The two halves are independent: they unlock the same hardware by different means and share no code. Pick the one matching your OS.
@@ -46,7 +46,7 @@ The full tables (including OpenCL and Vulkan), PCIe Gen2, ReBAR and pipeline mea
 
 ### Linux
 
-Requires the NVIDIA open kernel module stack and userspace/firmware version exactly `610.57.04`, a matching kernel headers package, and a C toolchain. Per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).
+Requires the NVIDIA open kernel module stack and matching userspace/firmware for one of the supported versions (`580.173.02`, `610.57.04`, `615.78.08` default), a matching kernel headers package, and a C toolchain. Select the version with `--driver-version=VER`; per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).
 
 ```bash
 lspci -nn | grep -i nvidia   # expected: 10de:1f0b
@@ -63,7 +63,7 @@ Download the latest build from the [Releases page](https://github.com/Cyridd/cmp
 
 ## Compatibility at a glance
 
-- **Linux:** NVIDIA `610.57.04` only; other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
+- **Linux:** open-gpu-kernel-modules `580.173.02`, `610.57.04` and `615.78.08` (default); other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
 - **Windows:** UEFI/GPT, Above 4G Decoding on, Secure Boot and CSM off.
 - **PCIe Gen2 x16 is verified; Gen3 and RT-core unlocks are not implemented.**
 - The CMP 40HX has no display outputs; graphics use needs a headless, secondary-GPU or remote-display setup.

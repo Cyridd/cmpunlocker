@@ -6,6 +6,7 @@ install or use the project; start from the [main README](../../README.md) and th
 
 | Note | Contents |
 |---|---|
+| [`615_BOOTER_COMPATIBILITY.md`](615_BOOTER_COMPATIBILITY.md) | 615.78.08 Booter compatibility and PCIe policy fixes, with hardware-validated compute unlock and Gen2 x16 |
 | [`PCIE_GEN2_DIAGNOSTIC.md`](PCIE_GEN2_DIAGNOSTIC.md) | Diagnostic installation, collection and interpretation guide for the PCIe Gen2 path |
 | [`PCIE_GEN3_CMP40HX_RESEARCH.md`](PCIE_GEN3_CMP40HX_RESEARCH.md) | Gen3 capability/policy investigation and negative results |
 | [`PCIE_LINK_DISABLE_AUDIT.md`](PCIE_LINK_DISABLE_AUDIT.md) | Evidence and limitations of the Link Disable experiment |

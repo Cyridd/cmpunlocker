@@ -2,7 +2,18 @@
 
 ## Linux
 
-- **NVIDIA open-gpu-kernel-modules 610.57.04 only.** Other driver versions require porting and revalidation.
+- **NVIDIA open-gpu-kernel-modules `580.173.02`, `610.57.04` and `615.78.08` (default).** Select one with `--driver-version=VER`; other driver versions require porting and revalidation. The userspace/firmware version must match the selected kernel-module version.
+
+Hardware tests on 2026-10-18 confirmed successful GPU initialization, compute
+unlock and PCIe Gen2 x16 with the corrected `615.78.08` patches. The compute
+patch uses the signed `610.57.04` TU102 Booter for the unlock transaction
+and the native `615.78.08` Booter for GSP
+initialization. Its PCIe patches also restore the policy setup omitted during
+the original port; the boot log records `RETRAIN_PASS` on the first attempt
+and `LnkSta: Speed 5GT/s, Width x16`. See
+[`615_BOOTER_COMPATIBILITY.md`](research/615_BOOTER_COMPATIBILITY.md) for the
+failure analysis and validation procedure.
+
 - The project has been tested on CachyOS system with 7.2.0-1-cachyos kernel.
 - The compute unlock changes the GSP/SEC2 boot payload. The VBIOS and VRAM are not modified.
 - The PCIe patch changes the GSP/RM PCIe policy and retrains the link. It does not modify the VBIOS.

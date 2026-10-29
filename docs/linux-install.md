@@ -1,8 +1,9 @@
 # Linux installation guide
 
-This guide covers the Linux half of the project: three open-kernel-module
-patches for NVIDIA `610.57.04`, installed by [`install.sh`](../install.sh), plus
-the optional userspace pipeline patch in [`cmp_glcore_patch/`](../cmp_glcore_patch/README.md).
+This guide covers the Linux half of the project: open-kernel-module patch
+sets for NVIDIA `580.173.02`, `610.57.04` and `615.78.08` (default), installed
+by [`install.sh`](../install.sh), plus the optional userspace pipeline patch in
+[`cmp_glcore_patch/`](../cmp_glcore_patch/README.md).
 
 For the Windows/UEFI procedure, see [`windows/README.md`](../windows/README.md) instead.
 
@@ -14,7 +15,8 @@ manager used by your distribution, then run the same `install.sh` command.
 You need a matching kernel headers/devel package, a C toolchain, `make`, GNU
 `patch`, `tar`, `sha256sum`, `pciutils`, `kmod`/`depmod`, and `curl` or `wget`
 if the NVIDIA source is downloaded automatically. The installed NVIDIA
-userspace and firmware must be version `610.57.04`.
+userspace and firmware must match the selected driver version: `580.173.02`,
+`610.57.04` or `615.78.08`.
 The distribution's NVIDIA installation must provide a compatible open kernel
 module stack; this project does not install the NVIDIA driver or firmware.
 
@@ -77,20 +79,33 @@ lspci -nn | grep -i nvidia   # expected: 10de:1f0b
 
 **Option A — automatic download (recommended):**
 
-`install.sh` downloads `open-gpu-kernel-modules` 610.57.04 from GitHub and verifies its SHA256.
+`install.sh` downloads `open-gpu-kernel-modules` for the selected driver version
+(`615.78.08` by default) from GitHub and verifies its SHA256.
+
+Select another supported version with `--driver-version=VER` or the
+`NVIDIA_VERSION` environment variable:
+
+```bash
+sudo ./install.sh --driver-version=610.57.04
+sudo env NVIDIA_VERSION=580.173.02 ./install.sh
+```
 
 **Option B — place a local archive:**
 
-If you do not want the script to download the source automatically, place one of the following archives next to `install.sh`:
+If you do not want the script to download the source automatically, place one of the following archives next to `install.sh` (replace `615.78.08` with the selected version):
 
-- `open-gpu-kernel-modules-610.57.04.tar.gz`
-- `NVIDIA-610.57.04.tar.xz`
-- `NVIDIA-kernel-module-source-610.57.04.tar.xz`
-- `NVIDIA-kernel-module-source-610.57.04.tar.bz2`
+- `open-gpu-kernel-modules-615.78.08.tar.gz`
+- `NVIDIA-615.78.08.tar.xz`
+- `NVIDIA-kernel-module-source-615.78.08.tar.xz`
+- `NVIDIA-kernel-module-source-615.78.08.tar.bz2`
 
-The official GitHub `.tar.gz` archive is verified automatically:
+The official GitHub `.tar.gz` archives are verified automatically:
 
-`619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681`
+| Version | SHA256 |
+|---|---|
+| `580.173.02` | `a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f` |
+| `610.57.04` | `619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681` |
+| `615.78.08` | `eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf` |
 
 For a differently named or compressed local archive, provide its own digest
 explicitly; the installer will not silently accept an unverified archive:
@@ -118,21 +133,26 @@ The patched modules are installed under:
 
 `/lib/modules/$(uname -r)/updates/cmpunlocker/`
 
-The installer applies:
+The installer applies the patch set for the selected version from
+`patches/<version>/`:
 
 - `0001-cmp40hx-unlock.patch`
-- `0002-cmp40hx-pcie2-unlock.patch`
+- `0002-cmp40hx-pcie2-unlock.patch` (or `0002-cmp40hx-pcie2-diagnostic.patch` with `--pcie-diagnostic`)
 - `0003-cmp40hx-rebar-unlock.patch`
 
-This installs only the three kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.
+The diagnostic PCIe patch is available for `610.57.04` and `615.78.08`; the
+`580.173.02` set has no diagnostic variant.
+
+This installs only the kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.
 It also does not install or replace the NVIDIA userspace driver or firmware;
-install a matching `610.57.04` NVIDIA stack through your distribution first.
+install a matching NVIDIA stack through your distribution first.
 
 Useful options and environment overrides:
 
 ```bash
+sudo ./install.sh --driver-version=615.78.08
 sudo ./install.sh --pcie-diagnostic
-sudo ./install.sh --source-dir=/absolute/path/to/open-gpu-kernel-modules-610.57.04
+sudo ./install.sh --source-dir=/absolute/path/to/open-gpu-kernel-modules-615.78.08
 sudo ./install.sh --no-download
 sudo env KERNEL_UNAME=6.12.1-custom KERNEL_HDRS=/path/to/kernel/build ./install.sh
 sudo env JOBS=4 INITRAMFS_TOOL=dracut ./install.sh

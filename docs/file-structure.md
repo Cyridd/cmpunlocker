@@ -4,15 +4,15 @@
 
 | File | Description |
 |---|---|
-| `0001-cmp40hx-unlock.patch` | Compute / SM unlock for NVIDIA 610.57.04 |
-| `0002-cmp40hx-pcie2-unlock.patch` | PCIe Gen2 x16 unlock |
-| `0002-cmp40hx-pcie2-diagnostic.patch` | Verbose replacement for `0002`; captures XVE/BAR0 and PCI capability state |
-| `0003-cmp40hx-rebar-unlock.patch` | 8 GiB Resizable BAR unlock |
+| `patches/580.173.02/` | Patch set for NVIDIA `580.173.02`: compute unlock, PCIe Gen2, ReBAR (no diagnostic PCIe variant) |
+| `patches/610.57.04/` | Patch set for NVIDIA `610.57.04`: `0001` compute / SM unlock, `0002` PCIe Gen2 unlock, `0002-cmp40hx-pcie2-diagnostic.patch` verbose replacement, `0003` 8 GiB ReBAR unlock |
+| `patches/615.78.08/` | Default patch set: the same four patches, with signed 610 TU102 Booter compatibility for compute unlock and restored GSP-ready PCIe policy setup |
 | `docs/research/PCIE_GEN2_DIAGNOSTIC.md` | Diagnostic installation, collection and interpretation guide |
+| `tools/check-cmp40-booters.py` | Verifies the signed 610 Booter archive embedded by the 615 compute patch, header reproducibility and preservation of the native 615 Booter; used by CI |
 | `docs/research/PCIE_GEN3_CMP40HX_RESEARCH.md` | Gen3 capability/policy investigation and negative results |
 | `docs/research/PCIE_LINK_DISABLE_AUDIT.md` | Evidence and limitations of the Link Disable experiment |
 | `tools/cmp40hx-alder-lake-link-disable-test.sh` | Manual, explicitly-confirmed research reproducer |
-| `tools/check-linux-patches.sh` | Verifies that the three patches still apply to the pinned NVIDIA source, in both PCIe modes; used by CI and runnable locally |
+| `tools/check-linux-patches.sh` | Verifies that each version's patch set still applies to its pinned NVIDIA source, in both PCIe modes where available; used by CI and runnable locally |
 | `tools/cmp40hx-driver-reprobe-gen2.sh` | Optional driver unbind/bind recovery for cold-boot Gen1 capability state |
 | `tools/cmp40hx-driver-reprobe-gen2.service` | Disabled-by-default experimental systemd boot unit for the reprobe helper |
 | `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock for `libnvidia-glcore.so.610.57.04`: patcher source, `build_patched_lib.sh` helper, usage guide |

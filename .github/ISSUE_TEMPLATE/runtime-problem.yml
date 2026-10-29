@@ -19,7 +19,7 @@ body:
           required: true
         - label: I'm on the latest version — this project has no releases, so I re-cloned or ran `git pull` right before reporting
           required: true
-        - label: "`nvidia-smi --query-gpu=driver_version --format=csv,noheader` reports exactly `610.57.04`"
+        - label: "`nvidia-smi --query-gpu=driver_version --format=csv,noheader` matches the selected supported version (615.78.08 by default, or 610.57.04 / 580.173.02)"
           required: true
         - label: I searched existing issues and this isn't a duplicate or already-fixed problem
           required: true

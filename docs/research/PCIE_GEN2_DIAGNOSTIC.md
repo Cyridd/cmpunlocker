@@ -16,11 +16,23 @@ systems, but can detach GSP/RM after driver initialization; see
 
 ## Install
 
-Use a clean NVIDIA 610.57.04 source tree or let `install.sh` download one:
+Use a clean NVIDIA 615.78.08 source tree or let `install.sh` download one:
 
 ```bash
 sudo ./install.sh --pcie-diagnostic
 ```
+
+For the older 610.57.04 release, select its patch set explicitly:
+
+```bash
+sudo ./install.sh --driver-version=610.57.04 --pcie-diagnostic
+```
+
+The original 615 port omitted the GSP-ready policy writes in both PCIe
+variants, causing `GSP policy not ready; retrain skipped` on every boot.
+The corrected patches restore those writes. See
+[`615_BOOTER_COMPATIBILITY.md`](615_BOOTER_COMPATIBILITY.md) for the log and
+expected readback. Use fresh sources when updating that earlier port.
 
 For an already downloaded clean source archive/tree:
 

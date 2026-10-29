@@ -1,14 +1,16 @@
 # CI for the Linux half of the project (repository root).
 #
-# The patches in the repository root are pinned to NVIDIA open-gpu-kernel-modules
-# 610.57.04. They are applied to the user's source tree at install time, so any
-# drift — an edited patch, a retagged upstream archive, a changed SHA256 — only
-# surfaces on a user's machine. This workflow reproduces that step without
-# kernel headers, a compiler, or root:
+# The patches under patches/<version>/ are pinned to one exact release of
+# open-gpu-kernel-modules each (580.173.02, 610.57.04, 615.78.08). They are
+# applied to a local source tree during installation. An edited patch, retagged
+# upstream archive or changed SHA256 can therefore cause installation failures.
+# This workflow reproduces patch application without kernel headers, a compiler
+# or root:
 #
-#   patches  — download the pinned archive, verify its SHA256, and apply the
-#              full patch series for both PCIe variants (normal and
-#              diagnostic), then assert the unlock markers are present.
+#   patches  — for each supported version, download the pinned archive, verify
+#              its SHA256, and apply the full patch series for both PCIe
+#              variants (normal and diagnostic where it exists), then assert
+#              the unlock markers are present.
 #   lint     — shellcheck every shell script in the repository.
 #   gofmt    — formatting gate for the Windows Go tree (Linux runners already
 #              have gofmt; the Go modules themselves are built in ci.yml).
@@ -22,14 +24,14 @@ on:
   push:
     branches: [main]
     paths:
-      - '*.patch'
+      - 'patches/**'
       - 'install.sh'
       - 'tools/**'
       - 'cmp_glcore_patch/*.sh'
       - '.github/workflows/linux.yml'
   pull_request:
     paths:
-      - '*.patch'
+      - 'patches/**'
       - 'install.sh'
       - 'tools/**'
       - 'cmp_glcore_patch/*.sh'
@@ -45,8 +47,12 @@ concurrency:
 
 jobs:
   patches:
-    name: Patch series applies
+    name: Patch series applies (${{ matrix.version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [580.173.02, 610.57.04, 615.78.08]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -56,27 +62,49 @@ jobs:
           path: ${{ runner.temp }}/nvidia-source
           # Key on the archive hash: a changed pin produces a cache miss. Even
           # on a hit, check-linux-patches.sh verifies the SHA256 before use.
-          key: nvidia-open-${{ hashFiles('install.sh', 'tools/check-linux-patches.sh') }}
+          key: nvidia-open-${{ matrix.version }}-${{ hashFiles('install.sh', 'tools/check-linux-patches.sh') }}
 
       - name: Download the pinned archive on a cache miss
         env:
           CACHE_DIR: ${{ runner.temp }}/nvidia-source
+          VERSION: ${{ matrix.version }}
         run: |
           set -euo pipefail
-          archive="$CACHE_DIR/open-gpu-kernel-modules-610.57.04.tar.gz"
+          archive="$CACHE_DIR/open-gpu-kernel-modules-$VERSION.tar.gz"
           if [ -s "$archive" ]; then
             echo "using cached archive"
             exit 0
           fi
           mkdir -p "$CACHE_DIR"
           curl -fL --retry 3 --silent --show-error \
-            https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/610.57.04.tar.gz \
+            "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/$VERSION.tar.gz" \
             -o "$archive"
 
       - name: Apply the patch set to the pinned source
         env:
-          ARCHIVE: ${{ runner.temp }}/nvidia-source/open-gpu-kernel-modules-610.57.04.tar.gz
-        run: ./tools/check-linux-patches.sh --source "$ARCHIVE"
+          ARCHIVE: ${{ runner.temp }}/nvidia-source/open-gpu-kernel-modules-${{ matrix.version }}.tar.gz
+          VERSION: ${{ matrix.version }}
+        run: ./tools/check-linux-patches.sh --version "$VERSION" --source "$ARCHIVE"
+
+      - name: Verify the signed CMP40 compatibility Booter
+        if: matrix.version == '615.78.08'
+        env:
+          CACHE_DIR: ${{ runner.temp }}/nvidia-source
+        run: |
+          set -euo pipefail
+          legacy="$CACHE_DIR/open-gpu-kernel-modules-610.57.04.tar.gz"
+          native="$CACHE_DIR/open-gpu-kernel-modules-615.78.08.tar.gz"
+          if [ ! -s "$legacy" ]; then
+            curl -fL --retry 3 --silent --show-error \
+              "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/610.57.04.tar.gz" \
+              -o "$legacy"
+          fi
+          tree="$RUNNER_TEMP/cmp40-booter-check"
+          mkdir -p "$tree"
+          tar -xzf "$native" --strip-components=1 -C "$tree"
+          patch -d "$tree" -p1 -F0 -i "$GITHUB_WORKSPACE/patches/615.78.08/0001-cmp40hx-unlock.patch"
+          python3 tools/check-cmp40-booters.py \
+            --legacy-source "$legacy" --native-source "$native" --tree "$tree"
 
   lint:
     name: shellcheck

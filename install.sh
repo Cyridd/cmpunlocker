@@ -5,7 +5,7 @@
 # The installer itself does not install packages or require a specific package manager.
 #
 # Features:
-#   - Downloads NVIDIA open-gpu-kernel-modules 610.57.04
+#   - Downloads NVIDIA open-gpu-kernel-modules 615.78.08 by default
 #   - Verifies the source archive SHA256
 #   - Applies the CMP 40HX unlock patches with GNU patch
 #   - Builds the open NVIDIA kernel modules
@@ -22,7 +22,7 @@
 # Requirements:
 #   Linux, matching kernel headers, a working C compiler, make, patch, tar,
 #   sha256sum, pciutils, kmod/depmod, and either curl or wget for downloads.
-#   The installed NVIDIA userspace/firmware must match 610.57.04.
+#   The installed NVIDIA userspace/firmware must match the selected driver version.
 #
 # IMPORTANT:
 #   The NVIDIA source tree is NOT treated as a Git repository.
@@ -35,18 +35,34 @@ set -euo pipefail
 # ---------- Configuration ----------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DRIVER_VERSION="610.57.04"
-DOWNLOAD_URL="https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/${DRIVER_VERSION}.tar.gz"
+DRIVER_VERSION="${NVIDIA_VERSION:-615.78.08}"
+# DOWNLOAD_URL is derived from the final version after the argument loop.
 
-# SHA256 of the official NVIDIA open-gpu-kernel-modules 610.57.04 archive.
-SRC_SHA256="619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681"
+# Supported open-gpu-kernel-modules releases, each with its own patch
+# directory (patches/<version>/) and official source-archive SHA256.
+SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.78.08)
+
+sha256_for() {
+    case "$1" in
+        580.173.02) echo "a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f" ;;
+        610.57.04) echo "619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681" ;;
+        615.78.08) echo "eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf" ;;
+        *) echo "" ;;
+    esac
+}
+
+SRC_SHA256=""
+
 SOURCE_SHA256="${SOURCE_SHA256:-}"
 SOURCE_SHA256="${SOURCE_SHA256,,}"
 
-PATCH_COMPUTE="${SCRIPT_DIR}/0001-cmp40hx-unlock.patch"
-PATCH_PCIE="${SCRIPT_DIR}/0002-cmp40hx-pcie2-unlock.patch"
-PATCH_PCIE_DIAG="${SCRIPT_DIR}/0002-cmp40hx-pcie2-diagnostic.patch"
-PATCH_REBAR="${SCRIPT_DIR}/0003-cmp40hx-rebar-unlock.patch"
+# Patches live in patches/<driver-version>/. They are resolved after the
+# argument loop because --driver-version may select a different directory.
+PATCH_DIR=""
+PATCH_COMPUTE=""
+PATCH_PCIE=""
+PATCH_PCIE_DIAG=""
+PATCH_REBAR=""
 
 # Set when a local archive was used; stays empty for --source-dir installs.
 TARBALL=""
@@ -68,14 +84,8 @@ fi
 
 INITRAMFS_TOOL="${INITRAMFS_TOOL:-auto}"
 
-SRC_DIR="${SCRIPT_DIR}/open-gpu-kernel-modules-${DRIVER_VERSION}"
-
-LOCAL_TARBALLS=(
-    "${SCRIPT_DIR}/open-gpu-kernel-modules-${DRIVER_VERSION}.tar.gz"
-    "${SCRIPT_DIR}/NVIDIA-kernel-module-source-${DRIVER_VERSION}.tar.xz"
-    "${SCRIPT_DIR}/NVIDIA-kernel-module-source-${DRIVER_VERSION}.tar.bz2"
-    "${SCRIPT_DIR}/NVIDIA-${DRIVER_VERSION}.tar.xz"
-)
+# SRC_DIR and LOCAL_TARBALLS depend on the driver version and are defined
+# after the argument loop resolves --driver-version.
 
 # ---------- Output ----------
 # Colours are opt-in: only when stdout is a terminal and NO_COLOR is unset.
@@ -117,6 +127,14 @@ for arg in "$@"; do
             USE_LOCAL_SRC=1
             SOURCE_DIR_EXPLICIT=1
             ;;
+        --driver-version=*)
+            DRIVER_VERSION="${arg#--driver-version=}"
+            ;;
+        --driver-version)
+            shift
+            [[ $# -gt 0 ]] || die "--driver-version requires a value."
+            DRIVER_VERSION="$1"
+            ;;
         --no-download)
             USE_LOCAL_SRC=1
             ;;
@@ -150,11 +168,13 @@ Actions:
                          depmod/initramfs; asks for confirmation unless --yes
 
 Options:
+  --driver-version=VER   NVIDIA open-gpu-kernel-modules version to build.
+                         Supported: 580.173.02, 610.57.04, 615.78.08 (default)
   --source-dir=PATH      Use an existing NVIDIA source tree
   --no-download          Do not download; use an existing source tree or
                          local source archive
-  --pcie-diagnostic      Use 0002-cmp40hx-pcie2-diagnostic.patch instead of
-                         the normal PCIe Gen2 patch
+  --pcie-diagnostic      Use the diagnostic PCIe Gen2 patch instead of the
+                         normal one (not available for 580.173.02)
   -y, --yes              Do not ask questions; use the default answer. Also
                          implied when stdin is not a terminal. Questions
                          default to "no", so --yes alone never removes files
@@ -165,6 +185,8 @@ Options:
   -h, --help             Show this help
 
 Environment:
+  NVIDIA_VERSION=VER    Select driver version (default: 615.78.08);
+                         --driver-version takes precedence
   KERNEL_UNAME=...       Override the kernel version (default: uname -r)
   KERNEL_HDRS=PATH       Override the kernel build/header directory
   INITRAMFS_TOOL=auto|mkinitcpio|update-initramfs|dracut|mkinitrd|none
@@ -193,6 +215,43 @@ EOF
             ;;
     esac
 done
+
+# Validate the driver version and resolve its patch directory.
+version_supported() {
+    local v
+    for v in "${SUPPORTED_VERSIONS[@]}"; do
+        [[ "$v" == "$1" ]] && return 0
+    done
+    return 1
+}
+
+if ! version_supported "${DRIVER_VERSION}"; then
+    die "Unsupported driver version: ${DRIVER_VERSION}. Supported: ${SUPPORTED_VERSIONS[*]}"
+fi
+
+PATCH_DIR="${SCRIPT_DIR}/patches/${DRIVER_VERSION}"
+PATCH_COMPUTE="${PATCH_DIR}/0001-cmp40hx-unlock.patch"
+PATCH_PCIE="${PATCH_DIR}/0002-cmp40hx-pcie2-unlock.patch"
+PATCH_PCIE_DIAG="${PATCH_DIR}/0002-cmp40hx-pcie2-diagnostic.patch"
+PATCH_REBAR="${PATCH_DIR}/0003-cmp40hx-rebar-unlock.patch"
+SRC_SHA256="$(sha256_for "${DRIVER_VERSION}")"
+DOWNLOAD_URL="https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/${DRIVER_VERSION}.tar.gz"
+
+# Resolved here, not in the configuration block: both depend on the version.
+if [[ "${SOURCE_DIR_EXPLICIT}" -eq 0 ]]; then
+    SRC_DIR="${SCRIPT_DIR}/open-gpu-kernel-modules-${DRIVER_VERSION}"
+fi
+LOCAL_TARBALLS=(
+    "${SCRIPT_DIR}/open-gpu-kernel-modules-${DRIVER_VERSION}.tar.gz"
+    "${SCRIPT_DIR}/NVIDIA-kernel-module-source-${DRIVER_VERSION}.tar.xz"
+    "${SCRIPT_DIR}/NVIDIA-kernel-module-source-${DRIVER_VERSION}.tar.bz2"
+    "${SCRIPT_DIR}/NVIDIA-${DRIVER_VERSION}.tar.xz"
+)
+
+# 580.173.02 ships no diagnostic PCIe patch; fail early instead of half-way.
+if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 && ! -f "${PATCH_PCIE_DIAG}" ]]; then
+    die "--pcie-diagnostic is not available for ${DRIVER_VERSION} (no diagnostic PCIe patch in patches/${DRIVER_VERSION}/)."
+fi
 
 # Questions are skipped with --yes or when there is no terminal to answer on.
 # Without this, `read` returns EOF under `set -e` and the script dies with no
@@ -464,7 +523,6 @@ fi
 
 [[ -f "${PATCH_COMPUTE}" ]] || die "Missing patch: ${PATCH_COMPUTE}"
 [[ -f "${PATCH_REBAR}" ]]   || die "Missing patch: ${PATCH_REBAR}"
-
 if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]]; then
     [[ -f "${PATCH_PCIE_DIAG}" ]] || die "Missing diagnostic patch: ${PATCH_PCIE_DIAG}"
     info "PCIe patch mode: DIAGNOSTIC"
@@ -526,7 +584,10 @@ if [[ -n "${NVIDIA_USERSPACE_VER}" ]]; then
         warn "NVIDIA userspace: ${NVIDIA_USERSPACE_VER}"
         warn "This installer targets NVIDIA ${DRIVER_VERSION}."
         warn "A userspace/kernel-module version mismatch can cause crashes."
-        ask "Continue anyway?" n || { echo "Cancelled."; exit 0; }
+        # A dry run changes nothing, so a mismatch is only worth reporting.
+        if [[ "${DRY_RUN}" -eq 0 ]]; then
+            ask "Continue anyway?" n || { echo "Cancelled."; exit 0; }
+        fi
     fi
 else
     warn "Could not determine the installed NVIDIA userspace version."
@@ -537,7 +598,9 @@ if command -v mokutil >/dev/null 2>&1; then
     SB_STATE="$(mokutil --sb-state 2>/dev/null || true)"
     if echo "${SB_STATE}" | grep -qi "enabled"; then
         warn "Secure Boot is enabled. Unsigned modules will not load."
-        ask "Continue anyway?" n || { echo "Cancelled."; exit 0; }
+        if [[ "${DRY_RUN}" -eq 0 ]]; then
+            ask "Continue anyway?" n || { echo "Cancelled."; exit 0; }
+        fi
     fi
 fi
 
@@ -727,7 +790,6 @@ else
 fi
 
 apply_patch "${PATCH_REBAR}"
-
 # Hard verification: make sure the source tree contains the expected patched
 # symbols. This is intentionally independent of Git.
 if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]]; then
