@@ -139,11 +139,15 @@ The installer applies the patch set for the selected version from
 - `0001-cmp40hx-unlock.patch`
 - `0002-cmp40hx-pcie2-unlock.patch` (or `0002-cmp40hx-pcie2-diagnostic.patch` with `--pcie-diagnostic`)
 - `0003-cmp40hx-rebar-unlock.patch`
+- Optional `0004-cmp40hx-profiling-unlock.patch` with `--profiling` (615.78.08
+  only; CUPTI support gate confirmed, counter collection still unverified).
 
 The diagnostic PCIe patch is available for `610.57.04` and `615.78.08`; the
 `580.173.02` set has no diagnostic variant.
 
 This installs only the kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.
+For the optional profiling patch and CUPTI checks, see
+[`CMP40_PROFILING.md`](research/CMP40_PROFILING.md).
 It also does not install or replace the NVIDIA userspace driver or firmware;
 install a matching NVIDIA stack through your distribution first.
 
@@ -152,6 +156,7 @@ Useful options and environment overrides:
 ```bash
 sudo ./install.sh --driver-version=615.78.08
 sudo ./install.sh --pcie-diagnostic
+sudo ./install.sh --profiling
 sudo ./install.sh --source-dir=/absolute/path/to/open-gpu-kernel-modules-615.78.08
 sudo ./install.sh --no-download
 sudo env KERNEL_UNAME=6.12.1-custom KERNEL_HDRS=/path/to/kernel/build ./install.sh

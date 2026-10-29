@@ -11,6 +11,7 @@
 #   - Builds the open NVIDIA kernel modules
 #   - Installs them into /lib/modules/<kernel>/updates/cmpunlocker
 #   - Supports the optional PCIe diagnostic patch
+#   - Supports optional CMP SKU profiling on 615.78.08
 #
 # Usage:
 #   sudo ./install.sh
@@ -63,6 +64,7 @@ PATCH_COMPUTE=""
 PATCH_PCIE=""
 PATCH_PCIE_DIAG=""
 PATCH_REBAR=""
+PATCH_PROFILING=""
 
 # Set when a local archive was used; stays empty for --source-dir installs.
 TARBALL=""
@@ -114,6 +116,7 @@ die() {
 # ---------- Arguments ----------
 USE_LOCAL_SRC=0
 USE_PCIE_DIAGNOSTIC=0
+USE_PROFILING=0
 SOURCE_DIR_EXPLICIT=0
 ASSUME_YES=0
 DRY_RUN=0
@@ -140,6 +143,9 @@ for arg in "$@"; do
             ;;
         --pcie-diagnostic)
             USE_PCIE_DIAGNOSTIC=1
+            ;;
+        --profiling)
+            USE_PROFILING=1
             ;;
         -y|--yes)
             ASSUME_YES=1
@@ -175,6 +181,8 @@ Options:
                          local source archive
   --pcie-diagnostic      Use the diagnostic PCIe Gen2 patch instead of the
                          normal one (not available for 580.173.02)
+  --profiling            Apply the CMP SKU profiling unlock (615.78.08 only;
+                         CUPTI support gate confirmed on CMP 40HX)
   -y, --yes              Do not ask questions; use the default answer. Also
                          implied when stdin is not a terminal. Questions
                          default to "no", so --yes alone never removes files
@@ -201,6 +209,7 @@ Examples:
   sudo ./install.sh
   sudo ./install.sh --dry-run
   sudo ./install.sh --pcie-diagnostic
+  sudo ./install.sh --profiling
   sudo ./install.sh --source-dir=/path/to/open-gpu-kernel-modules-${DRIVER_VERSION}
   sudo ./install.sh --verify
   sudo ./install.sh --uninstall --yes
@@ -234,6 +243,7 @@ PATCH_COMPUTE="${PATCH_DIR}/0001-cmp40hx-unlock.patch"
 PATCH_PCIE="${PATCH_DIR}/0002-cmp40hx-pcie2-unlock.patch"
 PATCH_PCIE_DIAG="${PATCH_DIR}/0002-cmp40hx-pcie2-diagnostic.patch"
 PATCH_REBAR="${PATCH_DIR}/0003-cmp40hx-rebar-unlock.patch"
+PATCH_PROFILING="${PATCH_DIR}/0004-cmp40hx-profiling-unlock.patch"
 SRC_SHA256="$(sha256_for "${DRIVER_VERSION}")"
 DOWNLOAD_URL="https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/${DRIVER_VERSION}.tar.gz"
 
@@ -251,6 +261,11 @@ LOCAL_TARBALLS=(
 # 580.173.02 ships no diagnostic PCIe patch; fail early instead of half-way.
 if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 && ! -f "${PATCH_PCIE_DIAG}" ]]; then
     die "--pcie-diagnostic is not available for ${DRIVER_VERSION} (no diagnostic PCIe patch in patches/${DRIVER_VERSION}/)."
+fi
+
+# Profiling remains independently selectable; CUPTI support gate is confirmed.
+if [[ "${USE_PROFILING}" -eq 1 && ! -f "${PATCH_PROFILING}" ]]; then
+    die "--profiling is not available for ${DRIVER_VERSION} (no profiling patch in patches/${DRIVER_VERSION}/)."
 fi
 
 # Questions are skipped with --yes or when there is no terminal to answer on.
@@ -523,6 +538,10 @@ fi
 
 [[ -f "${PATCH_COMPUTE}" ]] || die "Missing patch: ${PATCH_COMPUTE}"
 [[ -f "${PATCH_REBAR}" ]]   || die "Missing patch: ${PATCH_REBAR}"
+if [[ "${USE_PROFILING}" -eq 1 ]]; then
+    info "Profiling patch: CMP SKU query mask enabled"
+fi
+
 if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]]; then
     [[ -f "${PATCH_PCIE_DIAG}" ]] || die "Missing diagnostic patch: ${PATCH_PCIE_DIAG}"
     info "PCIe patch mode: DIAGNOSTIC"
@@ -767,9 +786,13 @@ if [[ "${DRY_RUN}" -eq 1 ]]; then
     cp -a -- "${SRC_DIR}/." "${DRY_COPY}/"
     cd "${DRY_COPY}"
 
-    for patch_file in "${PATCH_COMPUTE}" \
+    dry_patches=("${PATCH_COMPUTE}" \
         "$( [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]] && echo "${PATCH_PCIE_DIAG}" || echo "${PATCH_PCIE}" )" \
-        "${PATCH_REBAR}"; do
+        "${PATCH_REBAR}")
+    if [[ "${USE_PROFILING}" -eq 1 ]]; then
+        dry_patches+=("${PATCH_PROFILING}")
+    fi
+    for patch_file in "${dry_patches[@]}"; do
         patch --dry-run -p1 < "${patch_file}" >/dev/null 2>&1 \
             || die "$(basename "${patch_file}"): does not apply to this source tree."
         info "$(basename "${patch_file}"): applies cleanly"
@@ -790,6 +813,13 @@ else
 fi
 
 apply_patch "${PATCH_REBAR}"
+if [[ "${USE_PROFILING}" -eq 1 ]]; then
+    apply_patch "${PATCH_PROFILING}"
+    grep -Fqs 'CMP170HX profiling unlock, scoped to CMP 40HX only.' \
+        src/nvidia/src/kernel/gpu/subdevice/subdevice_ctrl_gpu_kernel.c \
+        || die "Profiling query mask missing after applying the profiling patch."
+fi
+
 # Hard verification: make sure the source tree contains the expected patched
 # symbols. This is intentionally independent of Git.
 if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]]; then
@@ -925,6 +955,7 @@ mkdir -p "${MANIFEST_DIR}"
     printf 'source_sha256\t%s\n' "$(sha256sum "${TARBALL}" 2>/dev/null | awk '{print $1}' || true)"
     printf 'installed_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'pcie_mode\t%s\n' "$( [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]] && echo diagnostic || echo normal )"
+    printf 'profiling\t%s\n' "$( [[ "${USE_PROFILING}" -eq 1 ]] && echo enabled || echo disabled )"
     printf 'patch\t%s\t%s\n' "$(basename "${PATCH_COMPUTE}")" "$(sha256sum "${PATCH_COMPUTE}" | awk '{print $1}')"
     if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]]; then
         printf 'patch\t%s\t%s\n' "$(basename "${PATCH_PCIE_DIAG}")" "$(sha256sum "${PATCH_PCIE_DIAG}" | awk '{print $1}')"
@@ -932,6 +963,9 @@ mkdir -p "${MANIFEST_DIR}"
         printf 'patch\t%s\t%s\n' "$(basename "${PATCH_PCIE}")" "$(sha256sum "${PATCH_PCIE}" | awk '{print $1}')"
     fi
     printf 'patch\t%s\t%s\n' "$(basename "${PATCH_REBAR}")" "$(sha256sum "${PATCH_REBAR}" | awk '{print $1}')"
+    if [[ "${USE_PROFILING}" -eq 1 ]]; then
+        printf 'patch\t%s\t%s\n' "$(basename "${PATCH_PROFILING}")" "$(sha256sum "${PATCH_PROFILING}" | awk '{print $1}')"
+    fi
     for module in "${INSTALL_DIR}"/*.ko; do
         [[ -e "${module}" ]] || continue
         printf 'module\t%s\t%s\n' "$(basename "${module}")" "$(sha256sum "${module}" | awk '{print $1}')"

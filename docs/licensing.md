@@ -13,6 +13,9 @@ their original terms.
 - NVIDIA open-gpu-kernel-modules remains subject to NVIDIA's applicable open-source license terms.
 - CMP 40HX pipeline throttle unlock and related modifications —
   Copyright (c) 2026 Cyridd, licensed under the MIT License.
+- Optional CMP SKU profiling unlock — adapted from
+  [amoghmunikote/cmpunlocker](https://github.com/amoghmunikote/cmpunlocker),
+  commits `300127f` and `ee41902`, licensed under MIT.
 
 ## Windows / UEFI (`windows/`)
 

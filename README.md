@@ -57,6 +57,12 @@ sudo dmesg | grep CMP40      # expect SS0=0x88888888 SS1=0x00000008 FECS_PLM=0xf
 
 The optional pipeline unlock is separate: see [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md).
 
+An optional profiling unlock for 615.78.08 is available with
+`sudo ./install.sh --profiling`. It ports CMP170HX's CMP SKU query mask;
+the CUPTI support gate is hardware-confirmed on 40HX; counter collection
+still needs a separate test. See
+[`CMP40_PROFILING.md`](docs/research/CMP40_PROFILING.md).
+
 ### Windows
 
 Download the latest build from the [Releases page](https://github.com/Cyridd/cmpunlocker/releases) (each release includes `SHA256SUMS.txt`; prebuilt executables are no longer committed to the repository), then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.

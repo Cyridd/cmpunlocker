@@ -34,6 +34,7 @@ body:
         - "PCIe Gen2 unlock"
         - "Resizable BAR unlock"
         - "Pipeline bind / MME throttle unlock (glcore patch)"
+        - "Profiling unlock (--profiling, 615.78.08)"
         - "More than one / not sure"
     validations:
       required: true

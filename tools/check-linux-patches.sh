@@ -149,6 +149,7 @@ apply_and_check() { # <version> <source> <label> <pcie patch> <marker>
     local version="$1" source="$2" label="$3" pcie_patch="$4" marker="$5" tree
     local compute="${SCRIPT_DIR}/patches/${version}/0001-cmp40hx-unlock.patch"
     local rebar="${SCRIPT_DIR}/patches/${version}/0003-cmp40hx-rebar-unlock.patch"
+    local profiling="${SCRIPT_DIR}/patches/${version}/0004-cmp40hx-profiling-unlock.patch"
 
     [[ -f "${compute}" && -f "${pcie_patch}" && -f "${rebar}" ]] \
         || die "missing patch set for ${version} (${label})"
@@ -185,6 +186,16 @@ apply_and_check() { # <version> <source> <label> <pcie patch> <marker>
         esac
         grep -Rqs "CMP40_REBAR" kernel-open/nvidia \
             || die "ReBAR marker missing after ${version}/${label}"
+        # Check the optional profiling addition after the default series.
+        if [[ -f "${profiling}" ]]; then
+            patch --dry-run -p1 -F0 < "${profiling}" >/dev/null 2>&1 \
+                || die "profiling patch does not apply to ${version}/${label} at fuzz 0"
+            patch --silent -p1 -F0 < "${profiling}"
+            grep -Fqs 'CMP170HX profiling unlock, scoped to CMP 40HX only.' \
+                src/nvidia/src/kernel/gpu/subdevice/subdevice_ctrl_gpu_kernel.c \
+                || die "profiling query mask missing after ${version}/${label}"
+            printf '  optional %s: applied\n' "$(basename "${profiling}")" >&2
+        fi
     )
     printf '  markers present\n' >&2
 }

@@ -8,7 +8,10 @@
 | `patches/610.57.04/` | Patch set for NVIDIA `610.57.04`: `0001` compute / SM unlock, `0002` PCIe Gen2 unlock, `0002-cmp40hx-pcie2-diagnostic.patch` verbose replacement, `0003` 8 GiB ReBAR unlock |
 | `patches/615.78.08/` | Default patch set: the same four patches, with signed 610 TU102 Booter compatibility for compute unlock and restored GSP-ready PCIe policy setup |
 | `docs/research/PCIE_GEN2_DIAGNOSTIC.md` | Diagnostic installation, collection and interpretation guide |
+| `patches/615.78.08/0004-cmp40hx-profiling-unlock.patch` | Optional CMP SKU profiling query mask, selected by `--profiling` |
 | `tools/check-cmp40-booters.py` | Verifies the signed 610 Booter archive embedded by the 615 compute patch, header reproducibility and preservation of the native 615 Booter; used by CI |
+| `tools/cmp40-profiling-support.cpp` | CUPTI range-profiling support query for before/after hardware validation |
+| `docs/research/CMP40_PROFILING.md` | Profiling patch, CUPTI support validation and counter-collection checks |
 | `docs/research/PCIE_GEN3_CMP40HX_RESEARCH.md` | Gen3 capability/policy investigation and negative results |
 | `docs/research/PCIE_LINK_DISABLE_AUDIT.md` | Evidence and limitations of the Link Disable experiment |
 | `tools/cmp40hx-alder-lake-link-disable-test.sh` | Manual, explicitly-confirmed research reproducer |

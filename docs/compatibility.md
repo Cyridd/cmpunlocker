@@ -14,6 +14,10 @@ and `LnkSta: Speed 5GT/s, Width x16`. See
 [`615_BOOTER_COMPATIBILITY.md`](research/615_BOOTER_COMPATIBILITY.md) for the
 failure analysis and validation procedure.
 
+- The optional `--profiling` patch is available for `615.78.08` and masks the
+  CMP SKU query for 40HX. CUPTI gate support is hardware-confirmed; counter
+  collection awaits validation. See
+  [`CMP40_PROFILING.md`](research/CMP40_PROFILING.md).
 - The project has been tested on CachyOS system with 7.2.0-1-cachyos kernel.
 - The compute unlock changes the GSP/SEC2 boot payload. The VBIOS and VRAM are not modified.
 - The PCIe patch changes the GSP/RM PCIe policy and retrains the link. It does not modify the VBIOS.
