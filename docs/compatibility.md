@@ -49,8 +49,9 @@ sudo ./install.sh --no-download
   FLR, a driver reset, or a power cycle clears it.
 - The current small-WPR EFI supports **GSP OFF / CPU-RM**. The installer
   explicitly writes `EnableGpuFirmware=0`, replaces old login-task targets,
-  and recommends upgrading the EFI first. Owner-confirmed ZERO/FULL runtime
-  success is recorded in [the report](research/CPU_RM_SMALL_WPR.md);
+  and recommends upgrading the EFI first. I tested ZERO/FULL initialization,
+  FULL unlock, and the installer's GSP-OFF upgrade; results are recorded in
+  [the report](research/CPU_RM_SMALL_WPR.md);
   the exact final Windows driver version was not recorded.
 - Earlier GSP-ON measurements reported about 8024 MB CUDA VRAM instead of
   8191 MB stock. Those are historical measurements, not a GSP requirement.

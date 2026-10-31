@@ -43,7 +43,7 @@ func AnalyzeEfiLog() string {
 	// 解锁成功标志优先 (注意: "SEC2 unlocked" 仅指核可注入, 非算力解锁!
 	// 必须匹配算力解锁特征 "*** UNLOCKED ***" 或 SS0 实际值)
 	if hit("*** unlocked ***") || hit("already unlocked (ss0/ss1 exact)") {
-		return T("  [EFI log] The unlock chain did reach UNLOCKED — the driver layer overwrote the state afterwards\n  Run the installer once more (it resets GSP), reboot, or go back to the driver version the author tested.", "  [журнал EFI] Цепочка разблокировки дошла до UNLOCKED — состояние затем перезаписал драйвер\n  Запустите установщик еще раз (он переустановит GSP) и перезагрузитесь, либо вернитесь к версии драйвера, проверенной автором.", "  [EFI日志] 解锁链实际已 UNLOCKED — 是驱动层覆盖了状态\n  请重跑一次安装器(重设 GSP)后重启, 或换回作者实测驱动版本")
+		return T("  [EFI log] The unlock chain did reach UNLOCKED — the driver layer overwrote the state afterwards\n  Run the installer once more (it resets GSP), reboot, or go back to a driver version I tested.", "  [журнал EFI] Цепочка разблокировки дошла до UNLOCKED — состояние затем перезаписал драйвер\n  Запустите установщик еще раз (он переустановит GSP) и перезагрузитесь, либо вернитесь к версии драйвера, проверенной мной.", "  [EFI日志] 解锁链实际已 UNLOCKED — 是驱动层覆盖了状态\n  请重跑一次安装器(重设 GSP)后重启, 或换回我实测的驱动版本")
 	}
 	// 失败模式 A: DMA 够不到 >4GB (Above 4G 未开)
 	if hit("wpr2 not up") || (hit("imem[0]=0xffffffff") && hit("fwsec40")) {

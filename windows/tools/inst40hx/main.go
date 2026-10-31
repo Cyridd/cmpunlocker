@@ -786,7 +786,7 @@ func installEFI() bool {
 				tr("  \\EFI\\40HX\\40HXUNLK.EFI  (BCD path)\n", "  \\EFI\\40HX\\40HXUNLK.EFI  (путь BCD)\n", "  \\EFI\\40HX\\40HXUNLK.EFI  (BCD 路径)\n")+
 				tr("  \\EFI\\Boot\\bootx64.efi    (standard fallback path)\n\n", "  \\EFI\\Boot\\bootx64.efi    (стандартный запасной путь)\n\n", "  \\EFI\\Boot\\bootx64.efi    (标准回退路径)\n\n")+
 				tr("Detailed log: ", "Подробный журнал: ", "详细日志: ")+filepath.Join(os.TempDir(), "40HX_installer.log"),
-			mbIconError)
+			mbIconInfo)
 	}
 	return efiOK
 }

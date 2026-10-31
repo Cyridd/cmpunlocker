@@ -1,6 +1,6 @@
 # Licensing and attribution
 
-This project contains code derived from multiple authors. The repository's own
+This project contains code derived from multiple projects. The repository's own
 license is the MIT License in [`LICENSE`](../LICENSE); the components below keep
 their original terms.
 
@@ -39,7 +39,7 @@ their original terms.
   available, as GPL-3.0 requires.
 - **ThrottleStop** — `ThrottleStop.sys` is a redistributed third-party
   proprietary signed driver. It is not covered by this repository's MIT license
-  and remains the property of its author.
+  and remains the property of the ThrottleStop developer.
 - The TU106/GA102 firmware blobs under `windows/tools/unlock40x/` are NVIDIA
   firmware images and remain subject to NVIDIA's terms. They are present as
   research inputs to the EFI build.

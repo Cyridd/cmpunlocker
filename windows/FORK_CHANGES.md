@@ -19,6 +19,10 @@ switching GSP, and redirects existing Gen2 login entries to the current
 installer. Gen2 no longer changes GSP; the obsolete GSP-ensure task is removed
 on installation. See [the report](../docs/research/CPU_RM_SMALL_WPR.md).
 
+I tested the integrated installer and its upgrade path: Disable GSP replaces
+an existing `EnableGpuFirmware=1` with `0`, and the Gen2 task leaves it at `0`.
+The notice asking for manual boot-order setup uses an information icon.
+
 1. GSP registry fallback is hardware-bound. A display name such as `RTX 2060`
    or `RTX 2070` is no longer enough to select a class key; `MatchingDeviceId`
    must also contain `PCI\\VEN_10DE&DEV_1F0B`. This prevents a multi-GPU system

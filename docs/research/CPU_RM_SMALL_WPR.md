@@ -1,19 +1,19 @@
 # CMP 40HX CPU-RM unlock with a small Booter WPR heap
 
 On 2026-10-31, proprietary Linux **610.43.03 and 615.78.08** initialized and
-completed CUDA workloads with the full unlock and GSP disabled. The owner
-subsequently confirmed that the Windows **ZERO and FULL 960 KiB EFI variants
-both initialize successfully**, and that FULL retains the unlock in multiple
-tests. The exact Windows driver version for that final confirmation was not
+completed CUDA workloads with the full unlock and GSP disabled. I then
+confirmed that the Windows **ZERO and FULL 960 KiB EFI variants both
+initialize successfully**, and that FULL retains the unlock in multiple
+tests. The exact Windows driver version for those tests was not
 recorded. Earlier Windows failures on 617.14 are historical controls, not a
 claim that the new build was tested on every Windows release.
 
 The repository now ships the FULL Windows path and a separate Linux
 [pre-driver CPU-RM module](../../linux/cpu-rm/README.md). Windows keeps the
 current repository's ReBAR, signed-image installation and return-to-bootloader
-features. The owner's runtime confirmation applies to the research package;
-the integrated build additionally has build/offline validation, and still
-needs deployment testing of the updated installer on Windows.
+features. I also tested the integrated installer and reproduced an upgrade:
+after I deliberately set `EnableGpuFirmware=1`, **Disable GSP** changed it
+to `0`, and the Gen2 task left it at `0`.
 
 ## What changed
 
@@ -95,11 +95,6 @@ establish successful initialization.
   `de7288bcfb80c2d4b259a59e823c926ba0a9adcab594219cc6802c94257ce271`.
 - ZERO payload SHA-256:
   `6e1f97567bc75b7389782226c73d52c07ae51d04c00fc7df975e5ec325463262`.
-- Windows research package `CMP40HX-Windows-Small-WPR-960K.zip` SHA-256:
-  `531f96aa9b12558603eb84b31146df061b53c79ddd85c3dac8c7b8695cf693c7`.
-- Source measurements: local `tu106-preboot/STAGE7-SMALL-WPR-HANDOFF.md`,
-  `results/stage7-acceptance.json`, and `small-wpr-{locked,full}-615-150w*`.
-  The earlier acceptance JSON predates the owner's Windows confirmation.
 - Earlier Windows controls are curated in
   [WINDOWS_CPU_RM_HISTORY.md](WINDOWS_CPU_RM_HISTORY.md).
 
@@ -127,5 +122,5 @@ tests. The regenerated Windows resource object matches the committed copy.
 The Linux module builds with LLVM and `W=1` against `7.2.9-2-cachyos` headers.
 Firmware preparation from cached pinned archives, selector-control tests,
 offline Booter/GSP/layout/malformed-input tests and the saved board-ROM FWSEC
-parser checks pass. These integration checks do not load the new module or
-exercise the updated installer on the Windows host.
+parser checks pass. These build/offline checks complement the native Linux
+workloads and my Windows installation and upgrade tests described above.

@@ -3,7 +3,7 @@
 Unless stated otherwise, the measurements below come from the Windows/UEFI unlock
 path on one system: CMP 40HX, AMD Ryzen 5 5600G host, NVIDIA driver `617.14`,
 CUDA Toolkit `13.4`. The Windows-side summary is in
-[`windows/README.md`](../windows/README.md#results). The author's Linux measurements
+[`windows/README.md`](../windows/README.md#results). My Linux measurements
 are at the end of this page.
 
 ## clpeak (CUDA backend)
@@ -218,8 +218,9 @@ cuBLASLt FP16 from 1.0335 to 52.1347 TFLOPS. A separate numerical WMMA test
 matched 163,840 outputs with maximum error 0 and passed again after a fresh
 FULL unlock. The earlier 610 pair used the recorded 184 W default limit.
 
-The owner confirmed successful Windows ZERO/FULL initialization and FULL
-unlock with the 960 KiB EFI. Those confirmations do not replace deployment
-validation of the integrated installer or establish GRID/vGPU support.
+I confirmed successful Windows ZERO/FULL initialization and FULL unlock with
+the 960 KiB EFI. I also tested the integrated installer and reproduced an
+upgrade: Disable GSP changed `EnableGpuFirmware=1` to `0`, and the Gen2 task
+left it at `0`. GRID/vGPU support has not been independently validated.
 The exact geometry, controls, full table, provenance and limitations are in
 [CPU_RM_SMALL_WPR.md](research/CPU_RM_SMALL_WPR.md).

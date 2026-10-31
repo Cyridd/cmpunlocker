@@ -27,8 +27,9 @@ reapplied after a full GPU reset or power cycle.
 **GSP OFF is now supported.** Proprietary Linux 615.78.08 at a verified 150 W
 reached FP16 WMMA `1.0440 → 66.1629 TFLOPS` and INT8 WMMA
 `2.0724 → 131.0379 TOPS`; a numerical WMMA check matched 163,840 outputs
-with zero error. The owner confirmed successful Windows ZERO/FULL initialization
-and FULL unlock. See [CPU-RM results](docs/research/CPU_RM_SMALL_WPR.md).
+with zero error. I confirmed successful Windows ZERO/FULL initialization,
+FULL unlock, and the installer's GSP-OFF upgrade. See
+[CPU-RM results](docs/research/CPU_RM_SMALL_WPR.md).
 The screenshots below describe the earlier Windows GSP-ON setup.
 
 Measured with the independent [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) on one Windows system, NVIDIA driver `617.14`:
@@ -144,4 +145,4 @@ are documented in
 
 ## Licensing
 
-The repository's own license is the MIT License in [`LICENSE`](LICENSE). The repository also contains code derived from other authors and redistributes third-party components (a GPL-3.0 driver, a proprietary signed driver, NVIDIA firmware images) that keep their original terms, so the repository as a whole is not distributable under MIT alone. See [`docs/licensing.md`](docs/licensing.md) for the per-component list.
+The repository's own license is the MIT License in [`LICENSE`](LICENSE). The repository also contains code derived from other projects and redistributes third-party components (a GPL-3.0 driver, a proprietary signed driver, NVIDIA firmware images) that keep their original terms, so the repository as a whole is not distributable under MIT alone. See [`docs/licensing.md`](docs/licensing.md) for the per-component list.

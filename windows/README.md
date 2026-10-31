@@ -16,7 +16,7 @@ applied again after a full GPU reset or power cycle.
 | --- | --- |
 | Compute | `SS0=0x88888888`, `SS1=0x00000008`; Tensor Core FP16 from about 1.1 to about 72 TFLOPS (clpeak WMMA) and INT8 `dp4a` from about 1 to about 34 TOPS on the reference card; see [`docs/results.md`](../docs/results.md) |
 | PCIe | Gen2 x16 when the platform accepts the retrain |
-| NVIDIA driver | GSP OFF / CPU-RM now supported; owner-confirmed ZERO/FULL initialization and FULL unlock |
+| NVIDIA driver | GSP OFF / CPU-RM: ZERO/FULL initialization and FULL unlock tested by me |
 
 PCIe Gen3 and RT-core unlocks are research topics and are not advertised as
 working features. This tree targets CMP 40HX only.
@@ -185,6 +185,10 @@ Run `40HXInstaller.exe` as Administrator. The GUI scans the current state and
 preselects missing or outdated components. A complete installation selects
 **Disable GSP (recommended)**, installs the EFI entry, deploys the Gen2 helper, registers the login
 task, and disables Windows Fast Startup and PCIe ASPM.
+
+I tested installation and reproduced an upgrade by setting
+`EnableGpuFirmware=1` first: **Disable GSP** changed it to `0`, and the Gen2
+login task left it at `0`.
 
 When upgrading, install the **new EFI and new installer together**. The GUI
 recognizes an outdated ESP image and preselects Compute EFI. It deploys the
@@ -380,7 +384,7 @@ aperture before accepting the change. The window is chosen from the root
 bridge resource descriptors when firmware exposes them; otherwise a
 topology-relative fallback is tried. Any failed readback or aperture check
 rolls the PCI configuration and XVE state back to the original values.
-The ReBAR path is validated on the author's CMP 40HX system, but remains
+I validated the ReBAR path on my CMP 40HX system. It remains
 platform-dependent: it needs Above 4G Decoding and a free 8 GiB-aligned
 64-bit MMIO span in the root-complex topology.
 

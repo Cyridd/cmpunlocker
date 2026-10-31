@@ -67,7 +67,7 @@ int cmp40_inspect(struct pci_dev *pdev)
 		ret = -EIO;
 		goto out;
 	}
-	pci_info(pdev, "cmp40_preboot: SNAPSHOT owner=%s command=%04x boot0=%08x\n",
+	pci_info(pdev, "cmp40_preboot: SNAPSHOT driver=%s command=%04x boot0=%08x\n",
 		pdev->driver ? pdev->driver->name : "none", command, boot0);
 	{
 		u32 gfw_plm = readl(bar + 0x118128);
