@@ -86,7 +86,7 @@ still needs a separate test. See
 
 ### Windows
 
-Download the latest build from the [Releases page](https://github.com/Cyridd/cmpunlocker/releases) (each release includes `SHA256SUMS.txt`; prebuilt executables are no longer committed to the repository), then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
+Download the Windows ZIP from the [Releases page](https://github.com/Cyridd/cmpunlocker/releases), verify its checksum against the attached `SHA256SUMS.txt`, and extract the entire archive. Then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
 
 ## Compatibility at a glance
 

@@ -49,8 +49,10 @@ local outputs and are not committed.
 ## Build outputs that are not committed
 
 Prebuilt Windows executables (`40HXInstaller.exe`, `40HXUninstaller.exe`,
-`40HXCheck.exe`) are published on the GitHub Releases page together with
-`SHA256SUMS.txt`; they are produced by `windows/tools/build_release.bat` and by CI.
+`40HXCheck.exe`) are built by `windows/tools/build_release.bat` and by CI.
+GitHub Releases publishes the complete Windows ZIP together with
+`SHA256SUMS.txt` for the archive; the ZIP also includes a per-file checksum
+manifest.
 The patched `libnvidia-glcore.so` and the compiled `patch_glcore` are generated
 locally (see [`cmp_glcore_patch/README.md`](../cmp_glcore_patch/README.md)).
 None of these are tracked in git.

@@ -41,6 +41,8 @@ The notice asking for manual boot-order setup uses an information icon.
 4. A source verification script and a reproducible Windows packaging script
    are included. The package manifest records hashes so a tester can distinguish
    the EFI and Go components actually used.
+   Tagged releases contain a complete ZIP with the package directories and
+   per-file checksums, plus a separate checksum for the archive.
 5. The EFI source was cleaned up for the CMP 40HX release path: helper symbols,
    PCI discovery names, multi-card NVRAM keys, and user-visible messages now
    use `CMP40`/`CMP40HX` terminology. Historical GA102 blobs and their numeric

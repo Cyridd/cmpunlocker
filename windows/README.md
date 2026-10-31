@@ -48,9 +48,11 @@ aperture or when another bridge already occupies the candidate range.
 ## Package Contents
 
 This repository ships the source tree only. Prebuilt executables are not
-committed: download them from the GitHub Releases page (each release includes
-`SHA256SUMS.txt`), or build them yourself. `tools/build_release.bat` builds the
-tools and assembles a package into `release-fork/` from the following inputs:
+committed: download `CMP40HX-Windows-vX.Y.Z.zip` from the GitHub Releases page,
+verify it against the attached `SHA256SUMS.txt`, and extract the entire ZIP,
+or build the tools yourself. The `SHA256SUMS.txt` inside the ZIP verifies the
+individual package files. `tools/build_release.bat` builds the tools and
+assembles a package into `release-fork/` from the following inputs:
 
 - `tools/inst40hx/` - GUI and command-line installer (`40HXInstaller.exe`).
 - `tools/uninstall40x/` - component-level cleanup and restore (`40HXUninstaller.exe`).
@@ -343,6 +345,34 @@ the installer to build.
 Run `tools/build_release.bat` on Windows to create a package with a SHA-256
 manifest in `release-fork/`. The source verification helper is
 `tools/verify_source.ps1`.
+
+### Publishing a Windows release
+
+The [Release workflow](../.github/workflows/release.yml) runs when a `v*` tag
+is pushed. A push to `main` runs CI checks; it does not create a release.
+
+Before tagging, update `Version` in `tools/40hxcore/i18n.go` and the manifest,
+file and product versions in `tools/winres_gen/main.go`. Regenerate the
+installer resource object from the repository root:
+
+```sh
+go -C windows/tools/winres_gen run . ../inst40hx/rsrc_windows_amd64.syso
+```
+
+Commit the version changes and regenerated resource, push `main`, and wait
+for CI to pass. Then tag that commit; for this release:
+
+```sh
+git tag -a v2.1.0 -m "v2.1.0"
+git push origin v2.1.0
+```
+
+CI builds the three Windows executables, packages them with the committed
+EFI, helper drivers and documentation, and creates a draft GitHub Release.
+Its two assets are `CMP40HX-Windows-v2.1.0.zip` and `SHA256SUMS.txt` with
+the archive checksum. Review the draft's description and assets, then select
+**Publish release** on GitHub. The version inside the programs is set by the
+source files above; it is not derived automatically from the tag.
 
 ## EFI Build
 

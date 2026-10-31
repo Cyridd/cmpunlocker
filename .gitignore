@@ -22,6 +22,8 @@ __pycache__/
 
 # Windows tree build outputs (see windows/README.md)
 windows/release-fork/
+windows/release/
+windows/release-assets/
 windows/build-linux/
 windows/tools/unlock40x/*.o
 windows/tools/unlock40x/*.so

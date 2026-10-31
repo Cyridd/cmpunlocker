@@ -1,9 +1,10 @@
 # Build and publish a release when a version tag is pushed.
 #
 # Replaces the manual windows/tools/build_release.bat step for published
-# releases: the binaries attached to a GitHub release are always built by CI
+# releases: the binaries in the release ZIP are always built by CI
 # from the tagged commit, with the same flags as the ci.yml smoke build, and
-# accompanied by SHA256SUMS.txt.
+# accompanied by per-file checksums inside the ZIP and an archive checksum
+# in the attached SHA256SUMS.txt.
 #
 # The release is created as a draft so the notes can be reviewed (and the
 # assets verified) before it becomes public.
@@ -83,17 +84,47 @@ jobs:
             | sed 's|\./||' > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: Create the Windows ZIP and archive checksum
+        shell: python
+        env:
+          OUT: ${{ github.workspace }}/windows/release
+          ASSETS: ${{ github.workspace }}/windows/release-assets
+        run: |
+          import hashlib
+          import os
+          from pathlib import Path
+          import zipfile
+
+          out = Path(os.environ["OUT"])
+          assets = Path(os.environ["ASSETS"])
+          assets.mkdir(parents=True, exist_ok=True)
+          archive = assets / f"CMP40HX-Windows-{os.environ['GITHUB_REF_NAME']}.zip"
+          with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for path in sorted(out.rglob("*")):
+                  if path.is_file():
+                      z.write(path, path.relative_to(out).as_posix())
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          (assets / "SHA256SUMS.txt").write_text(
+              f"{digest}  {archive.name}\n", encoding="ascii"
+          )
+          print(f"Created {archive.name}: SHA-256 {digest}")
+
       - name: Publish a draft release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          OUT: ${{ github.workspace }}/windows/release
+          ASSETS: ${{ github.workspace }}/windows/release-assets
         run: |
           set -euo pipefail
-          # gh release create takes files, not directories.
-          mapfile -d '' assets < <(cd "$OUT" && find . -type f -print0)
-          (cd "$OUT" && gh release create "${GITHUB_REF_NAME}" \
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          Windows build of ${GITHUB_REF_NAME}.
+
+          Download CMP40HX-Windows-${GITHUB_REF_NAME}.zip and verify it against the attached SHA256SUMS.txt. Extract the entire ZIP before running the installer; its SHA256SUMS.txt verifies the individual package files. See FORK_CHANGES.md inside the ZIP for the changes in this fork.
+          EOF
+          gh release create "${GITHUB_REF_NAME}" \
+            --verify-tag \
             --draft \
             --title "${GITHUB_REF_NAME}" \
-            --notes "Automated build of ${GITHUB_REF_NAME}. Verify every file against \`SHA256SUMS.txt\` before use. See FORK_CHANGES.md for what changed in this fork." \
-            "${assets[@]}")
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "$ASSETS/CMP40HX-Windows-${GITHUB_REF_NAME}.zip" \
+            "$ASSETS/SHA256SUMS.txt"
