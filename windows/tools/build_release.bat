@@ -7,6 +7,8 @@ set "OUT=%ROOT%\release-fork"
 set "CGO_ENABLED=0"
 set "GOOS=windows"
 set "GOARCH=amd64"
+rem Diagnostic ZERO builds must never replace the installer payload.
+set "CPU_RM_CONTROL=full"
 
 where go >nul 2>&1
 if errorlevel 1 (
@@ -59,6 +61,7 @@ echo [4/5] Writing build metadata...
 >"%OUT%\BUILD_INFO.txt" echo Source tree: %ROOT%
 >>"%OUT%\BUILD_INFO.txt" echo Built: %DATE% %TIME%
 >>"%OUT%\BUILD_INFO.txt" echo EFI default mode: automatic Windows chainload
+>>"%OUT%\BUILD_INFO.txt" echo Compute payload: FULL CPU-RM, 960 KiB Booter heap; GSP OFF recommended
 >>"%OUT%\BUILD_INFO.txt" echo Boot-manager handoff: add the --return-to-bootloader load option to the 40HX boot entry
 
 echo [5/5] Writing SHA256SUMS.txt...

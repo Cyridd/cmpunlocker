@@ -15,7 +15,7 @@ const (
 	// 显示适配器 Class 注册表路径与子键值
 	GpuClassPath  = `SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}`
 	GpuClassGUID  = `{4d36e968-e325-11ce-bfc1-08002be10318}` // Enum Driver 值反查用
-	GpuEnableFw   = "EnableGpuFirmware"                      // GSP 启用开关 (=1)
+	GpuEnableFw   = "EnableGpuFirmware"                      // Explicit CPU-RM setting (=0)
 	GpuAdapterStr = "HardwareInformation.AdapterString"      // 驱动真实卡名(伪装也改不了此路径)
 	GpuAdapter40  = "CMP 40HX"
 

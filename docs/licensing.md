@@ -6,6 +6,15 @@ their original terms.
 
 ## Linux
 
+- Proprietary CPU-RM pre-driver module and firmware tooling in `linux/cpu-rm/`
+  — derived from [nlzy/turing-unlock](https://github.com/nlzy/turing-unlock)
+  commit `417f333263ff169e8f449c931b70db9dfd7b8ef4`, GPL-2.0-only, with
+  CMP40HX-specific changes by Cyridd. License copies are in
+  [`linux/cpu-rm/licenses/`](../linux/cpu-rm/licenses/).
+  The shared published selector payload is MIT. Extracted NVIDIA generated
+  source assets retain NVIDIA's MIT terms; the binary GSP firmware retains
+  its own license notice, extracted into the prepared assets directory.
+
 - Compute Unlock — originally developed by @sbccc1888 (https://github.com/sbccc1888/cmpunlocker).
   Licensed under the MIT License. Original attribution is preserved.
 - PCIe / ReBAR patches - ported from @xrip (https://github.com/xrip/cmp50hx-unlock). 

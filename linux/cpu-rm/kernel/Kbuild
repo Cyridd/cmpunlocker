@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
+obj-m += cmp40_preboot.o
+cmp40_preboot-y := main.o inspect.o gfw_eval.o prep.o layout.o \
+	 vbios.o boot.o unlock.o vm_inspect.o timeline.o

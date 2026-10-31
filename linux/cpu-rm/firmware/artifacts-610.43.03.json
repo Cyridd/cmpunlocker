@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "target": "CMP40HX TU106 CPU-RM pre-driver unlock / signed TU102 Booter 610.43.03",
+  "source_artifacts": [
+    {
+      "name": "NVIDIA open kernel modules source archive",
+      "url": "https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-610.43.03.tar.xz",
+      "checksum_url": "https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-610.43.03.tar.xz.sha256sum",
+      "revision": "610.43.03 release source (NVIDIA tag 610.43.03)",
+      "sha256": "7e118923c7a23edc36114d63273a46e3e04e9af98695a42203e7ac2dfe9fc1dc",
+      "license": "GPL-2.0 OR MIT",
+      "filename": "NVIDIA-kernel-module-source-610.43.03.tar.xz"
+    },
+    {
+      "name": "nvidia-utils binary package used for exact firmware extraction",
+      "version": "610.43.03-1",
+      "architecture": "x86_64_v3",
+      "license": "custom (package metadata)",
+      "sha256": "e17e7c92eeffa178b0fe1f40eb17a47095f8fc3ce4a77bf115cf5bd5a4df86e9",
+      "firmware": [
+        {
+          "path": "usr/lib/firmware/nvidia/610.43.03/gsp_tu10x.bin",
+          "size": 29352832,
+          "sha256": "73065619db9ec921d19fc4e519dd04d91a9199b525eaca9b257b89fb8c5ec52c"
+        }
+      ],
+      "filename": "nvidia-utils-610.43.03-1-x86_64_v3.pkg.tar.zst",
+      "url": "https://archive.cachyos.org/archive/cachyos-v3/nvidia-utils-610.43.03-1-x86_64_v3.pkg.tar.zst",
+      "notice": {
+        "path": "usr/share/licenses/nvidia-utils/LICENSE",
+        "sha256": "c692fb14ad4f499c6aee1b9e144e6905148c420e6225b17cb2937366c1e507ad"
+      }
+    }
+  ],
+  "tu102_payload": {
+    "name": "TU102 610.43.03 mutex-free V67 signature image",
+    "size": 64000,
+    "size_hex": "0x0000fa00",
+    "writes": [
+      {
+        "address": "0x00409650",
+        "value": "0xffffffff",
+        "role": "FEAT_PLM"
+      },
+      {
+        "address": "0x001fa828",
+        "value": "0x00000000",
+        "role": "WPR2_HI"
+      }
+    ],
+    "mutex": {
+      "index": 3,
+      "token_source": "D[1]",
+      "main_token_dmem": "0x0000ffff",
+      "main_sp": "0x0000fff0"
+    },
+    "sha256": "b0ec90294d1de3c67e024631c0a11000f281470d76eed806fc24c66b7fd1ef41",
+    "generator": "firmware/generate_v67.py"
+  },
+  "derived_assets": {
+    "booter_unload_tu102.bin": "ec267481ea4cbc431bd99975df877f8bdb7ff541723a7d4850dff38652d4c8c3",
+    "booter_load_tu102.bin": "51507de61777cf46f3703a084cdfa896c21f6bc0c8af8f245bd09b2e9c49bf54",
+    "gsp_boot_tu102.bin": "8765694cd38beaa4e2b8b1b83a31fb7aee6cb9d8b7c6bc7a86e6d931a3a056c2",
+    "gsp_boot_desc_tu102.bin": "9e7cca2cfdc5ce601b0adba39967850046108df6c2d23fff95578ca3f0ccbe01",
+    "sec2_bl_tu102.bin": "f21f1cfbb8fffa8067685314367fc4c50f3f84dd99eda7c19db4292d9269b9d9"
+  },
+  "limitation": "Pinned 610 firmware is used only by the pre-driver transaction. Native proprietary CPU-RM 610.43.03 and 615.78.08 validated on one 8-GiB CMP40HX; GRID/vGPU and GSP-RM with small heap unvalidated.",
+  "cmp40hx_payloads": {
+    "v67-tu106-stock-handoff-610.43.03.bin": "de7288bcfb80c2d4b259a59e823c926ba0a9adcab594219cc6802c94257ce271",
+    "v67-tu106-locked-control-610.43.03.bin": "6e1f97567bc75b7389782226c73d52c07ae51d04c00fc7df975e5ec325463262"
+  }
+}

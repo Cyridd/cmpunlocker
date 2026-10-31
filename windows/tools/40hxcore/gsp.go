@@ -1,6 +1,7 @@
 package hxcore
 
 import (
+	"errors"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
@@ -121,6 +122,45 @@ func GspEnabled() bool {
 	defer k.Close()
 	v, _, err := k.GetIntegerValue(GpuEnableFw)
 	return err == nil && v == 1
+}
+
+// GspDisabled requires an explicit zero so upgrading replaces a legacy GSP=1
+// setting even when a missing value would also use CPU-RM on this card.
+func GspDisabled() bool {
+	key := FindGpuClassKey()
+	if key == "" {
+		return false
+	}
+	return gspDisabledAt(registry.LOCAL_MACHINE, key)
+}
+
+func gspDisabledAt(root registry.Key, key string) bool {
+	k, err := registry.OpenKey(root, key, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue(GpuEnableFw)
+	return err == nil && v == 0
+}
+
+// DisableGsp explicitly replaces old GSP=1 installs on the hardware-bound key.
+// Called only by installation, never by the Gen2 login task.
+func DisableGsp() error {
+	key := FindGpuClassKey()
+	if key == "" {
+		return errors.New(T("cannot find the 40HX device registry key", "не найден раздел реестра устройства 40HX", "找不到 40HX 的设备注册表键"))
+	}
+	return disableGspAt(registry.LOCAL_MACHINE, key)
+}
+
+func disableGspAt(root registry.Key, key string) error {
+	k, err := registry.OpenKey(root, key, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+	return k.SetDWordValue(GpuEnableFw, 0)
 }
 
 // GspDiag: 诊断 — 返回 (匹配到的子键短名, 该键 AdapterString/DriverDesc,

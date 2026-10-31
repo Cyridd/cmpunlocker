@@ -495,7 +495,7 @@ func check() {
 	gpuOK := hxcore.FindGPU()
 	sbOn := hxcore.SecureBootOn()
 	tsOn := hxcore.TestSigningOn()
-	gsOn := hxcore.GspEnabled()
+	gsOff := hxcore.GspDisabled()
 	sub, _, _ := hxcore.GspDiag() // 只需判断 GSP 键是否存在(开关式显示, 不展示寄存器/Adapter 细节)
 
 	// --- A. 主判定: 算力 + Gen2 最优先 (v2.5) ---
@@ -549,11 +549,11 @@ func check() {
 	w("%s\n", bar)
 
 	// --- B. 基础状态 ---
-	gspTxt := tr("✗ not enabled (the installer sets it automatically after the NVIDIA driver is installed)", "✗ не включено (установщик задаст автоматически после установки драйвера NVIDIA)", "✗ 未启用(装 NVIDIA 驱动后由安装器自动设)")
-	if gsOn {
-		gspTxt = tr("✓ enabled", "✓ включено", "✓ 已启用")
+	gspTxt := tr("— GSP OFF not explicitly configured", "— GSP OFF явно не задан", "— 尚未明确设置 GSP OFF")
+	if gsOff {
+		gspTxt = tr("✓ disabled (recommended CPU-RM mode)", "✓ отключён (рекомендуемый режим CPU-RM)", "✓ 已关闭（推荐 CPU-RM 模式）")
 	} else if sub == "" {
-		gspTxt = tr("— GSP key not found (install the NVIDIA driver first before GSP can be set)", "— ключ GSP не найден (сначала установите драйвер NVIDIA, затем можно задать GSP)", "— 未找到 GSP 键(需先装好 NVIDIA 驱动才能设置 GSP)")
+		gspTxt = tr("— GPU registry key not found", "— раздел GPU в реестре не найден", "— 未找到 GPU 注册表键")
 	}
 	w("GPU 40HX: %s   Secure Boot: %s   GSP: %s\n",
 		map[bool]string{true: "✓", false: "✗"}[gpuOK],
@@ -653,7 +653,7 @@ func check() {
 		if !drvOK {
 			if !isAdmin() {
 				verdict = tr(">>> Driver not loaded: this tool needs administrator rights to load the kernel driver and measure state. Right-click this program -> Run as administrator", ">>> Драйвер не загружен: инструменту нужны права администратора для загрузки драйвера ядра и измерения состояния. Щелкните правой кнопкой -> Запуск от имени администратора", ">>> 驱动未加载: 本工具需管理员权限加载内核驱动以实测状态。请右键本程序 -> 以管理员身份运行")
-			} else if gpuOK && gsOn {
+			} else if gpuOK {
 				if ever, ev := drvLogEvidence(); ever {
 					verdict = tr(">>> The driver is not running now, but logs show Gen2 was reached successfully before (", ">>> Драйвер сейчас не работает, но журналы показывают, что Gen2 ранее был достигнут (", ">>> 驱动当前未运行, 但日志显示此前已成功达成 Gen2 (") + ev + tr(").  Unlock is in effect; right-click and run this tool as administrator to read live state", "). Разблокировка действует; щелкните правой кнопкой и запустите инструмент от имени администратора для чтения состояния в реальном времени", ")。解锁已生效, 右键以管理员运行本工具可读实时状态")
 				} else {
@@ -688,8 +688,8 @@ func check() {
 	if tsOn {
 		tips = append(tips, tr("· Test signing is on (not needed since v2.5): disable with bcdedit /set testsigning off", "· Тестовая подпись включена (не нужна с v2.5): отключите через bcdedit /set testsigning off", "· 测试签名已开启 (v2.5 不需要): bcdedit /set testsigning off 可关闭"))
 	}
-	if !gsOn {
-		tips = append(tips, tr("· GSP not enabled: double-click 40HXInstaller.exe → ① check [Enable GSP] and click [Install selected components]", "· GSP не включен: дважды щелкните 40HXInstaller.exe → ① отметьте [Включить GSP] и нажмите [Установить выбранные компоненты]", "· GSP 未启用: 双击 40HXInstaller.exe → ① 勾 [GSP 启用] 点[安装所选组件]"))
+	if !gsOff {
+		tips = append(tips, tr("· Select [Disable GSP (recommended)] in 40HXInstaller.exe and reboot after installing the updated EFI.", "· Выберите «Отключить GSP (рекомендуется)» в 40HXInstaller.exe и перезагрузитесь после установки обновлённого EFI.", "· 在 40HXInstaller.exe 选择关闭 GSP（推荐），安装更新的 EFI 后重启。"))
 	}
 	if gpuOK && st.SS0OK && !st.Unlocked {
 		tips = append(tips, tr("· EFI compute unlock not in effect (SS0 locked): if the '40HX Unlock' EFI is not deployed / was uninstalled on this machine, this is expected and compute stays locked — to restore it re-run 40HXInstaller.exe and check [Compute EFI deploy + firmware boot entry]; if the EFI is installed, confirm the boot went through the '40HX Unlock' entry / Above 4G is on / Secure Boot is off", "· Разблокировка вычислений через EFI не действует (SS0 заблокирован): если EFI '40HX Unlock' не развернут / удален на этой машине, это ожидаемо и вычисления остаются заблокированными — чтобы восстановить, перезапустите 40HXInstaller.exe и отметьте [Развертывание вычислительного EFI + запись загрузки прошивки]; если EFI установлен, проверьте, что загрузка прошла через запись '40HX Unlock' / Above 4G включен / Secure Boot выключен", "· EFI 算力解锁未生效(SS0 锁定): 若本机未部署/已卸载 '40HX Unlock' 解锁 EFI, 此提示属预期, 算力会保持锁定 — 想恢复请重跑 40HXInstaller.exe 勾选[算力 EFI 部署+固件启动项]; 若 EFI 已装, 则确认开机走了 '40HX Unlock' 启动项 / Above 4G 已开 / Secure Boot 已关"))

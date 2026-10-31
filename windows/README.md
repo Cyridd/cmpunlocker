@@ -16,7 +16,7 @@ applied again after a full GPU reset or power cycle.
 | --- | --- |
 | Compute | `SS0=0x88888888`, `SS1=0x00000008`; Tensor Core FP16 from about 1.1 to about 72 TFLOPS (clpeak WMMA) and INT8 `dp4a` from about 1 to about 34 TOPS on the reference card; see [`docs/results.md`](../docs/results.md) |
 | PCIe | Gen2 x16 when the platform accepts the retrain |
-| NVIDIA driver | GSP remains enabled; no Code 43 on the tested systems |
+| NVIDIA driver | GSP OFF / CPU-RM now supported; owner-confirmed ZERO/FULL initialization and FULL unlock |
 
 PCIe Gen3 and RT-core unlocks are research topics and are not advertised as
 working features. This tree targets CMP 40HX only.
@@ -182,9 +182,18 @@ certificate's Common Name, which should be the key you enrolled.
 ## Installation
 
 Run `40HXInstaller.exe` as Administrator. The GUI scans the current state and
-preselects only missing components. A complete installation normally enables
-GSP, installs the EFI entry, deploys the Gen2 helper, registers the login
+preselects missing or outdated components. A complete installation selects
+**Disable GSP (recommended)**, installs the EFI entry, deploys the Gen2 helper, registers the login
 task, and disables Windows Fast Startup and PCIe ASPM.
+
+When upgrading, install the **new EFI and new installer together**. The GUI
+recognizes an outdated ESP image and preselects Compute EFI. It deploys the
+updated EFI before writing the CMP40HX hardware-bound registry DWORD
+`EnableGpuFirmware=0`. A stale EFI blocks the GSP change. Existing Gen2
+login entries are redirected to the new installer, and the obsolete
+`40HXGspEnsure` task is removed. The Gen2 task no longer writes the GSP setting.
+If you use Secure Boot, sign the new EFI and select it with `-efi` or the
+signed sidecar described above.
 
 After installation, reboot. The EFI screen should appear briefly before
 Windows starts. After login, the Gen2 task performs the link operation and
@@ -350,6 +359,15 @@ The Falcon preload probe is also disabled by default; use `PRELOAD_PROBE=1`
 only for a dedicated diagnostic run.
 Linux/gnu-efi builds use a SysV-ABI internal logger; EFI service callbacks
 remain Microsoft-ABI. This avoids corrupted `%s` diagnostics in the EFI log.
+
+The default build is **FULL CPU-RM**, with the tested 960 KiB Booter heap
+and exact 8 GiB layout checks. It preserves the published firmware/payload
+and lets the native Booter complete without the old post-Booter cleanup.
+The build verifies the payload hash and compiles the actual metadata builder
+on the host to check all 256 metadata bytes. Python 3 is required in addition
+to the C toolchain. Rebuild with `CPU_RM_CONTROL=zero` to produce a diagnostic
+ZERO control; that image deliberately keeps compute locked and is not the
+installer payload. See [the report](../docs/research/CPU_RM_SMALL_WPR.md).
 
 The production path is CMP 40HX/TU106. Legacy GA102 helpers remain in the
 source only as historical research code and are not a claim of support for

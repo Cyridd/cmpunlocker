@@ -7,6 +7,14 @@ NVIDIA-*.tar.xz
 NVIDIA-kernel-module-source-*/
 NVIDIA-kernel-module-source-*.tar.*
 artifacts/
+linux/cpu-rm/build/
+linux/cpu-rm/kernel/*.o
+linux/cpu-rm/kernel/*.ko
+linux/cpu-rm/kernel/*.mod
+linux/cpu-rm/kernel/*.mod.c
+linux/cpu-rm/kernel/.*.cmd
+linux/cpu-rm/kernel/Module.symvers
+linux/cpu-rm/kernel/modules.order
 
 # Python helper bytecode.
 __pycache__/

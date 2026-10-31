@@ -48,6 +48,15 @@ linked="$stage_dir/unlock40x_v70.so"
 efi="$stage_dir/unlock40x_v70.efi"
 
 extra_defs=()
+# The tested CPU-RM handoff is the shipped path. ZERO is a separate control.
+case "${CPU_RM_CONTROL:-full}" in
+    full) cpu_rm_stage=9 ;;
+    zero) cpu_rm_stage=10 ;;
+    *) echo "CPU_RM_CONTROL must be full or zero" >&2; exit 1 ;;
+esac
+python3 "$SRCDIR/verify_selector_payload.py"
+python3 "$SRCDIR/verify_cpu_rm_metadata.py"
+extra_defs+=(-DCPU_RM_HANDOFF -DHANDOFF_PRELOAD_DEFAULT "-DSTAGE_CONTROL=$cpu_rm_stage")
 if [ "${VBIOS_DUMP:-0}" = 1 ]; then
     # The 1 MiB BAR0 VBIOS capture is optional and disabled for the normal
     # unlock build.  Enable it explicitly with VBIOS_DUMP=1 when needed.

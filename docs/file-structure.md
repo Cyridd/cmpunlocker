@@ -26,6 +26,12 @@
 
 ## Windows / UEFI (`windows/`)
 
+The separate proprietary Linux path is [`linux/cpu-rm/`](../linux/cpu-rm/README.md):
+`kernel/` contains the pre-driver module, `firmware/` prepares pinned assets,
+`unlock.sh` checks completion before loading CPU-RM, and `test_offline.c`
+checks the firmware parsers and WPR layout. `build/` and compiled modules are
+local outputs and are not committed.
+
 | Path | Description |
 |---|---|
 | `windows/README.md` | Windows user guide: prerequisites, installation, verification, recovery |

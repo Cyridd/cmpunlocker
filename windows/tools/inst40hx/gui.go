@@ -14,7 +14,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"40hxcore"
@@ -43,19 +42,17 @@ func scanStatus() []statusItem {
 	gpuOK := hxcore.FindGPU()
 	items = append(items, statusItem{tr("40HX GPU", "Видеокарта 40HX", "40HX 显卡"), gpuOK,
 		map[bool]string{true: tr("detected (VEN_10DE&DEV_1F0B)", "обнаружена (VEN_10DE&DEV_1F0B)", "已检测到 (VEN_10DE&DEV_1F0B)"), false: tr("not detected — make sure it is seated and its driver is installed", "не обнаружена — убедитесь, что она установлена и драйвер стоит", "未检测到 — 确认插好且驱动已装")}[gpuOK]})
-	gspOK := hxcore.GspEnabled()
+	gspOK := hxcore.GspDisabled()
 	items = append(items, statusItem{"GSP (EnableGpuFirmware)", gspOK,
-		map[bool]string{true: tr("enabled (OK)", "включён (OK)", "已启用 (OK)"), false: tr("not enabled — the screen may go black (Code43) after unlocking", "не включён — после разблокировки возможен чёрный экран (Code43)", "未启用 — 解锁后可能 Code43 黑屏")}[gspOK]})
+		map[bool]string{true: tr("disabled (recommended)", "отключён (рекомендуется)", "已关闭（推荐）"), false: tr("GSP OFF is not explicitly configured — select Disable GSP below", "GSP OFF явно не задан — выберите «Отключить GSP» ниже", "尚未明确设置 GSP OFF — 请在下方选择关闭 GSP")}[gspOK]})
 
 	espEFI := false
 	if esp := hxcore.MountESP(); esp != "" {
-		if _, err := os.Stat(esp + ":\\EFI\\40HX\\40HXUNLK.EFI"); err == nil {
-			espEFI = true
-		}
+		espEFI = efiFileCurrent(esp + ":\\EFI\\40HX\\40HXUNLK.EFI")
 		hxcore.UnmountESP(esp)
 	}
 	items = append(items, statusItem{tr("ESP unlock EFI", "EFI разблокировки на ESP", "ESP 解锁 EFI"), espEFI,
-		map[bool]string{true: tr("\\EFI\\40HX\\40HXUNLK.EFI deployed", "\\EFI\\40HX\\40HXUNLK.EFI развёрнут", "\\EFI\\40HX\\40HXUNLK.EFI 已部署"), false: tr("not deployed (expected on Legacy machines)", "не развёрнут (ожидаемо на Legacy-машинах)", "未部署 (Legacy 机器属预期)")}[espEFI]})
+		map[bool]string{true: tr("current EFI deployed", "актуальный EFI установлен", "已部署当前 EFI"), false: tr("EFI missing or outdated — select Compute EFI to upgrade", "EFI отсутствует или устарел — выберите compute EFI для обновления", "EFI 缺失或已过期 — 请选择算力 EFI 更新")}[espEFI]})
 	// 启动项三态(与安装器 verifyBootEntry 同口径): 首位 / 存在但不在首位 / 未创建
 	bootOK := false
 	bootNote := tr("not created", "не создана", "未创建")
@@ -226,7 +223,7 @@ func (st *guiState) refreshTexts() {
 		st.tip.SetText(tr("Scanning environment...", "Проверка окружения...", "正在扫描环境…"))
 	}
 	if st.ckGsp != nil {
-		st.ckGsp.SetText(tr("Enable GSP (EnableGpuFirmware=1)", "Включить GSP (EnableGpuFirmware=1)", "GSP 启用 (EnableGpuFirmware=1)"))
+		st.ckGsp.SetText(tr("Disable GSP (recommended)", "Отключить GSP (рекомендуется)", "关闭 GSP（推荐）"))
 		st.ckEfi.SetText(tr("Compute EFI + firmware boot entry", "EFI разблокировки + запись загрузки", "算力 EFI + 固件启动项"))
 		st.ckRebar.SetText(tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)"))
 		st.ckDrv.SetText(tr("Deploy Gen2 drivers + Defender exclusions", "Установить драйверы Gen2 + исключения Defender", "Gen2 驱动部署 + Defender 排除"))
@@ -515,7 +512,7 @@ func (st *guiState) applySmartDefaults() {
 	// 全都没勾: 一行列出原因(均已就绪, 勾了会覆盖/刷新)
 	var ready []string
 	if !needGsp {
-		ready = append(ready, tr("GSP enabled", "GSP включён", "GSP 已启用"))
+		ready = append(ready, tr("GSP disabled", "GSP отключён", "GSP 已关闭"))
 	}
 	if !needDrv {
 		ready = append(ready, tr("Gen2 drivers ready", "Драйверы Gen2 готовы", "Gen2 驱动已就绪"))
@@ -644,7 +641,7 @@ func runGUI() {
 					Composite{
 						Layout: Grid{Columns: 2},
 						Children: []Widget{
-							CheckBox{AssignTo: &st.ckGsp, Text: tr("Enable GSP (EnableGpuFirmware=1)", "Включить GSP (EnableGpuFirmware=1)", "GSP 启用 (EnableGpuFirmware=1)")},
+							CheckBox{AssignTo: &st.ckGsp, Text: tr("Disable GSP (recommended)", "Отключить GSP (рекомендуется)", "关闭 GSP（推荐）")},
 							CheckBox{AssignTo: &st.ckEfi, Text: tr("Compute EFI + firmware boot entry", "EFI разблокировки + запись загрузки", "算力 EFI + 固件启动项")},
 							CheckBox{AssignTo: &st.ckRebar, Text: tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)")},
 							CheckBox{AssignTo: &st.ckDrv, Text: tr("Deploy Gen2 drivers + Defender exclusions", "Установить драйверы Gen2 + исключения Defender", "Gen2 驱动部署 + Defender 排除")},
@@ -822,7 +819,7 @@ func (st *guiState) installSelected(sel map[string]bool) {
 	st.sync(func() { st.pbInstall.SetEnabled(false) })
 	defer st.sync(func() { st.pbInstall.SetEnabled(true) })
 	nameOf := map[string]string{
-		"gsp": tr("Enable GSP", "Включить GSP", "GSP 启用"), "drv": tr("Gen2 driver deployment", "Развёртывание драйверов Gen2", "Gen2 驱动部署"), "efi": tr("Compute EFI + boot entry", "Compute EFI + запись загрузки", "算力 EFI + 启动项"),
+		"gsp": tr("Disable GSP (recommended)", "Отключить GSP (рекомендуется)", "关闭 GSP（推荐）"), "drv": tr("Gen2 driver deployment", "Развёртывание драйверов Gen2", "Gen2 驱动部署"), "efi": tr("Compute EFI + boot entry", "Compute EFI + запись загрузки", "算力 EFI + 启动项"),
 		"rebar": tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)"),
 		"task":  tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"), "fast": tr("Disable Fast Startup", "Откл. быстрый запуск", "关闭快速启动"), "aspm": tr("Disable ASPM", "Откл. ASPM", "关闭 ASPM"),
 		"perf": tr("High-performance power plan", "План электропитания высокой производительности", "高性能电源计划"), "defoff": tr("Disable Defender real-time protection", "Откл. защиту Defender в реальном времени", "关闭 Defender 实时防护"),
@@ -838,14 +835,7 @@ func (st *guiState) installSelected(sel map[string]bool) {
 		return
 	}
 	fmt.Println(tr("== Running: ", "== Выполняется: ", "== 执行: ") + strings.Join(parts, " / ") + " ==")
-	if sel["gsp"] {
-		fmt.Println(tr("──── Enable GSP (EnableGpuFirmware=1, the key to unlocking without a black screen) ────", "──── Включение GSP (EnableGpuFirmware=1, ключ к разблокировке без чёрного экрана) ────", "──── GSP 启用 (EnableGpuFirmware=1, 解锁不黑屏的关键) ────"))
-		if err := enableGsp(); err != nil {
-			fmt.Println(tr("  [GSP] Failed:", "  [GSP] Сбой:", "  [GSP] 失败:"), err)
-		} else {
-			fmt.Println(tr("  [GSP] EnableGpuFirmware=1 set (GSP-RM takes effect after reboot)", "  [GSP] EnableGpuFirmware=1 установлено (GSP-RM вступит в силу после перезагрузки)", "  [GSP] EnableGpuFirmware=1 已设置 (重启后 GSP-RM 生效)"))
-		}
-	}
+	removeLegacyGspTask()
 	if sel["drv"] {
 		fmt.Println(tr("──── Gen2 driver deployment + Defender exclusion (ThrottleStop/WinRing0) ────", "──── Развёртывание драйверов Gen2 + исключение Defender (ThrottleStop/WinRing0) ────", "──── Gen2 驱动部署 + Defender 排除 (ThrottleStop/WinRing0) ────"))
 		installDrivers()
@@ -857,7 +847,20 @@ func (st *guiState) installSelected(sel map[string]bool) {
 	}
 	if sel["efi"] {
 		fmt.Println(tr("──── Compute EFI deployment + firmware boot entry (dual-path write + pin to top) ────", "──── Развёртывание compute EFI + запись загрузки прошивки (двойная запись + закрепление сверху) ────", "──── 算力 EFI 部署 + 固件启动项 (双路写入 + 置顶) ────"))
-		installEFI()
+		if installEFI() && !sel["gsp"] {
+			// Also migrate login targets when GSP was already explicitly zero.
+			if err := refreshExistingGen2Entries(); err != nil {
+				fmt.Println(tr("  [Gen2] Login entry upgrade failed:", "  [Gen2] Сбой обновления автозапуска:", "  [Gen2] 登录启动项更新失败:"), err)
+			}
+		}
+	}
+	if sel["gsp"] {
+		fmt.Println(tr("──── Disable GSP (recommended CPU-RM mode) ────", "──── Отключение GSP (рекомендуемый режим CPU-RM) ────", "──── 关闭 GSP（推荐 CPU-RM 模式）────"))
+		if err := setGspDisabled(); err != nil {
+			fmt.Println(tr("  [GSP] Failed:", "  [GSP] Сбой:", "  [GSP] 失败:"), err)
+		} else {
+			fmt.Println(tr("  [GSP] EnableGpuFirmware=0 set (takes effect after reboot)", "  [GSP] EnableGpuFirmware=0 установлено (вступит в силу после перезагрузки)", "  [GSP] EnableGpuFirmware=0 已设置（重启生效）"))
+		}
 	}
 	if sel["rebar"] {
 		fmt.Println(tr("──── ReBar Unlock (ensure the boot entry lets the EFI resize BAR1 to 8 GB) ────", "──── Разблокировка ReBar (запись загрузки разрешает EFI увеличить BAR1 до 8 ГБ) ────", "──── ReBar 解锁 (确保启动项允许 EFI 把 BAR1 放大到 8 GB) ────"))

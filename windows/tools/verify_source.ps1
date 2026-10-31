@@ -23,6 +23,12 @@ $required = @(
     "tools\40hxcore\windows_args.go",
     "tools\40hxcore\gsp.go",
     "tools\unlock40x\unlock40x_v70.c",
+    "tools\unlock40x\selector_control.h",
+    "tools\unlock40x\handoff_flr.h",
+    "tools\unlock40x\payload_control.h",
+    "tools\unlock40x\fwsec_sb.h",
+    "tools\unlock40x\verify_selector_payload.py",
+    "tools\unlock40x\verify_cpu_rm_metadata.py",
     "tools\unlock40x\build_v70.sh"
 )
 $missing = @($required | Where-Object { -not (Test-Path (Join-Path $root $_)) })

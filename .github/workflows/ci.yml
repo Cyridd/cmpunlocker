@@ -1,6 +1,6 @@
 # CI for the CMP 40HX unlock project.
 #
-# Two independent gates over the Windows/UEFI tree:
+# Independent Windows/UEFI and Linux CPU-RM gates:
 #
 #   1. go-tools — builds every Go module, vets it, and runs the unit tests
 #      that can only execute on Windows (40hxcore imports
@@ -15,9 +15,8 @@
 #      embed/40HXUNLK.EFI. The build is byte-for-byte reproducible, so a
 #      mismatch means the committed payload and its source have drifted.
 #
-# The Linux kernel-module tree at the repository root is deliberately NOT
-# built here: it needs the running kernel's headers and root privileges, so
-# install.sh verifies it on the target machine instead.
+# The CPU-RM job builds without loading a module and exercises the firmware
+# parsers/layout offline. The open-module patch series has its separate CI.
 
 name: CI
 
@@ -26,10 +25,12 @@ on:
     branches: [main]
     paths:
       - 'windows/**'
+      - 'linux/cpu-rm/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'windows/**'
+      - 'linux/cpu-rm/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 
@@ -41,6 +42,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  linux-cpu-rm:
+    name: Linux CPU-RM module and offline firmware checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential linux-headers-generic zstd python3
+      - name: Build the pre-driver module (never load it)
+        run: |
+          set -euo pipefail
+          kdir=$(find /lib/modules -maxdepth 2 -name build | sort | tail -n1)
+          test -n "$kdir"
+          make -C linux/cpu-rm/kernel KDIR="$kdir" W=1 -j2
+      - name: Verify firmware preparation and parsers
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s linux/cpu-rm/firmware -p 'test_*.py' -v
+          python3 linux/cpu-rm/firmware/prepare.py
+          make -C linux/cpu-rm offline-test
+          bash -n linux/cpu-rm/unlock.sh
+
   go-tools:
     name: Go tools (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
@@ -171,7 +193,7 @@ jobs:
             "$EFI_IMAGE" \
             bash -lc '
               set -euo pipefail
-              pacman -Sy --noconfirm --quiet gcc binutils make gnu-efi
+              pacman -Sy --noconfirm --quiet gcc binutils make gnu-efi python
 
               # The image digest fixes the package database, not the packages:
               # Arch is a rolling distribution, so `pacman -Sy` resolves to
@@ -194,7 +216,8 @@ jobs:
 
               cp -r /src /build
               cd /build
-              VBIOS_DUMP=0 DIRECT_WRITE_PROBE=0 PRELOAD_PROBE=0 ./build_v70.sh
+              CPU_RM_CONTROL=zero EFI_OUT=/out/40HXZERO.EFI ./build_v70.sh
+              CPU_RM_CONTROL=full VBIOS_DUMP=0 DIRECT_WRITE_PROBE=0 PRELOAD_PROBE=0 ./build_v70.sh
               cp unlock40x_v70.efi /out/
             '
 

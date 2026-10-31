@@ -83,10 +83,11 @@ mechanism behind the CUDA loops has not been investigated here.
 
 ### Setup notes
 
-- The "after" state has GSP enabled (`EnableGpuFirmware=1`), which the Windows unlock
-  requires. With GSP on, the driver reserves some video memory, so the reported VRAM
+- This earlier "after" state has GSP enabled (`EnableGpuFirmware=1`). The
+  current small-WPR EFI supports GSP OFF; see the CPU-RM results below.
+  With GSP on, the driver reserves some video memory, so the reported VRAM
   drops from `8191 MB` to `8024 MB` (CUDA) and from `8016 MB` to `7857 MB` (Vulkan).
-  This is expected.
+  These figures describe the earlier GSP-ON comparison.
 - The comparison is between the stock configuration and the full unlock
   configuration. It does not separate the effect of GSP from the effect of the EFI
   payload.
@@ -207,3 +208,18 @@ The unlock was additionally validated in real applications:
 Before the userspace pipeline fix, the affected game configurations showed a very
 large slowdown, reported as up to roughly 10-15x. The application figures above
 are observations from one system, not universal performance guarantees.
+
+## Proprietary Linux and Windows with GSP OFF
+
+The current small-WPR CPU-RM path passed native proprietary Linux 610.43.03
+and 615.78.08 initialization. At a verified 150 W on 615, FP16 WMMA increased
+from 1.0440 to 66.1629 TFLOPS, INT8 WMMA from 2.0724 to 131.0379 TOPS, and
+cuBLASLt FP16 from 1.0335 to 52.1347 TFLOPS. A separate numerical WMMA test
+matched 163,840 outputs with maximum error 0 and passed again after a fresh
+FULL unlock. The earlier 610 pair used the recorded 184 W default limit.
+
+The owner confirmed successful Windows ZERO/FULL initialization and FULL
+unlock with the 960 KiB EFI. Those confirmations do not replace deployment
+validation of the integrated installer or establish GRID/vGPU support.
+The exact geometry, controls, full table, provenance and limitations are in
+[CPU_RM_SMALL_WPR.md](research/CPU_RM_SMALL_WPR.md).

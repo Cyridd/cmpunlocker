@@ -89,6 +89,108 @@
 #include <efiprot.h>
 #include <efifs.h>
 #include <efidevp.h>
+#ifdef CPU_RM_HANDOFF
+#if !defined(STAGE_CONTROL) || (STAGE_CONTROL != 9 && STAGE_CONTROL != 10)
+#error CPU-RM requires the complete native Booter path (full or zero control)
+#endif
+static EFI_HANDLE u40x_cpu_rm_parent;
+static BOOLEAN u40x_cpu_rm_return;
+static VOID u40x_cpu_rm_rebar(EFI_HANDLE parent);
+#endif
+
+#include "handoff_flr.h"
+#include "selector_control.h"
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 11
+#include "payload_control.h"
+#endif
+
+#if defined(SELECTOR_CONTROL) && (defined(DIRECT_WRITE_PROBE) || defined(PRELOAD_PROBE))
+#error Selector control cannot be combined with register write probes
+#endif
+
+#ifdef STAGE_CONTROL
+#if STAGE_CONTROL < 1 || STAGE_CONTROL > 16
+#error STAGE_CONTROL must be 1..16 (see build_v70.sh)
+#endif
+#if defined(SELECTOR_CONTROL) || defined(DIRECT_WRITE_PROBE) || defined(PRELOAD_PROBE) || defined(VBIOS_DUMP)
+#error Stage controls cannot be combined with selector controls or probes
+#endif
+#if !defined(DIRECT_SEC2) || !defined(HANDOFF_PRELOAD_DEFAULT) || defined(HANDOFF_FLR_DEFAULT)
+#error Stage controls require the DIRECT_SEC2 entry and preload-only default
+#endif
+#if STAGE_CONTROL == 1
+#define U40X_STAGE_NAME L"EARLY"
+#elif STAGE_CONTROL == 2
+#define U40X_STAGE_NAME L"PREP"
+#elif STAGE_CONTROL == 3
+#define U40X_STAGE_NAME L"GSP"
+#elif STAGE_CONTROL == 4
+#define U40X_STAGE_NAME L"SEC2"
+#elif STAGE_CONTROL == 5
+#define U40X_STAGE_NAME L"FWLOAD"
+#elif STAGE_CONTROL == 6
+#define U40X_STAGE_NAME L"FWSEC"
+#elif STAGE_CONTROL == 7
+#define U40X_STAGE_NAME L"HEALTH"
+#elif STAGE_CONTROL == 8
+#define U40X_STAGE_NAME L"BOOTLOAD"
+#elif STAGE_CONTROL == 9
+#define U40X_STAGE_NAME L"BOOTRUN"
+#elif STAGE_CONTROL == 10
+#define U40X_STAGE_NAME L"BOOTRUN-ZERO"
+#elif STAGE_CONTROL == 11
+#define U40X_STAGE_NAME L"PLM-STOCK-ZERO"
+#elif STAGE_CONTROL == 12
+#define U40X_STAGE_NAME L"RESET8-ZERO"
+#elif STAGE_CONTROL == 13
+#define U40X_STAGE_NAME L"WPRUP-ZERO"
+#elif STAGE_CONTROL == 14
+#define U40X_STAGE_NAME L"COMBINED-ZERO"
+#elif STAGE_CONTROL == 15
+#define U40X_STAGE_NAME L"SHORT-SIG"
+#else
+#define U40X_STAGE_NAME L"SHORT-SIG-NATIVE"
+#endif
+#if STAGE_CONTROL == 15 || STAGE_CONTROL == 16
+#define U40X_SHORT_SIG_SIZE 0x1000U
+static UINT32 u40x_short_sig_error;
+#endif
+#if STAGE_CONTROL == 16
+#define U40X_SHORT_NATIVE_MB0 0x1DU
+static UINT32 u40x_short_native_lo, u40x_short_native_hi;
+static BOOLEAN u40x_short_native_bounds_ready;
+#endif
+#if STAGE_CONTROL >= 5
+static BOOLEAN u40x_fwsec_prepared;
+static BOOLEAN u40x_mmio_unavailable(UINT32 v);
+#endif
+#if STAGE_CONTROL >= 8
+static BOOLEAN u40x_booter_prepared, u40x_booter_started;
+#endif
+#endif
+
+#ifdef FWSEC_SB_RESTORE
+#if !defined(STAGE_CONTROL) || (STAGE_CONTROL != 9 && STAGE_CONTROL != 10)
+#error FWSEC_SB_RESTORE requires BOOTRUN or BOOTRUN-ZERO stage control
+#endif
+static BOOLEAN u40x_fwsec_sb_mode, u40x_fwsec_sb_done;
+static UINT64 u40x_fwsec_sb_phys;
+#undef U40X_STAGE_NAME
+#if STAGE_CONTROL == 9
+#define U40X_STAGE_NAME L"FWSEC-SB-FULL"
+#else
+#define U40X_STAGE_NAME L"FWSEC-SB-ZERO"
+#endif
+#endif
+
+#ifdef CPU_RM_HANDOFF
+#undef U40X_STAGE_NAME
+#if STAGE_CONTROL == 9
+#define U40X_STAGE_NAME L"CPU-RM-FULL"
+#else
+#define U40X_STAGE_NAME L"CPU-RM-ZERO"
+#endif
+#endif
 
 /* ---- 本主板固件只接受"直调"（黑盒/旧版多次验证；v43/v44 教训） ----
  * 实机日志铁证：旧主线在 fast-found → "card found, preparing" 后挂死，
@@ -108,6 +210,18 @@
 static EFI_FILE_PROTOCOL *u40x_log;
 static EFI_GUID u40x_fs_guid = {0x0964E5B22,0x6459,0x11D2,{0x8E,0x39,0x00,0xA0,0xC9,0x69,0x72,0x3B}};
 static CHAR16 u40x_wide[512];
+static BOOLEAN u40x_output_sealed;
+
+/* Close the file BEFORE FLR. Even console output can invoke firmware code
+ * touching PCI devices. Once sealed, no fallback path may reopen the log. */
+static void u40x_seal_output(void) {
+    if (u40x_log) {
+        u40x_log->Flush(u40x_log);
+        u40x_log->Close(u40x_log);
+        u40x_log = NULL;
+    }
+    u40x_output_sealed = TRUE;
+}
 static UINTN u40x_w2c(CHAR16 *src, char *dst, UINTN cap) {
     UINTN i = 0;
     while (src[i] && i + 1 < cap) { dst[i] = (char)src[i]; i++; }
@@ -194,6 +308,30 @@ static BOOLEAN u40x_has_load_option(EFI_HANDLE IH, const CHAR16 *Option) {
     }
     return FALSE;
 }
+
+typedef enum {
+    U40X_HANDOFF_STOCK, U40X_HANDOFF_FLR,
+    U40X_HANDOFF_PRELOAD, U40X_HANDOFF_GSP_RESET
+} U40X_HANDOFF_MODE;
+
+static U40X_HANDOFF_MODE u40x_handoff_mode(EFI_HANDLE ih)
+{
+    /* Explicit stock remains the escape hatch in every experimental build.
+     * A soft mode overrides an explicit/default FLR; never combine them. */
+    if (u40x_has_load_option(ih, L"--handoff-stock")) return U40X_HANDOFF_STOCK;
+    if (u40x_has_load_option(ih, L"--handoff-gsp-reset")) return U40X_HANDOFF_GSP_RESET;
+    if (u40x_has_load_option(ih, L"--handoff-preload")) return U40X_HANDOFF_PRELOAD;
+    if (u40x_has_load_option(ih, L"--handoff-flr")) return U40X_HANDOFF_FLR;
+#if defined(HANDOFF_FLR_DEFAULT) && defined(HANDOFF_PRELOAD_DEFAULT)
+#error Conflicting handoff defaults
+#elif defined(HANDOFF_FLR_DEFAULT)
+    return U40X_HANDOFF_FLR;
+#elif defined(HANDOFF_PRELOAD_DEFAULT)
+    return U40X_HANDOFF_PRELOAD;
+#else
+    return U40X_HANDOFF_STOCK;
+#endif
+}
 /* The logger is an internal C variadic function.  Linux/gnu-efi call sites
  * use the SysV ABI; only firmware service function pointers use EFIAPI/MS ABI.
  * Keeping EFIAPI here corrupts %s and later varargs in the ELF build. */
@@ -203,6 +341,7 @@ static void u40x_print(const CHAR16 *fmt, ...) {
 static void EFIAPI u40x_print(const CHAR16 *fmt, ...) {
 #endif
     va_list ap;
+    if (u40x_output_sealed) return;
     va_start(ap, fmt);
     {
         UINTN w = 0;
@@ -1948,6 +2087,9 @@ fwsec_boot_gsp(UINT64 fwsecPhys)
  * v68/v69 端口写 NS+SEC (DIRECT 语义) 与 v66/v67 DMA SEC=1 在 TU106 上
  * secure IMEM 全 scrub 被实机证伪 — host 无 secure 写权限, BL 有.
  * 40HX FWSEC sig 位置假设 data@0x10 (prod 真值/dbg 0xff 填充; 0x180=RSA3K). */
+#ifdef FWSEC_SB_RESTORE
+#include "fwsec_sb.h"
+#endif
 static BOOLEAN
 fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
 {
@@ -1958,6 +2100,12 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
     UINT32 *mapper;
     UINT32 *c;
 
+#ifdef FWSEC_SB_RESTORE
+    if (u40x_fwsec_sb_mode && !u40x_fwsec_sb_patch(dmem)) {
+        Print(L"[sb] invalid native FWSEC interface; no SB reset/start\n");
+        return FALSE;
+    }
+#endif
     Print(L"\n--- v66: 40HX FWSEC HS-boot on GSP (blob 0x9a00+0x3f0) ---\n");
 
     /* 1. kflcnReset(GSP): ENGINE reset → BCR=FALCON(0x0) → RM=chipId0(40HX=
@@ -1972,7 +2120,12 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
     for (i = 0; i < 16; i++) mmio_read32(GSP_ENGINE);
     mmio_write32(GSP_ENGINE, 0x0);
     for (i = 0; i < 16; i++) mmio_read32(GSP_ENGINE);
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 5
+    if (!falcon_wait_scrub_done(GSP_DMACTL, GSP_HWCFG2, L"gsp40-reset"))
+        return FALSE;
+#else
     falcon_wait_scrub_done(GSP_DMACTL, GSP_HWCFG2, L"gsp40-reset");
+#endif
     uefi_call_wrapper(BS->Stall, 1, 50000);
     mmio_write32(GSP_BCR, 0x0);           /* CORE_SELECT=FALCON (TU102) */
     for (i = 0; i < 16; i++) mmio_read32(GSP_BCR);
@@ -1981,6 +2134,11 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
     Print(L"fwsec40: GSP reset: cpuctl=0x%x bcr=0x%x hwcfg2=0x%08x\n",
           mmio_read32(GSP_CPUCTL), mmio_read32(GSP_BCR),
           mmio_read32(GSP_HWCFG2));
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 5
+    data = mmio_read32(GSP_CPUCTL);
+    if (u40x_mmio_unavailable(data) ||
+        !(data & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE)) return FALSE;
+#endif
     if ((mmio_read32(GSP_CPUCTL) & 0xBADF0000u) == 0xBADF0000u) {
         Print(L"fwsec40: GSP locked (0xBADF) - abort\n");
         return FALSE;
@@ -2003,6 +2161,9 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
         Print(L"fwsec40: mapper.cmd_in_off=0x%x (!=0x3b0) - using mapper value\n",
               mapper[2]);
     }
+#ifdef FWSEC_SB_RESTORE
+    if (!u40x_fwsec_sb_mode) {
+#endif
     /* readVbiosDesc (24B): ver=1 size=24 gfwOff=0 gfwSize=0 flags=2 */
     c[0] = 1; c[1] = 24;
     c[2] = 0; c[3] = 0;
@@ -2016,6 +2177,11 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
     __asm__ volatile("wbinvd" ::: "memory");
     Print(L"fwsec40: mapper.init_cmd=0x%x frts4k=0x%x (frts=0x%llx)\n",
           mapper[11], c[8], FW40_FRTS_OFFSET);
+#ifdef FWSEC_SB_RESTORE
+    } else {
+        Print(L"[sb] mapper.init_cmd=0x19 READ_VBIOS_DESC={1,24,0,0,0,2}; restore PreOsApps\n");
+    }
+#endif
 
     /* 3. kflcnDisableCtxReq + TRANSCFG (host DMA 到 falcon 需要):
      *    v70 BL 用 ctxDma=4 (PHYS_SYS_NCOH, BL 固件固定) → TRANSCFG(4).
@@ -2075,7 +2241,17 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
          *     imemSizeBlk = HWCFG.IMEM_SIZE[8:0] (GSP IMEM block 数, 256B/blk)
          *     imemDstBlk  = imemSizeBlk - blCodeSize/256; 装载 @imemDstBlk<<8
          *     tag = blStartTag 起 (0xfd), BOOTVEC = 0xfd00 (BL 固件编译期). */
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 5
+        v = mmio_read32(GSP_HWCFG);
+        if (u40x_mmio_unavailable(v) ||
+            (v & 0x1FF) < GSP_BL_TU102_CODE_SIZE / 256) {
+            Print(L"[stage] invalid GSP IMEM geometry: %08x\n", v);
+            return FALSE;
+        }
+        imemSizeBlk = v & 0x1FF;
+#else
         imemSizeBlk = mmio_read32(GSP_HWCFG) & 0x1FF;
+#endif
         imemDstBlk  = imemSizeBlk - (GSP_BL_TU102_CODE_SIZE / 256);
         blDstAddr   = imemDstBlk << 8;
         Print(L"fwsec40: BL load IMEM top: hwcfg.IMEM_SIZE=%d blk "
@@ -2105,10 +2281,16 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
               blDstAddr, v, *(UINT32 *)(UINTN)gsp_bl_tu102,
               (v == *(UINT32 *)(UINTN)gsp_bl_tu102) ? L"  <== OK" :
               L"  <== MISMATCH");
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 5
+        if (v != *(UINT32 *)(UINTN)gsp_bl_tu102) return FALSE;
+#endif
         mmio_write32(GSP_BASE + 0x1C0, BL_DESC_CTXDMA);
         Print(L"fwsec40: rb DMEM[0x20]=0x%08x (exp ctxDma 0x4)%s\n",
               mmio_read32(GSP_BASE + 0x1C4),
               (mmio_read32(GSP_BASE + 0x1C4) == 4) ? L"" : L"  <== MISMATCH");
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 5
+        if (mmio_read32(GSP_BASE + 0x1C4) != 4) return FALSE;
+#endif
         mmio_write32(GSP_BASE + 0x1C0, 0);
     }
 
@@ -2117,7 +2299,22 @@ fwsec_boot_gsp_40hx(UINT64 fwsecPhys)
      *    kgspExecuteHsFalcon_TU102 仅 prepare+mailbox+start). */
     mmio_write32(GSP_BOOTVEC, GSP_BL_TU102_START_TAG << 8);
     __asm__ volatile("wbinvd" ::: "memory");
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 5
+    u40x_fwsec_prepared = TRUE;
+#if STAGE_CONTROL == 5
+    Print(L"[stage] FWLOAD_PREPARED: BL/descriptor readback passed; STOP before GSP STARTCPU\n");
+    /* Deliberately report no WPR2-up. The stage caller uses the separate
+     * prepared marker and requires WPR2 down; this is not FWSEC success. */
+    return FALSE;
+#endif
+#endif
+#ifdef FWSEC_SB_RESTORE
+    if (u40x_fwsec_sb_mode && !u40x_fwsec_sb_prestart()) return FALSE;
+#endif
     mmio_write32(GSP_CPUCTL, NV_PFALCON_FALCON_CPUCTL_STARTCPU_TRUE);
+#ifdef FWSEC_SB_RESTORE
+    if (u40x_fwsec_sb_mode) return u40x_fwsec_sb_wait();
+#endif
     Print(L"fwsec40: STARTCPU (BL@0xfd00 -> DMA FWSEC), poll WPR2 up 5s...\n");
 
     /* 7. poll WPR2 → FRTS 成功则 up；读 GSP cpu/dbg/scratch 判失败原因 */
@@ -2771,6 +2968,12 @@ booter_load_tu102_direct(UINT64 wprMetaPhys, UINT64 ucodePhys)
                   (cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE) ? 1 : 0);
         }
 
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 8
+        if (u40x_mmio_unavailable(cpu) ||
+            !(cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE))
+            return EFI_NOT_READY;
+#endif
+
         /* kflcnDisableCtxReq */
         data = mmio_read32(SEC2_FBIF_CTL);
         data |= (1u << 7);
@@ -2794,6 +2997,13 @@ booter_load_tu102_direct(UINT64 wprMetaPhys, UINT64 ucodePhys)
               L"DMEM[0x200]=0x%08x(exp sig 0x%08x)\n",
               rbNs, *(UINT32 *)(img + 0x0u), rbSec, mmio_read32(SEC2_DMEMD0),
               *(UINT32 *)(img + 0x8700u));
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 8
+        /* Secure IMEM readback is gated on this board (DEAD5EC1 is normal).
+         * Check only the readable NS word and the patched DMEM signature. */
+        if (rbNs != *(UINT32 *)img ||
+            mmio_read32(SEC2_DMEMD0) != *(UINT32 *)(img + BOOTER_SIG_PATCH_LOC))
+            return EFI_DEVICE_ERROR;
+#endif
 
         /* BOOTVEC=0（TU102 BOOT_DIRECT） */
         /* v61: meta 直传 >4GB 原址（wprMetaPhys），**不做 low-copy**。
@@ -2803,12 +3013,30 @@ booter_load_tu102_direct(UINT64 wprMetaPhys, UINT64 ucodePhys)
          * <4GB 读反而被锁（869 行 v2.63 注释：exit 0x91）。 */
         Print(L"tu102: mailbox=wprMetaPhys>4G (no low copy)...\n");
         metaLow = wprMetaPhys;
+#if defined(STAGE_CONTROL) && STAGE_CONTROL == 8
+        Print(L"tu102: BOOTVEC=0, mailbox0=0x%08x mailbox1=0x%08x; prepare only\n",
+              (UINT32)(metaLow & 0xFFFFFFFFu), (UINT32)(metaLow >> 32));
+#else
         Print(L"tu102: BOOTVEC=0, mailbox0=0x%08x mailbox1=0x%08x, STARTCPU...\n",
               (UINT32)(metaLow & 0xFFFFFFFFu), (UINT32)(metaLow >> 32));
+#endif
         mmio_write32(SEC2_BOOTVEC, 0x0u);
         mmio_write32(SEC2_MAILBOX0, (UINT32)(metaLow & 0xFFFFFFFFu));
         mmio_write32(SEC2_MAILBOX1, (UINT32)(metaLow >> 32));
         __asm__ volatile("wbinvd" ::: "memory");
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 8
+        if (mmio_read32(SEC2_BOOTVEC) != 0 ||
+            mmio_read32(SEC2_MAILBOX0) != (UINT32)metaLow ||
+            mmio_read32(SEC2_MAILBOX1) != (UINT32)(metaLow >> 32))
+            return EFI_DEVICE_ERROR;
+        u40x_booter_prepared = TRUE;
+#if STAGE_CONTROL == 8
+        Print(L"[stage] BOOTLOAD_PREPARED: stop before SEC2 STARTCPU; no booter success claimed\n");
+        return EFI_NOT_STARTED;
+#else
+        u40x_booter_started = TRUE;
+#endif
+#endif
         mmio_write32(SEC2_CPUCTL, NV_PFALCON_FALCON_CPUCTL_STARTCPU_TRUE);
         Print(L"tu102: started; hold 3s WITHOUT reg reads (v57 lesson)\n");
         BS->Stall(3000000);
@@ -2834,7 +3062,26 @@ booter_load_tu102_direct(UINT64 wprMetaPhys, UINT64 ucodePhys)
         Print(L"tu102: RESULT: WPR2=0x%08x:0x%08x\n",
               mmio_read32(REG_PFB_MMU_WPR2_HI), mmio_read32(REG_PFB_MMU_WPR2_LO));
 
+#if defined(STAGE_CONTROL) && (STAGE_CONTROL == 15 || STAGE_CONTROL == 16)
+        /* A short, invalid signature is an intentional negative control.
+         * Preserve the native error instead of replacing it with success.
+         * The final gate rechecks halt, this same error and GPU state. */
+        if (u40x_mmio_unavailable(cpu) || u40x_mmio_unavailable(m0))
+            return EFI_DEVICE_ERROR;
+        if (!(cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE)) return EFI_NOT_READY;
+        if (m0 == 0 || m0 == 0x31U || m0 == (UINT32)metaLow)
+            return EFI_NOT_READY;
+        u40x_short_sig_error = m0;
+        Print(L"[stage] SHORTSIG_HALTED: native MB0=%08x; firmware rejected input, not booter success\n", m0);
+        return EFI_ABORTED;
+#endif
+
         if (m0 == 0u) {
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 8
+            if (u40x_mmio_unavailable(cpu) ||
+                !(cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE))
+                return EFI_NOT_READY;
+#endif
             Print(L"tu102: *** mbox0=0 -> booter OK (attempt %d) ***\n",
                   (INTN)attempt + 1);
             return EFI_SUCCESS;
@@ -2842,6 +3089,10 @@ booter_load_tu102_direct(UINT64 wprMetaPhys, UINT64 ucodePhys)
         Print(L"tu102: attempt %d not-OK (m0=0x%x halted=%d)\n",
               (INTN)attempt + 1, m0,
               (cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE) ? 1 : 0);
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 8
+        /* Keep a failed first attempt observable; no reset/retry fallback. */
+        return EFI_DEVICE_ERROR;
+#endif
         if (attempt == 0) {
             Print(L"tu102: -> retry with engine reset (attempt B)\n");
             continue;
@@ -4583,8 +4834,13 @@ build_wpr_meta(GspFwWprMeta *m, UINT64 elfPhys, UINT64 elfSize,
      * v62: heap depends on framebuffer size. The 10GB legacy value is
      * 0x7F00000; the 40HX 8GB log53 decode shows
      * gspFwHeap=0x1f7900000+0x6900000, so select by fbSize. */
+#ifdef CPU_RM_HANDOFF
+    /* Keep BL/image bytes unchanged; move WPR above the native ACR page. */
+    m->gspFwHeapSize = 0xF0000ULL;
+#else
     m->gspFwHeapSize   = (fbSize == 0x280000000ULL) ? 0x7F00000ULL
                                                    : 0x6900000ULL;
+#endif
     m->gspFwHeapOffset = (m->gspFwOffset - m->gspFwHeapSize) & ~(MB - 1);
     m->gspFwWprStart   = m->gspFwHeapOffset - MB;     /* wprMetaSize = 1MB */
     m->nonWprHeapSize  = MB;
@@ -6374,6 +6630,517 @@ static void u40x_pci_wbdf(UINTN bus, UINTN dev, UINTN fn, UINTN off,
  * 的后续配置读必须沿用同一编码，否则在非规范固件上会读错设备。 */
 static INTN u40x_enc_found = 0;
 
+/* Unlike legacy do_flr(), these use the discovery-selected encoding and
+ * report firmware errors. CF8 fallback is only used if discovery used CF8. */
+static EFI_STATUS u40x_flr_read32(UINTN off, UINT32 *value)
+{
+    UINT64 addr;
+    if (u40x_enc_found == 2) {
+        *value = u40x_pci_rbdf(gBus, gDev, gFn, off, 2);
+        return *value == 0xFFFFFFFFU ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+    }
+    if (!gRb) return EFI_NOT_READY;
+    addr = u40x_enc_found ? U40X_CFG_ADDR_COMPACT(gBus, gDev, gFn, off)
+                         : U40X_CFG_ADDR(gBus, gDev, gFn, off);
+    return gRb->Pci.Read(gRb, EfiPciIoWidthUint32, addr, 1, value);
+}
+
+static EFI_STATUS u40x_flr_write16(UINTN off, UINT16 value)
+{
+    UINT64 addr;
+    if (off > 0xFE || (off & 1)) return EFI_INVALID_PARAMETER;
+    if (u40x_enc_found == 2) {
+        UINT32 cf8 = 0x80000000U | ((UINT32)gBus << 16) |
+                     ((UINT32)gDev << 11) | ((UINT32)gFn << 8) | (off & 0xFC);
+        UINT16 port = 0xCFC + (off & 2);
+        __asm__ volatile("outl %0, %w1" : : "a"(cf8), "Nd"(0xCF8));
+        __asm__ volatile("outw %0, %w1" : : "a"(value), "Nd"(port));
+        return EFI_SUCCESS; /* port writes do not report completion status */
+    }
+    if (!gRb) return EFI_NOT_READY;
+    addr = u40x_enc_found ? U40X_CFG_ADDR_COMPACT(gBus, gDev, gFn, off)
+                         : U40X_CFG_ADDR(gBus, gDev, gFn, off);
+    return gRb->Pci.Write(gRb, EfiPciIoWidthUint16, addr, 1, &value);
+}
+
+static void u40x_flr_stall(UINTN usec) { BS->Stall(usec); }
+static const U40X_FLR_IO u40x_flr_io = {
+    u40x_flr_read32, u40x_flr_write16, u40x_flr_stall
+};
+
+/* LoadImage resolves the real ESP device path now, before the unlock/reset.
+ * Keep only the image handle for the terminal StartImage. No BootNext,
+ * GetVariable, SetVariable or post-FLR filesystem discovery is needed. */
+static EFI_STATUS u40x_prepare_windows(EFI_HANDLE parent, EFI_HANDLE *win)
+{
+    EFI_LOADED_IMAGE_PROTOCOL *li = NULL;
+    EFI_HANDLE *handles = NULL;
+    EFI_DEVICE_PATH *dp;
+    UINTN count = 0, i;
+    EFI_STATUS st;
+    *win = NULL;
+    st = BS->HandleProtocol(parent, &u40x_li_guid, (VOID **)&li);
+    if (!EFI_ERROR(st) && li && li->DeviceHandle) {
+        dp = FileDevicePath(li->DeviceHandle, WINDOWS_BOOT_PATH);
+        if (dp) {
+            st = BS->LoadImage(FALSE, parent, dp, NULL, 0, win);
+            FreePool(dp);
+            if (!EFI_ERROR(st)) return EFI_SUCCESS;
+            /* LoadImage may return a handle even on SECURITY_VIOLATION. */
+            if (*win) BS->UnloadImage(*win);
+            *win = NULL;
+        }
+    }
+    st = BS->LocateHandleBuffer(ByProtocol, &u40x_fs_guid, NULL, &count, &handles);
+    if (EFI_ERROR(st)) return st;
+    st = EFI_NOT_FOUND;
+    for (i = 0; i < count; i++) {
+        dp = FileDevicePath(handles[i], WINDOWS_BOOT_PATH);
+        if (!dp) continue;
+        st = BS->LoadImage(FALSE, parent, dp, NULL, 0, win);
+        FreePool(dp);
+        if (!EFI_ERROR(st)) break;
+        if (*win) BS->UnloadImage(*win);
+        *win = NULL;
+    }
+    FreePool(handles);
+    return st;
+}
+
+/* Only registers already used by the working TU106 path. RESET_PLM is
+ * intentionally omitted: an older probe hung there on a locked board. */
+static void u40x_handoff_snapshot(const CHAR16 *stage)
+{
+    Print(L"[handoff] %s PLM=%08x SS0=%08x SS1=%08x\n", stage,
+          mmio_read32(REG_FEAT_OVR_PLM), mmio_read32(REG_FEAT_OVR_SM_SPD),
+          mmio_read32(REG_FEAT_OVR_SM_SPD_1));
+    Print(L"[handoff] %s WPR2_HI=%08x WPR2_LO=%08x CPUCTL=%08x MB0=%08x MB1=%08x\n",
+          stage, mmio_read32(REG_PFB_MMU_WPR2_HI),
+          mmio_read32(REG_PFB_MMU_WPR2_LO), mmio_read32(SEC2_CPUCTL),
+          mmio_read32(SEC2_MAILBOX0), mmio_read32(SEC2_MAILBOX1));
+}
+
+/* No wait for HALTED: an actual spinner never halts voluntarily. Reset is
+ * the same TU106 ENGINE sequence already used by the v89 sanitize path. */
+static void u40x_handoff_stop_sec2(void)
+{
+    UINTN i;
+    UINT32 cpu = mmio_read32(SEC2_CPUCTL);
+    if (cpu == 0xFFFFFFFFU || (cpu & 0xFFFF0000U) == 0xBADF0000U) {
+        Print(L"[handoff] SEC2 inaccessible (%08x); proceeding to PCI FLR\n", cpu);
+        return;
+    }
+    Print(L"[handoff] stopping SEC2 before FLR (CPUCTL=%08x)\n", cpu);
+    mmio_write32(SEC2_ENGINE, 1);
+    for (i = 0; i < 16; i++) mmio_read32(SEC2_ENGINE);
+    mmio_write32(SEC2_ENGINE, 0);
+    for (i = 0; i < 16; i++) mmio_read32(SEC2_ENGINE);
+    BS->Stall(100000);
+    /* No mailbox writes are needed: FLR follows. Preserve their readback
+     * so the log distinguishes a native cleanup from an external reset. */
+}
+
+static EFI_STATUS
+u40x_finish_flr(U40X_FLR_PLAN *plan, EFI_HANDLE win, BOOLEAN returnToBootloader)
+{
+    EFI_STATUS st;
+    u40x_handoff_snapshot(L"PRE_FLR");
+    st = u40x_flr_drain(&u40x_flr_io, plan);
+    if (EFI_ERROR(st)) {
+        Print(L"[handoff] FLR_ABORT: PCI drain failed %r; no FLR issued\n", st);
+        u40x_seal_output();
+        return st;
+    }
+    Print(L"[handoff] FLR_ARMED cap=%02x enc=%d; close log, submit FLR, wait 300ms, %s\n",
+          (UINT32)plan->cap, (INTN)u40x_enc_found,
+          returnToBootloader ? L"return to parent" : L"StartImage Windows");
+    Print(L"[handoff] PRE-RESET marker only; survival and Windows RM are unverified.\n");
+    u40x_seal_output();
+
+    /* TERMINAL: do not add Print, MMIO, BAR restoration, filesystem or
+     * runtime services below this line, even if commit/StartImage fails. */
+    st = u40x_flr_commit(&u40x_flr_io, plan);
+    if (EFI_ERROR(st)) return st;
+    if (returnToBootloader) return EFI_SUCCESS;
+    return BS->StartImage(win, NULL, NULL);
+}
+
+/* No PCI configuration callbacks: this experiment cannot issue FLR or
+ * disable decode/BME through this interface. Host tests intercept every MMIO
+ * write to verify that the extra cleanup touches only GSP ENGINE. */
+typedef struct {
+    UINT32 (*read32)(UINTN offset);
+    void (*write32)(UINTN offset, UINT32 value);
+    void (*stall)(UINTN usec);
+} U40X_SOFT_IO;
+
+static const U40X_SOFT_IO u40x_soft_io = {
+    mmio_read32, mmio_write32, u40x_flr_stall
+};
+
+static BOOLEAN u40x_mmio_unavailable(UINT32 v)
+{
+    return v == 0xFFFFFFFFU || (v & 0xFFFF0000U) == 0xBADF0000U;
+}
+
+static void u40x_soft_snapshot(const U40X_SOFT_IO *io, const CHAR16 *stage)
+{
+    Print(L"[soft] %s PLM=%08x SS0=%08x SS1=%08x WPR2_HI=%08x WPR2_LO=%08x\n",
+          stage, io->read32(REG_FEAT_OVR_PLM), io->read32(REG_FEAT_OVR_SM_SPD),
+          io->read32(REG_FEAT_OVR_SM_SPD_1), io->read32(REG_PFB_MMU_WPR2_HI),
+          io->read32(REG_PFB_MMU_WPR2_LO));
+    Print(L"[soft] %s SEC2_CPU=%08x MB0=%08x MB1=%08x GSP_CPU=%08x MB0=%08x MB1=%08x\n",
+          stage, io->read32(SEC2_CPUCTL), io->read32(SEC2_MAILBOX0),
+          io->read32(SEC2_MAILBOX1), io->read32(GSP_CPUCTL),
+          io->read32(GSP_MAILBOX0), io->read32(GSP_MAILBOX1));
+}
+
+static EFI_STATUS u40x_soft_check_unlock(const U40X_SOFT_IO *io)
+{
+    UINT32 cpu;
+    if (io->read32(REG_FEAT_OVR_SM_SPD) != U40X_EXPECTED_SS0 ||
+        io->read32(REG_FEAT_OVR_SM_SPD_1) != U40X_EXPECTED_SS1 ||
+        io->read32(REG_PFB_MMU_WPR2_HI) != 0 ||
+        io->read32(REG_PFB_MMU_WPR2_LO) != 0x1FFFFE00U)
+        return EFI_NOT_READY;
+    cpu = io->read32(SEC2_CPUCTL);
+    if (u40x_mmio_unavailable(cpu)) return EFI_DEVICE_ERROR;
+    if (!(cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE) ||
+        io->read32(SEC2_MAILBOX0) != 0 || io->read32(SEC2_MAILBOX1) != 0)
+        return EFI_NOT_READY;
+    return EFI_SUCCESS;
+}
+
+static EFI_STATUS u40x_soft_reset_gsp(const U40X_SOFT_IO *io)
+{
+    UINTN i;
+    UINT32 engine = io->read32(GSP_ENGINE);
+    UINT32 cpu = io->read32(GSP_CPUCTL);
+    BOOLEAN invalid = FALSE;
+    if (u40x_mmio_unavailable(engine) || u40x_mmio_unavailable(cpu))
+        return EFI_DEVICE_ERROR;
+    /* TU102 kgspResetHw: assert RESET, propagation reads, deassert, reads.
+     * Preserve other ENGINE bits. Always deassert even if a propagation
+     * read fails; never leave the reset asserted due to an early return. */
+    io->write32(GSP_ENGINE, engine | 1U);
+    for (i = 0; i < 16; i++)
+        if (u40x_mmio_unavailable(io->read32(GSP_ENGINE))) invalid = TRUE;
+    io->write32(GSP_ENGINE, engine & ~1U);
+    for (i = 0; i < 16; i++)
+        if (u40x_mmio_unavailable(io->read32(GSP_ENGINE))) invalid = TRUE;
+    if (invalid) return EFI_DEVICE_ERROR;
+
+    /* Up to 1s for reset/scrub/halt. No host mailbox clearing: zeros must
+     * be an observed reset result, not values written to hide a failure. */
+    for (i = 0; i < 1000; i++) {
+        UINT32 dma = io->read32(GSP_DMACTL);
+        UINT32 hwcfg2 = io->read32(GSP_HWCFG2);
+        engine = io->read32(GSP_ENGINE);
+        cpu = io->read32(GSP_CPUCTL);
+        if (u40x_mmio_unavailable(dma) || u40x_mmio_unavailable(hwcfg2) ||
+            u40x_mmio_unavailable(engine) || u40x_mmio_unavailable(cpu))
+            return EFI_DEVICE_ERROR;
+        if (!(engine & 1U) && !(dma & 6U) && !(hwcfg2 & (1U << 12)) &&
+            (cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE)) {
+            Print(L"[soft] GSP reset ready: ENGINE=%08x DMACTL=%08x HWCFG2=%08x CPU=%08x\n",
+                  engine, dma, hwcfg2, cpu);
+            return (io->read32(GSP_MAILBOX0) == 0 && io->read32(GSP_MAILBOX1) == 0)
+                ? EFI_SUCCESS : EFI_NOT_READY;
+        }
+        io->stall(1000);
+    }
+    Print(L"[soft] GSP reset/scrub/halt timeout (1s)\n");
+    return EFI_TIMEOUT;
+}
+
+static EFI_STATUS
+u40x_finish_soft(const U40X_SOFT_IO *io, EFI_HANDLE win,
+                 BOOLEAN returnToBootloader, BOOLEAN resetGsp)
+{
+    EFI_STATUS st;
+    if (!returnToBootloader && !win) {
+        st = EFI_LOAD_ERROR;
+        goto abort;
+    }
+    u40x_soft_snapshot(io, L"PRE_SOFT");
+    st = u40x_soft_check_unlock(io);
+    if (EFI_ERROR(st)) goto abort;
+    if (resetGsp) {
+        Print(L"[soft] resetting GSP Falcon ENGINE only (after FWSEC); no PCI FLR\n");
+        st = u40x_soft_reset_gsp(io);
+        u40x_soft_snapshot(io, L"AFTER_GSP_RESET");
+        if (EFI_ERROR(st)) goto abort;
+        st = u40x_soft_check_unlock(io);
+        if (EFI_ERROR(st)) goto abort;
+    }
+#ifdef SELECTOR_CONTROL
+    Print(L"[control] CONTROL_READY: expected SS0=%08x SS1=%08x verified; zero is intentionally locked\n",
+          U40X_EXPECTED_SS0, U40X_EXPECTED_SS1);
+#endif
+    Print(L"[soft] SOFT_READY: selectors/WPR2/SEC2 verified; GSP reset=%d; close log, %s\n",
+          (INTN)resetGsp, returnToBootloader ? L"return to parent" : L"StartImage Windows");
+    u40x_seal_output();
+    /* Terminal handoff. No GPU, filesystem or NVRAM access after sealing,
+     * including when StartImage returns an error. */
+    if (returnToBootloader) return EFI_SUCCESS;
+    return BS->StartImage(win, NULL, NULL);
+abort:
+    Print(L"[soft] SOFT_ABORT: %r; no StartImage or FLR fallback\n", st);
+    u40x_seal_output();
+    return st;
+}
+
+#ifdef STAGE_CONTROL
+/* These cut points deliberately bypass the unlock cleanup. In EARLY/PREP
+ * GFW may still be running and SEC2 reads may be privilege-gated: neither
+ * warrants resetting or clearing a Falcon in a pre-FWSEC control. */
+static EFI_STATUS u40x_stage_abort(EFI_STATUS status)
+{
+    Print(L"[stage] STAGE_ABORT stage=%s status=%r; no cleanup or Windows fallback\n",
+          U40X_STAGE_NAME, status);
+    u40x_seal_output();
+    return status;
+}
+
+static BOOLEAN u40x_stage_options_valid(EFI_HANDLE image)
+{
+    static const CHAR16 *forbidden[] = {
+        L"--handoff-stock", L"--handoff-flr", L"--handoff-gsp-reset",
+        L"--flr-rebar",
+#ifndef CPU_RM_HANDOFF
+        L"--return-to-bootloader", L"--return-to-grub", L"--return-to-limine"
+#endif
+    };
+    UINTN i;
+    for (i = 0; i < sizeof(forbidden) / sizeof(forbidden[0]); i++)
+        if (u40x_has_load_option(image, forbidden[i])) return FALSE;
+    return TRUE;
+}
+
+static EFI_STATUS u40x_stage_check_locked(const U40X_SOFT_IO *io)
+{
+    UINT32 ss0 = io->read32(REG_FEAT_OVR_SM_SPD);
+    UINT32 ss1 = io->read32(REG_FEAT_OVR_SM_SPD_1);
+    UINT32 hi = io->read32(REG_PFB_MMU_WPR2_HI);
+    UINT32 lo = io->read32(REG_PFB_MMU_WPR2_LO);
+    if (u40x_mmio_unavailable(ss0) || u40x_mmio_unavailable(ss1) ||
+        u40x_mmio_unavailable(hi) || u40x_mmio_unavailable(lo))
+        return EFI_DEVICE_ERROR;
+    return ss0 == 0 && ss1 == 0 && hi == 0 && lo == 0x1FFFFE00U
+        ? EFI_SUCCESS : EFI_NOT_READY;
+}
+
+#if STAGE_CONTROL >= 6
+static EFI_STATUS u40x_stage_check_fwsec(const U40X_SOFT_IO *io)
+{
+    UINT32 ss0 = io->read32(REG_FEAT_OVR_SM_SPD);
+    UINT32 ss1 = io->read32(REG_FEAT_OVR_SM_SPD_1);
+    UINT32 hi = io->read32(REG_PFB_MMU_WPR2_HI);
+    UINT32 lo = io->read32(REG_PFB_MMU_WPR2_LO);
+    if (u40x_mmio_unavailable(ss0) || u40x_mmio_unavailable(ss1) ||
+        u40x_mmio_unavailable(hi) || u40x_mmio_unavailable(lo))
+        return EFI_DEVICE_ERROR;
+    return ss0 == 0 && ss1 == 0 && hi == FW40_WPR2_HI_UP && lo == FW40_WPR2_LO_UP
+        ? EFI_SUCCESS : EFI_NOT_READY;
+}
+
+static EFI_STATUS u40x_stage_wait_fwsec(const U40X_SOFT_IO *io)
+{
+    UINTN i;
+    Print(L"[stage] wait for FWSEC native HALTED (5s); no GSP reset or mailbox clear\n");
+    for (i = 0; i < 5000; i++) {
+        UINT32 cpu = io->read32(GSP_CPUCTL);
+        if (u40x_mmio_unavailable(cpu)) return EFI_DEVICE_ERROR;
+        if (cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE) return EFI_SUCCESS;
+        io->stall(1000);
+    }
+    Print(L"[stage] FWSEC halt timeout; do not hand a running Falcon to Windows\n");
+    return EFI_TIMEOUT;
+}
+#endif
+
+#if STAGE_CONTROL >= 9
+static EFI_STATUS u40x_stage_check_booter(const U40X_SOFT_IO *io)
+{
+    UINT32 ss0 = io->read32(REG_FEAT_OVR_SM_SPD);
+    UINT32 ss1 = io->read32(REG_FEAT_OVR_SM_SPD_1);
+    UINT32 hi = io->read32(REG_PFB_MMU_WPR2_HI);
+    UINT32 lo = io->read32(REG_PFB_MMU_WPR2_LO);
+    UINT32 cpu = io->read32(SEC2_CPUCTL);
+    UINT32 mb0 = io->read32(SEC2_MAILBOX0);
+    if (u40x_mmio_unavailable(ss0) || u40x_mmio_unavailable(ss1) ||
+        u40x_mmio_unavailable(hi) || u40x_mmio_unavailable(lo) ||
+        u40x_mmio_unavailable(cpu) || u40x_mmio_unavailable(mb0))
+        return EFI_DEVICE_ERROR;
+    if (ss0 != (STAGE_CONTROL == 9 ? 0x88888888U : 0U) ||
+        ss1 != (STAGE_CONTROL == 9 ? 8U : 0U) ||
+        hi != (STAGE_CONTROL == 13 || STAGE_CONTROL == 14 ? FW40_WPR2_HI_UP : 0U) ||
+        lo != (STAGE_CONTROL == 13 || STAGE_CONTROL == 14 ? FW40_WPR2_LO_UP : 0x1FFFFE00U) ||
+        !(cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE) || mb0 != 0)
+        return EFI_NOT_READY;
+#if STAGE_CONTROL >= 11 || defined(CPU_RM_HANDOFF)
+    if (io->read32(REG_FEAT_OVR_PLM) != 0xFFFFFF8FU) return EFI_NOT_READY;
+#endif
+    /* Native MB1 may still contain the upper metadata address (often 1).
+     * Do not require zero or clear it: that belongs to the untested tail. */
+    return EFI_SUCCESS;
+}
+#endif
+
+#if STAGE_CONTROL == 16
+/* Snapshot the expected full range BEFORE the booter can change WPR/metadata.
+ * TU102 dev_fb.h: VAL=31:4, address alignment=12. The HI address denotes
+ * the last 128 KiB block (NV_WPR_BLOCK_GRANULARITY in NVIDIA bus code). */
+static EFI_STATUS u40x_short_native_capture_bounds(const GspFwWprMeta *m)
+{
+    const UINT64 block = 0x20000ULL;
+    UINT64 lo, hi;
+    u40x_short_native_bounds_ready = FALSE;
+    u40x_short_native_lo = u40x_short_native_hi = 0;
+    if (m->magic != GSP_FW_WPR_META_MAGIC || m->revision != GSP_FW_WPR_META_REVISION ||
+        m->sizeOfSignature != U40X_SHORT_SIG_SIZE || !m->gspFwWprStart ||
+        m->gspFwWprStart >= m->gspFwWprEnd || m->gspFwWprEnd > m->fbSize ||
+        ((m->gspFwWprStart | m->gspFwWprEnd) & (block - 1)))
+        return EFI_INVALID_PARAMETER;
+    lo = (m->gspFwWprStart >> 12) << 4;
+    hi = ((m->gspFwWprEnd - block) >> 12) << 4;
+    if (lo > 0xFFFFFFF0ULL || hi > 0xFFFFFFF0ULL) return EFI_INVALID_PARAMETER;
+    u40x_short_native_lo = (UINT32)lo;
+    u40x_short_native_hi = (UINT32)hi;
+    u40x_short_native_bounds_ready = TRUE;
+    Print(L"[stage] SHORT_NATIVE_EXPECT: start=%lx end(exclusive)=%lx WPR2_HI=%08x WPR2_LO=%08x MB0=%08x\n",
+          m->gspFwWprStart, m->gspFwWprEnd, u40x_short_native_hi,
+          u40x_short_native_lo, U40X_SHORT_NATIVE_MB0);
+    return EFI_SUCCESS;
+}
+#endif
+
+#if STAGE_CONTROL == 15 || STAGE_CONTROL == 16
+static EFI_STATUS u40x_stage_check_short_sig(const U40X_SOFT_IO *io)
+{
+    UINT32 ss0 = io->read32(REG_FEAT_OVR_SM_SPD);
+    UINT32 ss1 = io->read32(REG_FEAT_OVR_SM_SPD_1);
+    UINT32 plm = io->read32(REG_FEAT_OVR_PLM);
+    UINT32 hi = io->read32(REG_PFB_MMU_WPR2_HI);
+    UINT32 lo = io->read32(REG_PFB_MMU_WPR2_LO);
+    UINT32 cpu = io->read32(SEC2_CPUCTL);
+    UINT32 mb0 = io->read32(SEC2_MAILBOX0);
+    if (u40x_mmio_unavailable(ss0) || u40x_mmio_unavailable(ss1) ||
+        u40x_mmio_unavailable(plm) || u40x_mmio_unavailable(hi) ||
+        u40x_mmio_unavailable(lo) || u40x_mmio_unavailable(cpu) ||
+        u40x_mmio_unavailable(mb0)) return EFI_DEVICE_ERROR;
+    if (ss0 || ss1 || plm != 0xFFFFFF8FU || !u40x_short_sig_error ||
+        mb0 != u40x_short_sig_error || !(cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE))
+        return EFI_NOT_READY;
+#if STAGE_CONTROL == 16
+    Print(L"[stage] SHORT_NATIVE_CHECK: WPR2_HI=%08x WPR2_LO=%08x expected=%08x/%08x MB0=%08x\n",
+          hi, lo, u40x_short_native_hi, u40x_short_native_lo, mb0);
+    if (!u40x_short_native_bounds_ready || mb0 != U40X_SHORT_NATIVE_MB0 ||
+        hi != u40x_short_native_hi || lo != u40x_short_native_lo) return EFI_NOT_READY;
+#else
+    /* The native error path's WPR policy is not yet measured. Accept and log
+     * either complete known pair, never a mixed/unknown protection range. */
+    if (!((hi == 0 && lo == 0x1FFFFE00U) ||
+          (hi == FW40_WPR2_HI_UP && lo == FW40_WPR2_LO_UP))) return EFI_NOT_READY;
+#endif
+    return EFI_SUCCESS;
+}
+#endif
+
+static EFI_STATUS u40x_finish_stage(const U40X_SOFT_IO *io, EFI_HANDLE win)
+{
+    EFI_STATUS status;
+    UINT32 engine, cpu, dma, hwcfg2;
+#ifdef CPU_RM_HANDOFF
+    if (!win && !u40x_cpu_rm_return) return u40x_stage_abort(EFI_LOAD_ERROR);
+#else
+    if (!win) return u40x_stage_abort(EFI_LOAD_ERROR);
+#endif
+#ifdef FWSEC_SB_RESTORE
+    if (!u40x_fwsec_sb_done) return u40x_stage_abort(EFI_NOT_READY);
+#endif
+#if STAGE_CONTROL >= 6
+    status = u40x_stage_wait_fwsec(io);
+    if (EFI_ERROR(status)) {
+        u40x_soft_snapshot(io, L"FWSEC_INCOMPLETE");
+        return u40x_stage_abort(status);
+    }
+#endif
+    u40x_soft_snapshot(io, U40X_STAGE_NAME);
+    engine = io->read32(GSP_ENGINE);
+    cpu = io->read32(GSP_CPUCTL);
+    dma = io->read32(GSP_DMACTL);
+    hwcfg2 = io->read32(GSP_HWCFG2);
+    Print(L"[stage] %s GFW=%08x GSP_ENGINE=%08x CPU=%08x DMACTL=%08x HWCFG2=%08x\n",
+          U40X_STAGE_NAME, io->read32(REG_GFW_BOOT_OK), engine, cpu, dma, hwcfg2);
+#if STAGE_CONTROL == 15 || STAGE_CONTROL == 16
+    status = u40x_stage_check_short_sig(io);
+#elif STAGE_CONTROL >= 9
+    status = u40x_stage_check_booter(io);
+#elif STAGE_CONTROL >= 6
+    status = u40x_stage_check_fwsec(io);
+#else
+    status = u40x_stage_check_locked(io);
+#endif
+    if (EFI_ERROR(status)) return u40x_stage_abort(status);
+#if STAGE_CONTROL >= 3
+    /* Observe state at the cut point. No tail reset or mailbox clearing. */
+    if (u40x_mmio_unavailable(engine) || u40x_mmio_unavailable(cpu) ||
+        u40x_mmio_unavailable(dma) || u40x_mmio_unavailable(hwcfg2))
+        return u40x_stage_abort(EFI_DEVICE_ERROR);
+    if ((engine & 1U) || !(cpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE) ||
+        (dma & 6U) || (hwcfg2 & (1U << 12)))
+        return u40x_stage_abort(EFI_NOT_READY);
+#endif
+#if STAGE_CONTROL >= 7
+    {
+        UINT32 secCpu = io->read32(SEC2_CPUCTL);
+        if (u40x_mmio_unavailable(secCpu)) return u40x_stage_abort(EFI_DEVICE_ERROR);
+        if (!(secCpu & NV_PFALCON_FALCON_CPUCTL_HALTED_TRUE))
+            return u40x_stage_abort(EFI_NOT_READY);
+    }
+#if STAGE_CONTROL == 16
+    Print(L"[stage] STAGE_READY stage=SHORT-SIG-NATIVE BOOTER_START=1 BOOTER_OK=0 MB0=%08x; SS=00000000/00000000 WPR2=full HI=%08x LO=%08x\n",
+          u40x_short_sig_error, u40x_short_native_hi, u40x_short_native_lo);
+#elif STAGE_CONTROL == 15
+    Print(L"[stage] STAGE_READY stage=SHORT-SIG BOOTER_START=1 BOOTER_OK=0 MB0=%08x; SS=00000000/00000000 WPR2=%s\n",
+          u40x_short_sig_error, io->read32(REG_PFB_MMU_WPR2_HI) == 0 ? L"down" : L"up");
+#else
+    Print(L"[stage] STAGE_READY stage=%s HEALTH=1 BOOTLOAD=%d BOOTER_START=%d; SS=%08x/%08x WPR2=%s\n",
+          U40X_STAGE_NAME, (INTN)(STAGE_CONTROL >= 8), (INTN)(STAGE_CONTROL >= 9),
+          STAGE_CONTROL == 9 ? 0x88888888U : 0U, STAGE_CONTROL == 9 ? 8U : 0U,
+          STAGE_CONTROL >= 9 && STAGE_CONTROL != 13 && STAGE_CONTROL != 14 ? L"down" : L"up");
+#endif
+#ifdef FWSEC_SB_RESTORE
+    Print(L"[sb] SB_READY cmd=19; native completion checked, SS/WPR2/SEC2 preserved\n");
+#endif
+#ifndef CPU_RM_HANDOFF
+    Print(L"[stage] post-booter health/SEC2 cleanup/ReBAR/FLR not run; close log, StartImage Windows\n");
+#endif
+#elif STAGE_CONTROL >= 4
+    Print(L"[stage] STAGE_READY stage=%s SEC2_CHECK=1 FWLOAD=%d FWSEC_START=%d; SS=0/0 WPR2=%s\n",
+          U40X_STAGE_NAME, (INTN)(STAGE_CONTROL >= 5), (INTN)(STAGE_CONTROL == 6),
+          STAGE_CONTROL == 6 ? L"up" : L"down");
+    Print(L"[stage] SEC2-booter/SEC2 cleanup/ReBAR/FLR not run; compute intentionally locked; close log, StartImage Windows\n");
+#else
+    Print(L"[stage] STAGE_READY stage=%s PTIMER=%d MEMORY=%d GSP_RESET=%d; SS=0/0 WPR2=down\n",
+          U40X_STAGE_NAME, (INTN)(STAGE_CONTROL >= 2),
+          (INTN)(STAGE_CONTROL >= 2), (INTN)(STAGE_CONTROL == 3));
+    Print(L"[stage] FWSEC/booter/SEC2 cleanup/ReBAR/FLR not run; compute intentionally locked; close log, StartImage Windows\n");
+#endif
+#ifdef CPU_RM_HANDOFF
+    u40x_cpu_rm_rebar(u40x_cpu_rm_parent);
+    Print(L"[40HX] CPU_RM_HANDOFF_READY: native Booter completed; GSP OFF supported\n");
+#endif
+    u40x_seal_output();
+    /* Terminal, including StartImage errors: no GPU/log/NVRAM access. */
+#ifdef CPU_RM_HANDOFF
+    if (u40x_cpu_rm_return) return EFI_SUCCESS;
+#endif
+    return BS->StartImage(win, NULL, NULL);
+}
+#endif
+
 /* 找卡：fast-probe（bus 2/1/3/0/4/5）+ 初扫 bus 0..16（AGESA 实测把
  * PEG 槽编到 bus 0x10、核显到 0x30，0..16 已含该极端值）；enc=2(CF8) 全
  * 0..255 兜底。先规范地址(enc=0)再紧凑地址(enc=1)再 CF8(enc=2)。 */
@@ -7353,6 +8120,16 @@ u40x_rebar_try(UINT64 want, UINT32 selector)
 }
 
 /* ===== v55 主入口（DIRECT_SEC2，40HX） ===== */
+#ifdef CPU_RM_HANDOFF
+static VOID u40x_cpu_rm_rebar(EFI_HANDLE parent)
+{
+    if (!u40x_has_load_option(parent, L"norebar"))
+        u40x_rebar_try(U40X_REBAR_SIZE, U40X_REBAR_SELECTOR);
+    else
+        Print(L"[rebar] skipped: disabled by norebar load option\n");
+}
+#endif
+
 EFI_STATUS EFIAPI
 efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
@@ -7366,6 +8143,13 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     UINT32 boot0 = 0;
     UINTN i;
     BOOLEAN returnToBootloader = FALSE, rebarDisabled = FALSE;
+    BOOLEAN handoffFlr = FALSE, handoffSoft = FALSE;
+    U40X_HANDOFF_MODE handoffMode;
+    U40X_FLR_PLAN flrPlan = {0};
+    EFI_HANDLE preparedWindows = NULL;
+#ifdef SELECTOR_CONTROL
+    BOOLEAN selectorBooterOK = FALSE;
+#endif
 
     InitializeLib(ImageHandle, SystemTable);
     Print(L"\n=== CMP40HX Unlock v70-40HX (TU106 GSP WITH_LOADER) ===\n");
@@ -7379,6 +8163,92 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         u40x_has_load_option(ImageHandle, L"--return-to-grub") ||
         u40x_has_load_option(ImageHandle, L"--return-to-limine");
     rebarDisabled = u40x_has_load_option(ImageHandle, L"norebar");
+    handoffMode = u40x_handoff_mode(ImageHandle);
+    handoffFlr = handoffMode == U40X_HANDOFF_FLR;
+    handoffSoft = handoffMode == U40X_HANDOFF_PRELOAD || handoffMode == U40X_HANDOFF_GSP_RESET;
+#ifdef STAGE_CONTROL
+    if (!u40x_stage_options_valid(ImageHandle) ||
+        handoffMode != U40X_HANDOFF_PRELOAD
+#ifndef CPU_RM_HANDOFF
+        || returnToBootloader
+#endif
+        ) return u40x_stage_abort(EFI_INVALID_PARAMETER);
+#ifdef CPU_RM_HANDOFF
+    u40x_cpu_rm_parent = ImageHandle;
+    u40x_cpu_rm_return = returnToBootloader;
+#else
+    rebarDisabled = TRUE;
+#endif
+#ifdef FWSEC_SB_RESTORE
+    Print(L"[stage] TU106-FWSEC-SB-CONTROL-10 stage=%s\n", U40X_STAGE_NAME);
+    u40x_fwsec_sb_mode = u40x_fwsec_sb_done = FALSE;
+    u40x_fwsec_sb_phys = 0;
+    u40x_fwsec_prepared = FALSE;
+    u40x_booter_prepared = u40x_booter_started = FALSE;
+#elif STAGE_CONTROL == 16
+    Print(L"[stage] TU106-SHORT-NATIVE-CONTROL-9 stage=%s\n", U40X_STAGE_NAME);
+    u40x_fwsec_prepared = FALSE;
+    u40x_booter_prepared = u40x_booter_started = FALSE;
+    u40x_short_sig_error = 0;
+    u40x_short_native_bounds_ready = FALSE;
+    u40x_short_native_lo = u40x_short_native_hi = 0;
+#elif STAGE_CONTROL >= 14
+    Print(L"[stage] TU106-ISOLATION-CONTROL-8 stage=%s\n", U40X_STAGE_NAME);
+    u40x_fwsec_prepared = FALSE;
+    u40x_booter_prepared = u40x_booter_started = FALSE;
+#if STAGE_CONTROL == 15
+    u40x_short_sig_error = 0;
+#endif
+#elif STAGE_CONTROL >= 11
+    Print(L"[stage] TU106-PAYLOAD-CONTROL-7 stage=%s; ZERO plus one independent data change\n", U40X_STAGE_NAME);
+    u40x_fwsec_prepared = FALSE;
+    u40x_booter_prepared = u40x_booter_started = FALSE;
+#elif STAGE_CONTROL >= 7
+    Print(L"[stage] TU106-BOOTER-CONTROL-6 stage=%s; no post-booter cleanup\n", U40X_STAGE_NAME);
+    u40x_fwsec_prepared = FALSE;
+#if STAGE_CONTROL >= 8
+    u40x_booter_prepared = u40x_booter_started = FALSE;
+#endif
+#elif STAGE_CONTROL >= 4
+    Print(L"[stage] TU106-FWSEC-CONTROL-5 stage=%s; diagnostic, no compute unlock\n",
+          U40X_STAGE_NAME);
+#if STAGE_CONTROL >= 5
+    u40x_fwsec_prepared = FALSE;
+#endif
+#else
+    Print(L"[stage] TU106-STAGE-CONTROL-4 stage=%s; pre-FWSEC diagnostic, no compute unlock\n",
+          U40X_STAGE_NAME);
+#endif
+#endif
+#ifdef SELECTOR_CONTROL
+    /* Two dedicated files use the same preload/SEC2 cleanup, with no FLR,
+     * GSP tail reset or ReBAR in either. Reject options that spoil the pair. */
+    if (handoffMode != U40X_HANDOFF_PRELOAD || returnToBootloader) {
+        Print(L"[control] CONTROL_ABORT: use preload-only and direct Windows handoff\n");
+        u40x_seal_output();
+        return EFI_INVALID_PARAMETER;
+    }
+    rebarDisabled = TRUE;
+    Print(L"[control] TU106-SELECTOR-CONTROL-3; expected SS0=%08x SS1=%08x; ReBAR resize disabled\n",
+          U40X_EXPECTED_SS0, U40X_EXPECTED_SS1);
+#endif
+#ifdef STAGE_CONTROL
+    Print(L"[stage] early Windows LoadImage; direct handoff at compiled cut point\n");
+#else
+    if (handoffFlr) {
+        Print(L"[handoff] TU106-FLR-EXPERIMENT-1; compute lost in Windows hardware tests\n");
+        if (!u40x_has_load_option(ImageHandle, L"--flr-rebar")) {
+            rebarDisabled = TRUE;
+            Print(L"[handoff] ReBAR resize skipped for FLR isolation (opt-in: --flr-rebar)\n");
+        }
+    } else if (handoffSoft) {
+        Print(L"[handoff] TU106-SOFT-EXPERIMENT-2; no final FLR; mode=%s\n",
+              handoffMode == U40X_HANDOFF_GSP_RESET ? L"GSP-reset" : L"preload-only");
+        Print(L"[soft] stock SEC2 sanitize and ReBAR policy; early Windows LoadImage\n");
+    } else {
+        Print(L"[handoff] stock handoff (no final FLR)\n");
+    }
+#endif
     if (returnToBootloader)
         Print(L"[40HX] load option: return-to-bootloader (hand back to parent boot manager)\n");
     if (rebarDisabled)
@@ -7387,12 +8257,41 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     /* ---------- [1] 找卡（黑盒 fast-probe + 有界） ---------- */
     if (!u40x_find_gpu()) {
         Print(L"[40HX] GPU not found; abort\n");
+#ifdef STAGE_CONTROL
+        return u40x_stage_abort(EFI_NOT_FOUND);
+#endif
         return returnToBootloader ? EFI_SUCCESS : EFI_NOT_FOUND;
+    }
+
+    if (handoffFlr) {
+        Status = u40x_flr_preflight(&u40x_flr_io, &flrPlan);
+        if (EFI_ERROR(Status)) {
+            Print(L"[handoff] FLR unavailable: %r; abort before GPU mutation\n", Status);
+            u40x_seal_output();
+            return Status;
+        }
+        Print(L"[handoff] FLR supported: PCIe cap=%02x enc=%d\n",
+              (UINT32)flrPlan.cap, (INTN)u40x_enc_found);
+    }
+    if (handoffFlr || handoffSoft) {
+        if (!returnToBootloader) {
+            Print(L"[handoff] preparing Windows Boot Manager before GPU mutation...\n");
+            Status = u40x_prepare_windows(ImageHandle, &preparedWindows);
+            if (EFI_ERROR(Status) || !preparedWindows) {
+                Print(L"[handoff] Windows preload failed: %r; abort before GPU mutation\n", Status);
+                u40x_seal_output();
+                return EFI_ERROR(Status) ? Status : EFI_LOAD_ERROR;
+            }
+            Print(L"[handoff] Windows image ready; only StartImage remains at handoff\n");
+        }
     }
 
     /* ---------- [2] BAR0 使能 ---------- */
     if (u40x_enable_bar()) {
         Print(L"[40HX] BAR enable failed; abort\n");
+#ifdef STAGE_CONTROL
+        return u40x_stage_abort(EFI_DEVICE_ERROR);
+#endif
         return returnToBootloader ? EFI_SUCCESS : EFI_DEVICE_ERROR;
     }
 #ifdef VBIOS_DUMP
@@ -7409,6 +8308,31 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
               L"gated); dumping key regs\n");
     }
     dump_regs(L"[v55 boot]");
+
+#ifdef STAGE_CONTROL
+    if ((boot0 & 0xFF000000U) != 0x16000000U)
+        return u40x_stage_abort(EFI_DEVICE_ERROR);
+    Status = u40x_stage_check_locked(&u40x_soft_io);
+    if (EFI_ERROR(Status)) {
+        Print(L"[stage] expected cold locked selectors and WPR2 down\n");
+        return u40x_stage_abort(Status);
+    }
+#if STAGE_CONTROL >= 11 || defined(FWSEC_SB_RESTORE)
+    if (mmio_read32(REG_FEAT_OVR_PLM) != 0xFFFFFF8FU) {
+        Print(L"[stage] expected cold FECS PLM=FFFFFF8F\n");
+        return u40x_stage_abort(EFI_NOT_READY);
+    }
+#endif
+#endif
+
+#ifdef SELECTOR_CONTROL
+    if (mmio_read32(REG_FEAT_OVR_SM_SPD) != 0 ||
+        mmio_read32(REG_FEAT_OVR_SM_SPD_1) != 0) {
+        Print(L"[control] CONTROL_ABORT: initial selectors not zero; cold boot required\n");
+        u40x_seal_output();
+        return EFI_NOT_READY;
+    }
+#endif
 
     /* ---------- [4] 快捷路径：已解锁 / 直写可粘 ---------- */
     if (is_unlocked()) {
@@ -7440,12 +8364,59 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     } else {
         Print(L"[40HX] GFW OK (0x%08x)\n", mmio_read32(REG_GFW_BOOT_OK));
     }
+#ifdef STAGE_CONTROL
+    if (u40x_mmio_unavailable(mmio_read32(REG_GFW_BOOT_OK)) ||
+        (mmio_read32(REG_GFW_BOOT_OK) & 0xFFU) != 0xFFU)
+        return u40x_stage_abort(EFI_NOT_READY);
+#if STAGE_CONTROL == 1
+    return u40x_finish_stage(&u40x_soft_io, preparedWindows);
+#endif
+#endif
     set_gpu_time();
 
     /* ---------- [6] 载荷/ucode/BL 分配（>4G 高槽，与 unlock_v2 同策略） ---------- */
     Status = alloc_fwsec_buffer((V67_SIZE + 0xFFFu) >> 12, &v67Phys);
     if (EFI_ERROR(Status)) { Print(L"[40HX] alloc v67: %r\n", Status); goto done; }
+#if defined(STAGE_CONTROL) && (STAGE_CONTROL == 15 || STAGE_CONTROL == 16)
+    /* Keep the allocation/physical layout, but never copy the oversized ROP
+     * tail to the signature buffer. Only the first stock-sized 4 KiB remain. */
+    SetMem((VOID *)(UINTN)v67Phys, (V67_SIZE + 0xFFFU) & ~0xFFFU, 0);
+    CopyMem((VOID *)(UINTN)v67Phys, v67_payload_bin, U40X_SHORT_SIG_SIZE);
+    Print(L"[stage] SHORT-SIG: first 0x1000 bytes only; remaining buffer zero; native rejection expected\n");
+#else
     CopyMem((VOID *)(UINTN)v67Phys, v67_payload_bin, V67_SIZE);
+#endif
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 11 && STAGE_CONTROL <= 14
+#if STAGE_CONTROL == 14
+    Status = u40x_payload_combined((UINT8 *)(UINTN)v67Phys, V67_SIZE);
+#else
+    Status = u40x_payload_control((UINT8 *)(UINTN)v67Phys, V67_SIZE, STAGE_CONTROL - 10);
+#endif
+    if (EFI_ERROR(Status)) return u40x_stage_abort(Status);
+    Print(L"[stage] ZERO payload: %s; PCs/addresses/mutex/native halt unchanged\n", U40X_STAGE_NAME);
+    Print(L"[stage] payload data: first PLM=%08x saved reset nibble=%x WPR2 HI=%08x LO=%08x\n",
+          STAGE_CONTROL == 11 || STAGE_CONTROL == 14 ? 0xFFFFFF8FU : 0xFFFFFFFFU,
+          STAGE_CONTROL == 12 || STAGE_CONTROL == 14 ? 8U : 15U,
+          STAGE_CONTROL == 13 || STAGE_CONTROL == 14 ? FW40_WPR2_HI_UP : 0U,
+          STAGE_CONTROL == 13 || STAGE_CONTROL == 14 ? FW40_WPR2_LO_UP : 0x1FFFFE00U);
+#elif defined(STAGE_CONTROL) && STAGE_CONTROL >= 9 && STAGE_CONTROL <= 10
+    Status = u40x_selector_payload((UINT8 *)(UINTN)v67Phys, V67_SIZE,
+                                  STAGE_CONTROL == 10);
+    if (EFI_ERROR(Status)) return u40x_stage_abort(Status);
+    Print(L"[stage] payload selector operands: SS0=%08x SS1=%08x; other bytes unchanged\n",
+          STAGE_CONTROL == 9 ? 0x88888888U : 0U, STAGE_CONTROL == 9 ? 8U : 0U);
+#endif
+#ifdef SELECTOR_CONTROL
+    Status = u40x_selector_payload((UINT8 *)(UINTN)v67Phys, V67_SIZE,
+                                  U40X_EXPECTED_SS0 == 0);
+    if (EFI_ERROR(Status)) {
+        Print(L"[control] CONTROL_ABORT: unexpected payload layout %r\n", Status);
+        u40x_seal_output();
+        return Status;
+    }
+    Print(L"[control] payload operands +F988=%08x +BB20=%08x; addresses/cleanup unchanged\n",
+          U40X_EXPECTED_SS0, U40X_EXPECTED_SS1);
+#endif
     /* v61: **不再 low-copy 到 <4GB**。869 行注释（v2.63 实测，锁卡 40HX）：
      * "booter 从 sysmem 读 WPR meta/V67——<4GB 读取被锁 (exit 0x91)"。
      * 驱动 TU102 (kgspExecuteBooterLoad_TU102) 用 mailbox0/1 = LO32/HI32
@@ -7454,7 +8425,11 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
      * assumption; it is reversed on TU102.
      * v60 实机 mbox0=0x91 可复现 → v67/meta 都在 <4GB，booter 读被锁。 */
     __asm__ volatile("wbinvd" ::: "memory");
+#if defined(STAGE_CONTROL) && STAGE_CONTROL == 15
+    Print(L"[40HX] short signature @0x%lx (0x1000 B declared, >4GB)\n", v67Phys);
+#else
     Print(L"[40HX] v67 payload @0x%lx (0x%x B, >4GB)\n", v67Phys, V67_SIZE);
+#endif
 
     Status = alloc_fwsec_buffer((BOOTER_UCODE_SIZE + 0xFFFu) >> 12, &ucodePhys);
     if (EFI_ERROR(Status)) { Print(L"[40HX] alloc ucode: %r\n", Status); goto done; }
@@ -7467,9 +8442,11 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     CopyMem((VOID *)(UINTN)blPhys, gsp_rm_boot_dbg, GSP_RM_BOOT_SIZE);
 
     /* ---------- [7] dummy fw + radix-3 表 + WPR meta (fbSize=8GB) ---------- */
-    if (EFI_ERROR(u40x_build_dummy_fw(&fwPhys, &fwSize)))
+    Status = u40x_build_dummy_fw(&fwPhys, &fwSize);
+    if (EFI_ERROR(Status))
         goto done;
-    if (EFI_ERROR(u40x_build_radix(fwPhys, fwSize, &radixTabPhys)))
+    Status = u40x_build_radix(fwPhys, fwSize, &radixTabPhys);
+    if (EFI_ERROR(Status))
         goto done;
     radixPhys = radixTabPhys;
     radixSize = fwSize;
@@ -7480,6 +8457,26 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Print(L"[40HX] build_wpr_meta (fbSize=0x200000000 = 8GB)\n");
     build_wpr_meta(wprMeta, radixPhys, radixSize, v67Phys,
                    0x200000000ULL, blPhys, GSP_RM_BOOT_SIZE);
+#ifdef CPU_RM_HANDOFF
+    if (wprMeta->fbSize != 0x200000000ULL ||
+        wprMeta->nonWprHeapOffset != 0x1FDF00000ULL ||
+        wprMeta->gspFwWprStart != 0x1FE000000ULL ||
+        wprMeta->gspFwHeapOffset != 0x1FE100000ULL ||
+        wprMeta->gspFwHeapSize != 0xF0000ULL ||
+        wprMeta->gspFwOffset != 0x1FE1F0000ULL ||
+        wprMeta->gspFwWprEnd != 0x1FFF00000ULL)
+        return u40x_stage_abort(EFI_INVALID_PARAMETER);
+    Print(L"[40HX] CPU-RM heap=960KiB WPR=%lx:%lx\n",
+          wprMeta->gspFwWprStart, wprMeta->gspFwWprEnd);
+#endif
+#if defined(STAGE_CONTROL) && (STAGE_CONTROL == 15 || STAGE_CONTROL == 16)
+    wprMeta->sizeOfSignature = U40X_SHORT_SIG_SIZE;
+    Print(L"[stage] SHORT-SIG metadata sizeOfSignature=0x%lx; all other fields unchanged\n", wprMeta->sizeOfSignature);
+#endif
+#if defined(STAGE_CONTROL) && STAGE_CONTROL == 16
+    Status = u40x_short_native_capture_bounds(wprMeta);
+    if (EFI_ERROR(Status)) return u40x_stage_abort(Status);
+#endif
     __asm__ volatile("wbinvd" ::: "memory");
     Print(L"[40HX] meta@0x%lx radix@0x%lx ucode@0x%lx v67@0x%lx fb=0x%lx\n",
           wprMetaPhys, radixPhys, ucodePhys, v67Phys, wprMeta->fbSize);
@@ -7495,9 +8492,17 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Print(L"[40HX] preload probe disabled (normal unlock path)\n");
 #endif
 
+#if defined(STAGE_CONTROL) && STAGE_CONTROL == 2
+    return u40x_finish_stage(&u40x_soft_io, preparedWindows);
+#endif
+
     /* ---------- [8] kill GFW + SEC2 解锁检查 ---------- */
     gsp_engine_reset();
     BS->Stall(200000);
+#if defined(STAGE_CONTROL) && STAGE_CONTROL == 3
+    /* Stop BEFORE the conditional SEC2 BCR write, FWSEC and every cleanup. */
+    return u40x_finish_stage(&u40x_soft_io, preparedWindows);
+#endif
     {
         UINT32 cpuctl = mmio_read32(SEC2_CPUCTL);
         UINT32 dmatrf = mmio_read32(SEC2_DMATRFCMD);
@@ -7505,6 +8510,10 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         UINT32 bcr    = mmio_read32(SEC2_BCR_CTRL);
         Print(L"[40HX] SEC2 post-kill: CPUCTL=0x%08x DMATRFCMD=0x%08x "
               L"FBIF_CTL=0x%08x BCR=0x%08x\n", cpuctl, dmatrf, fbictl, bcr);
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 4
+        if (cpuctl == 0xFFFFFFFFU || dmatrf == 0xFFFFFFFFU)
+            return u40x_stage_abort(EFI_DEVICE_ERROR);
+#endif
         if (((cpuctl & 0xBADF0000u) == 0xBADF0000u) ||
             ((dmatrf & 0xBADF0000u) == 0xBADF0000u)) {
             Print(L"[40HX] SEC2 locked - BCR CORE_SELECT=FALCON (0x841668=0)...\n");
@@ -7520,6 +8529,15 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         }
     Print(L"[40HX] SEC2 unlocked - direct booter load (DIRECT_SEC2)\n");
     }
+
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 4
+    if (u40x_mmio_unavailable(mmio_read32(SEC2_CPUCTL)) ||
+        u40x_mmio_unavailable(mmio_read32(SEC2_DMATRFCMD)))
+        return u40x_stage_abort(EFI_DEVICE_ERROR);
+#if STAGE_CONTROL == 4
+    return u40x_finish_stage(&u40x_soft_io, preparedWindows);
+#endif
+#endif
 
     /* ---------- [8b] v66: 40HX 原生 FWSEC on GSP → FRTS → WPR2 up ----------
      * log53 成功序列必经 FWSEC（WPR2=01ffee00:01ffe000 up, host 写被锁）。
@@ -7537,16 +8555,41 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
             Print(L"[40HX fwsec40] prod blob @0x%lx (0x%x B, 40HX native)\n",
                   fwsecPhys, FW40_BLOB_SIZE);
             wprUp = fwsec_boot_gsp_40hx(fwsecPhys);
+#ifdef FWSEC_SB_RESTORE
+            u40x_fwsec_sb_phys = fwsecPhys;
+#endif
         } else {
             Print(L"[40HX fwsec40] alloc fail %r\n", Status);
         }
         Print(L"[40HX fwsec40] WPR2 now: hi=0x%08x lo=0x%08x %s\n",
               mmio_read32(REG_PFB_MMU_WPR2_HI), mmio_read32(REG_PFB_MMU_WPR2_LO),
               wprUp ? L"(UP!)" : L"(still down)");
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 5
+        if (!u40x_fwsec_prepared ||
+            (STAGE_CONTROL == 5 ? wprUp : !wprUp)) {
+            Print(L"[stage] FWSEC cut point not reached; prepared=%d WPR2-up=%d\n",
+                  (INTN)u40x_fwsec_prepared, (INTN)wprUp);
+            return u40x_stage_abort(EFI_ERROR(Status) ? Status : EFI_NOT_READY);
+        }
+#if STAGE_CONTROL <= 6
+        return u40x_finish_stage(&u40x_soft_io, preparedWindows);
+#endif
+#endif
+#ifdef SELECTOR_CONTROL
+        if (!wprUp) {
+            Print(L"[control] CONTROL_ABORT: FWSEC did not establish WPR2\n");
+            goto done;
+        }
+#endif
     }
 
     /* ---------- [9] DIRECT_SEC2：SEC2 booter（V67 canary） ---------- */
     sec2_health(L"v55-pre-booter");
+#if defined(STAGE_CONTROL) && STAGE_CONTROL == 7
+    Print(L"[stage] HEALTH_COMPLETE: mailbox0=%08x dmabase=%08x after restoration\n",
+          mmio_read32(SEC2_MAILBOX0), mmio_read32(SEC2_DMATRFBASE));
+    return u40x_finish_stage(&u40x_soft_io, preparedWindows);
+#endif
     CopyMem((VOID *)(UINTN)ucodePhys, booter_ucode_prod, BOOTER_UCODE_SIZE);
     /* 驱动装载前把 SIG_PROD(16B AES) 写入 image[PATCH_LOC=0x8700]
      * (= DMEM[hsSigDmemAddr=0x200])——BROM 验签就从这个 DMEM 位读签名；
@@ -7564,12 +8607,55 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Print(L"[40HX] booter_load_tu102_direct (ports, BOOTVEC=0, RM=0x166000a1)...\n");
     Status = booter_load_tu102_direct(wprMetaPhys, ucodePhys);
     Print(L"[40HX] booter_load_tu102_direct returned %r\n", Status);
+#if defined(STAGE_CONTROL) && STAGE_CONTROL >= 8
+#if STAGE_CONTROL == 15 || STAGE_CONTROL == 16
+    if (!u40x_booter_prepared || !u40x_booter_started ||
+        Status != EFI_ABORTED || !u40x_short_sig_error) {
+#else
+    if (!u40x_booter_prepared ||
+        (STAGE_CONTROL == 8 ? (Status != EFI_NOT_STARTED || u40x_booter_started)
+                            : (EFI_ERROR(Status) || !u40x_booter_started))) {
+#endif
+        Print(L"[stage] booter cut point not reached; prepared=%d started=%d status=%r\n",
+              (INTN)u40x_booter_prepared, (INTN)u40x_booter_started, Status);
+        return u40x_stage_abort(EFI_ERROR(Status) ? Status : EFI_NOT_READY);
+    }
+#ifdef FWSEC_SB_RESTORE
+    /* NVIDIA kgspTeardown_TU102 restores PreOsApps with FWSEC-SB. WPR2 is
+     * already down here, so its conditional Booter Unload would be skipped.
+     * Reuse the original allocation; keep all pre-booter addresses unchanged. */
+    u40x_soft_snapshot(&u40x_soft_io, L"PRE_SB");
+    Status = u40x_stage_check_booter(&u40x_soft_io);
+    if (EFI_ERROR(Status)) return u40x_stage_abort(Status);
+    if (mmio_read32(REG_FEAT_OVR_PLM) != 0xFFFFFF8FU)
+        return u40x_stage_abort(EFI_NOT_READY);
+    Status = u40x_stage_wait_fwsec(&u40x_soft_io);
+    if (EFI_ERROR(Status)) return u40x_stage_abort(Status);
+    if (!u40x_fwsec_sb_phys) return u40x_stage_abort(EFI_NOT_READY);
+    CopyMem((VOID *)(UINTN)u40x_fwsec_sb_phys, fwsec_40hx_prod_bin, FW40_BLOB_SIZE);
+    u40x_fwsec_sb_mode = TRUE;
+    u40x_fwsec_sb_done = fwsec_boot_gsp_40hx(u40x_fwsec_sb_phys);
+    u40x_soft_snapshot(&u40x_soft_io, L"POST_SB");
+    if (!u40x_fwsec_sb_done) return u40x_stage_abort(EFI_DEVICE_ERROR);
+    if (mmio_read32(REG_FEAT_OVR_PLM) != 0xFFFFFF8FU)
+        return u40x_stage_abort(EFI_NOT_READY);
+#endif
+    /* Before post-booter sec2_health, extra waits, sanitize or any retry. */
+    return u40x_finish_stage(&u40x_soft_io, preparedWindows);
+#endif
+#ifdef SELECTOR_CONTROL
+    /* A zero-selector result alone also matches an unexecuted payload.
+     * Require successful direct booter completion; never use the DMA fallback. */
+    selectorBooterOK = !EFI_ERROR(Status);
+    if (!selectorBooterOK) goto done;
+#else
     if (EFI_ERROR(Status)) {
         /* v56 fallback：GA102 风格 DMA 路径（v55 用的那套），结果对比用 */
         Print(L"[40HX] fallback: booter_load_v67 (DMA path, GA102-style)...\n");
         Status = booter_load_v67(wprMetaPhys, ucodePhys);
         Print(L"[40HX] booter_load_v67 returned %r\n", Status);
     }
+#endif
     sec2_health(L"v55-post-booter");
     BS->Stall(500000);
     dump_regs(L"[v55 post-booter]");
@@ -7582,12 +8668,18 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         Print(L"[40HX] RESULT: PLM=0x%08x SS0=0x%08x SS1=0x%08x\n", plm, ss0, ss1);
         if (is_unlocked())
             Print(L"[40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***\n");
+#ifdef SELECTOR_CONTROL_ZERO
+        else if (ss0 == 0 && ss1 == 0)
+            Print(L"[control] ZERO selectors observed as requested; this is NOT compute unlock\n");
+#endif
         else if (plm == VAL_PLM_OPEN || plm == 0xFFFFFF8Fu)
         Print(L"[40HX] PLM %s - SS0 still gated\n",
                   plm == VAL_PLM_OPEN ? L"OPEN" : L"STAGED");
         else
         Print(L"[40HX] PLM closed - no booter effect observed\n");
     }
+    u40x_handoff_snapshot(L"NATIVE_EXIT");
+    if (handoffFlr) goto done; /* one shared cleanup, including early exits */
     /* v89: SEC2 Sanitize（cyridd/cmpunlocker kgspCmp40SanitizeSec2AfterExploit 简版——
      * 解锁后 SEC2 回冷态：engine reset + MB 清——验证黑屏=非冷态，sanitize 解） */
     Print(L"[40HX v89] SEC2 sanitize (engine reset + MB clear)...\n");
@@ -7619,7 +8711,24 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     for (i = 0; i < 16; i++) mmio_read32(SEC2_ENGINE);
 
 done:
+#ifdef STAGE_CONTROL
+    /* Allocation failures and any unexpected shortcut are failed controls,
+     * never permission to execute the normal cleanup/Windows fallback. */
+    return u40x_stage_abort(EFI_ERROR(Status) ? Status : EFI_NOT_READY);
+#endif
     dump_regs(L"[v55 final]");
+#ifdef SELECTOR_CONTROL
+    if (!selectorBooterOK) {
+        Print(L"[control] CONTROL_ABORT: no successful direct booter; no Windows handoff\n");
+        u40x_seal_output();
+        return EFI_ERROR(Status) ? Status : EFI_NOT_READY;
+    }
+#endif
+    if (handoffFlr) {
+        u40x_handoff_snapshot(L"BEFORE_SEC2_RESET");
+        u40x_handoff_stop_sec2();
+        u40x_handoff_snapshot(L"AFTER_SEC2_RESET");
+    }
     /* ---------- [11] best-effort ReBAR (BAR1, 8 GiB); reverts on any
      * failed check — see u40x_rebar_try. "norebar" load option opts out. --- */
     if (gBar0Base != 0 && is_unlocked() && !rebarDisabled)
@@ -7628,6 +8737,11 @@ done:
         Print(L"[rebar] skipped: disabled by norebar load option\n");
     else
         Print(L"[rebar] skipped: GPU is not in a valid unlocked state\n");
+    if (handoffFlr)
+        return u40x_finish_flr(&flrPlan, preparedWindows, returnToBootloader);
+    if (handoffSoft)
+        return u40x_finish_soft(&u40x_soft_io, preparedWindows, returnToBootloader,
+                               handoffMode == U40X_HANDOFF_GSP_RESET);
     /*
      * Runtime handoff (ported/generalized from 50hx --return-to-grub): when the
      * boot entry carries --return-to-bootloader (or the grub/limine aliases),

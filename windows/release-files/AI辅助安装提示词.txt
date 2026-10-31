@@ -37,7 +37,7 @@ CMP 40HX 解锁工具 v3.0.0 · AI 辅助安装提示词
   Fast Boot=Disabled；启动列表把 "40HX Unlock" 置顶。
   部分主板(铭瑄等)BIOS 列表看不到该启动项：用 PE(firPE)/DiskGenius 添加启动项，
   或把 UEFI 系统盘设为第一启动（安装器已写 \EFI\Boot\bootx64.efi 标准回退路径兜底）。
-- v2.5 起不需要测试签名；NVIDIA 驱动建议 616.56 系；GSP(EnableGpuFirmware=1) 由安装器自动设置。
+- 不需要测试签名；当前 EFI 支持 GSP OFF / CPU-RM。升级时同时选择算力 EFI 与“关闭 GSP（推荐）”，安装器在更新 EFI 后设置 EnableGpuFirmware=0。Gen2 登录任务不再修改 GSP；旧任务会更新为当前安装器。
 - 电源：安装器自动关闭 Windows"快速启动"与电源计划的 PCIe ASPM；
   高性能电源计划为 GUI 可选勾选项（均可手动恢复，见 README §2.4）。
 - 正常现象：开机解锁画面 10~30 秒；登录后约 30 秒 Gen2 静默完成；

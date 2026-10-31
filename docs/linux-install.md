@@ -7,6 +7,11 @@ by [`install.sh`](../install.sh), plus the optional userspace pipeline patch in
 
 For the Windows/UEFI procedure, see [`windows/README.md`](../windows/README.md) instead.
 
+For the **proprietary Linux driver with GSP disabled**, use the separate
+[`linux/cpu-rm/README.md`](../linux/cpu-rm/README.md). That pre-driver module
+is validated with 610.43.03 and 615.78.08 and does not patch NVIDIA's driver.
+`install.sh` below continues to target the open kernel modules.
+
 ## 1. Prepare the environment
 
 The installer is distribution-agnostic: it does not install packages or

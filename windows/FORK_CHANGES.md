@@ -10,6 +10,15 @@ those binaries are reproducible from the v3.0 source.
 
 ## Changes in this fork
 
+The current FULL EFI supports **GSP OFF / CPU-RM** using the tested 960 KiB
+temporary Booter heap and complete native Booter handoff. It keeps the current
+ReBAR allocator, return-to-bootloader options and signed-image deployment.
+The installer now offers **Disable GSP (recommended)**, writes an explicit
+`EnableGpuFirmware=0`, detects outdated ESP payloads, upgrades EFI before
+switching GSP, and redirects existing Gen2 login entries to the current
+installer. Gen2 no longer changes GSP; the obsolete GSP-ensure task is removed
+on installation. See [the report](../docs/research/CPU_RM_SMALL_WPR.md).
+
 1. GSP registry fallback is hardware-bound. A display name such as `RTX 2060`
    or `RTX 2070` is no longer enough to select a class key; `MatchingDeviceId`
    must also contain `PCI\\VEN_10DE&DEV_1F0B`. This prevents a multi-GPU system

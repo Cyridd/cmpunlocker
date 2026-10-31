@@ -2,6 +2,12 @@
 
 ## Linux
 
+- **Proprietary CPU-RM compute unlock:** native initialization and CUDA
+  throughput validated on `610.43.03` and `615.78.08` with GSP OFF, on an
+  8 GiB CMP40HX/TU106. Use [the separate guide](../linux/cpu-rm/README.md).
+  Other releases, GRID/vGPU, suspend/resume and other models are unvalidated.
+  This path does not apply the open-module PCIe/ReBAR/profiling patches.
+
 - **NVIDIA open-gpu-kernel-modules `580.173.02`, `610.57.04` and `615.78.08` (default).** Select one with `--driver-version=VER`; other driver versions require porting and revalidation. The userspace/firmware version must match the selected kernel-module version.
 
 Hardware tests on 2026-10-18 confirmed successful GPU initialization, compute
@@ -41,9 +47,13 @@ sudo ./install.sh --no-download
   **Secure Boot** and **CSM** disabled — the EFI application is unsigned.
 - The unlock is volatile and is reapplied at every boot by the EFI entry. POST,
   FLR, a driver reset, or a power cycle clears it.
-- GSP must be enabled (`EnableGpuFirmware=1`); the unlock depends on it. With GSP on
-  the driver reserves some video memory: a card that reports 8191 MB stock reports
-  about 8024 MB (CUDA).
+- The current small-WPR EFI supports **GSP OFF / CPU-RM**. The installer
+  explicitly writes `EnableGpuFirmware=0`, replaces old login-task targets,
+  and recommends upgrading the EFI first. Owner-confirmed ZERO/FULL runtime
+  success is recorded in [the report](research/CPU_RM_SMALL_WPR.md);
+  the exact final Windows driver version was not recorded.
+- Earlier GSP-ON measurements reported about 8024 MB CUDA VRAM instead of
+  8191 MB stock. Those are historical measurements, not a GSP requirement.
 - The PCIe Gen2 bring-up depends on the platform accepting the retrain, and the
   8 GiB ReBAR path needs a free 8 GiB-aligned 64-bit MMIO span in the
   root-complex topology. Both fail closed and roll back.
