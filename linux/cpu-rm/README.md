@@ -10,6 +10,8 @@ The existing [open-module installer](../../docs/linux-install.md) remains a
 separate choice. Its PCIe/ReBAR/profiling patches are not applied by this tool.
 GRID/vGPU, other CMP models, suspend/resume and other driver releases have not
 been independently validated for this CPU-RM path.
+The [GRID 19.6 community report](../../docs/research/GRID_CPU_RM_REPORT.md)
+confirms compute unlock on one 580.178.05 host; Gen2 remains unresolved there.
 
 ## Prepare and build
 
@@ -62,7 +64,9 @@ sudo depmod -a
 Use a cold boot where the CMP is **unbound**, and use another GPU or a text
 console for the host. A temporary boot entry can blacklist `nvidia`,
 `nvidia_drm`, `nvidia_modeset`, `nvidia_uvm` and `nouveau` using your
-distribution's module-blacklist mechanism. For dracut, both
+distribution's module-blacklist mechanism. On GRID/vGPU hosts, also blacklist
+`nvidia_vgpu_vfio`: its matching PCI alias and `softdep pre: nvidia` can load
+NVIDIA despite a blacklist on `nvidia` alone. For dracut, both
 `rd.driver.blacklist=...` and `modprobe.blacklist=...` may be needed. If NVIDIA
 is explicitly included in your initramfs, adjust that image as well. Verify
 the state before continuing; the helper will refuse a driver-owned device.
@@ -83,6 +87,19 @@ heap, checks `unlock_error=0` and `resources_retained=N`, then loads the
 proprietary `nvidia` module with `NVreg_EnableGpuFirmware=0`. Omit
 `--load-nvidia` to stop after the pre-driver unlock. If `cmp40_preboot` is
 already loaded, inspect its parameters and logs before another operation.
+The GSP check accepts `/sys/module/nvidia/parameters/NVreg_EnableGpuFirmware`
+or `/proc/driver/nvidia/params`; some GRID builds expose only the latter.
+
+For a GRID host, keep the vGPU manager and guests stopped through this sequence.
+After native health and GSP OFF are confirmed, explicitly load the separate
+vGPU module before starting the manager and guests:
+
+```bash
+sudo modprobe nvidia_vgpu_vfio
+```
+
+This ordering addresses the reported early-driver-load problem; it does not
+install GRID or vgpu-unlock, or establish guest performance compatibility.
 
 Expected pre-driver markers:
 

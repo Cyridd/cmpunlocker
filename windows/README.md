@@ -363,13 +363,13 @@ Commit the version changes and regenerated resource, push `main`, and wait
 for CI to pass. Then tag that commit; for this release:
 
 ```sh
-git tag -a v2.1.0 -m "v2.1.0"
-git push origin v2.1.0
+git tag -a v2.1.1 -m "v2.1.1"
+git push origin v2.1.1
 ```
 
 CI builds the three Windows executables, packages them with the committed
 EFI, helper drivers and documentation, and creates a draft GitHub Release.
-Its two assets are `CMP40HX-Windows-v2.1.0.zip` and `SHA256SUMS.txt` with
+Its two assets are `CMP40HX-Windows-v2.1.1.zip` and `SHA256SUMS.txt` with
 the archive checksum. Review the draft's description and assets, then select
 **Publish release** on GitHub. The version inside the programs is set by the
 source files above; it is not derived automatically from the tag.

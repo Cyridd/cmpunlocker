@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Explicit pre-driver unlock. No unbind, reset, PCI rescan or background task.
 set -euo pipefail
+source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 usage() {
     echo "Usage: sudo $0 --gpu 0000:01:00.0 [--load-nvidia] [--gen2 prepare|retrain] [--gen2-policy rmw|windows]"
     echo "The target must be an unbound 10de:1f0b; firmware/module must be installed."
@@ -46,6 +47,7 @@ if [[ $gen2 != off ]]; then
 fi
 if ((load_nvidia)); then
     modprobe nvidia NVreg_EnableGpuFirmware=0
-    [[ $(cat /sys/module/nvidia/parameters/NVreg_EnableGpuFirmware) == 0 ]] || die "NVIDIA did not select GSP OFF"
+    firmware=$(cmp40_gsp_setting) || die "cannot read NVIDIA's GSP setting from sysfs or /proc"
+    [[ $firmware == 0 ]] || die "NVIDIA did not select GSP OFF"
     echo "Proprietary NVIDIA loaded with GSP OFF. Verify with nvidia-smi and a compute workload."
 fi

@@ -136,11 +136,14 @@ func gen2PnpFallbackV2(th, wh *syscall.Handle, gpuBDF *uint32, root uint32) uint
 	fmt.Println("[Gen2] Stage1 failed -> PnP fallback: disable/enable 40HX, reload nvlddmkm, redo PL0+TLS+retrain")
 	if !gen2PnpRecover40HX() {
 		fmt.Println("[Gen2][!] PnP recovery failed")
+		return 0
 	}
-	waitForNvDriver(60 * time.Second)
+	if !waitForNvDriver(60 * time.Second) {
+		return 0
+	}
 	if !gen2ReopenDrivers(th, wh) {
 		fmt.Println("[Gen2][!] driver reopen failed; aborting fallback")
-		return hxcore.LinkSpeed(*wh, *gpuBDF)
+		return 0
 	}
 	if b, ok := hxcore.FindGPUPCI(*wh); ok {
 		*gpuBDF = b
@@ -185,8 +188,7 @@ func gen2DryRunMain() {
 			copyEmbedTo(filepath.Join(sysDir, df), df)
 		}
 	}
-	ensureSvcLoaded("ThrottleStop", "ThrottleStop.sys")
-	ensureSvcLoaded("WinRing0_1_2_0", "WinRing0x64.sys")
+	ensureGen2Services()
 
 	th, err := hxcore.OpenThrottleStop()
 	if err != nil {
@@ -257,12 +259,4 @@ func gen2DryRunMain() {
 		}
 	}
 	fmt.Println("[dry] done. Nothing was written.")
-}
-
-// logSyncLoop: fsync каждые 100 мс, чтобы последние строки до BSOD дожили до диска.
-func logSyncLoop(f *os.File) {
-	for {
-		time.Sleep(100 * time.Millisecond)
-		_ = f.Sync()
-	}
 }

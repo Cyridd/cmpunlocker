@@ -96,51 +96,41 @@ func FindGPUBDFFromRegistry() (uint32, bool) {
 	return 0, false
 }
 
-// FindGPUPCI: 全扫 PCI config 定位 40HX 的 BDF (bus<<8|dev<<3|fn)。
-// 只认 VEN_10DE + DEV_1F0B — 多卡/非 bus1 拓扑也不会认错设备。
-//
-// v2.5.1 修复(issue #9 微星 B450+5600G「引导/诊断都找不到 40HX」):
-// 原实现只扫 bus 0-7。在 B450+APU/寨板/多级桥接等拓扑下, 40HX 常被枚举到
-// bus>=8(甚至更高), 导致扫描永远漏掉它 → gen2Main 直接报"未能在 PCI 总线上
-// 定位 40HX"而放弃。现改为三层定位:
-//  1. 快速路径: bus 0-7 (覆盖绝大多数单卡)
-//  2. 兜底1: 从注册表 LocationInformation 取已知 BDF 并验证(最快最稳,
-//     不依赖 PCI config 能否被 WinRing0 扫到)
-//  3. 兜底2: 补扫 bus 8-255 (多级桥接/高总线拓扑)
+// FindGPUPCI verifies Windows' known location before probing other PCI devices.
+// The fallback covers all buses, including high-bus and multifunction devices.
 func FindGPUPCI(wh syscall.Handle) (uint32, bool) {
-	// 1) 快速路径 bus 0-7
-	for bus := uint32(0); bus < 8; bus++ {
+	bdf, known := FindGPUBDFFromRegistry()
+	return findGPUPCI(func(bdf, reg uint32) (uint32, error) {
+		return PciRd(wh, bdf, reg)
+	}, bdf, known)
+}
+
+func findGPUPCI(read func(uint32, uint32) (uint32, error), knownBDF uint32, known bool) (uint32, bool) {
+	matches := func(id uint32) bool { return id == 0x1F0B10DE }
+	if known && knownBDF <= 0xFFFF {
+		if id, err := read(knownBDF, 0); err == nil && matches(id) {
+			return knownBDF, true
+		}
+	}
+	for bus := uint32(0); bus < 256; bus++ {
 		for dev := uint32(0); dev < 32; dev++ {
 			for fn := uint32(0); fn < 8; fn++ {
 				bdf := (bus << 8) | (dev << 3) | fn
-				id, err := PciRd(wh, bdf, 0x00)
-				if err != nil || id == 0xFFFFFFFF {
+				id, err := read(bdf, 0)
+				if err != nil || id&0xFFFF == 0xFFFF || id&0xFFFF == 0 {
+					if fn == 0 {
+						break
+					} // No function 0, so no physical device.
 					continue
 				}
-				if id&0xFFFF == 0x10DE && (id>>16)&0xFFFF == 0x1F0B {
+				if matches(id) {
 					return bdf, true
 				}
-			}
-		}
-	}
-	// 2) 兜底1: 注册表已知位置(跨总线拓扑), 直接验证该 BDF
-	if bdf, ok := FindGPUBDFFromRegistry(); ok {
-		if id, err := PciRd(wh, bdf, 0x00); err == nil && id != 0xFFFFFFFF &&
-			id&0xFFFF == 0x10DE && (id>>16)&0xFFFF == 0x1F0B {
-			return bdf, true
-		}
-	}
-	// 3) 兜底2: 补扫更高总线 8-255
-	for bus := uint32(8); bus < 256; bus++ {
-		for dev := uint32(0); dev < 32; dev++ {
-			for fn := uint32(0); fn < 8; fn++ {
-				bdf := (bus << 8) | (dev << 3) | fn
-				id, err := PciRd(wh, bdf, 0x00)
-				if err != nil || id == 0xFFFFFFFF {
-					continue
-				}
-				if id&0xFFFF == 0x10DE && (id>>16)&0xFFFF == 0x1F0B {
-					return bdf, true
+				if fn == 0 {
+					header, err := read(bdf, 0x0C)
+					if err == nil && header != 0xFFFFFFFF && header&(1<<23) == 0 {
+						break // A single-function device has no functions 1..7.
+					}
 				}
 			}
 		}

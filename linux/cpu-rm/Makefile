@@ -9,6 +9,7 @@ build/test_offline: test_offline.c kernel/boot.c kernel/prep.c kernel/layout.c k
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror test_offline.c kernel/boot.c kernel/prep.c kernel/layout.c kernel/vbios.c -o $@
 gen2-test:
 	python3 tests/run_gen2.py
+	python3 tests/run_helpers.py
 offline-test: build/test_offline gen2-test
 	cd build && ./test_offline $(if $(ROM),"$(abspath $(ROM))")
 clean:

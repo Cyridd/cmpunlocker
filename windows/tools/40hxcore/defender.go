@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // psUtf8: 让 powershell 以 UTF-8 向管道输出(避免中文报错在日志里乱码)
@@ -99,7 +100,7 @@ func mpErr(action, out string, err error) error {
 }
 
 func runMp(cmd string) (string, error) {
-	return RunOut("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psUtf8+cmd)
+	return RunOutTimeout(60*time.Second, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psUtf8+cmd)
 }
 
 // AddDefenderExclusions: 安装时调用 — 把驱动文件/备份目录加进 Defender 排除。

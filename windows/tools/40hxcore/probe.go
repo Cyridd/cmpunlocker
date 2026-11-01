@@ -1,22 +1,36 @@
 package hxcore
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
-// RunOut: 执行命令并返回合并输出(隐藏窗口)。诊断/探测统一走这里。
+// RunOut runs a hidden command with a bounded wait.
 func RunOut(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	return RunOutTimeout(30*time.Second, name, args...)
+}
+
+// RunOutTimeout also bounds pipe draining if a child inherits the output handles.
+func RunOutTimeout(timeout time.Duration, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.CombinedOutput()
+	if err != nil && ctx.Err() != nil {
+		err = fmt.Errorf("%s timed out after %s: %w", name, timeout, ctx.Err())
+	}
 	return string(out), err
 }
 
@@ -112,18 +126,24 @@ func SetTestsigning() (bool, string) {
 // MountESP: 挂 ESP 到空闲盘符, 返回盘符字母(如 "S")或 ""。
 // 非管理员下 mountvol /S 失败 → 返回空(安全, 不弹 UAC)。
 func MountESP() string {
+	drives, err := windows.GetLogicalDrives()
+	if err != nil {
+		return ""
+	}
 	for _, c := range []string{"Y", "X", "W", "V", "U", "T", "S"} {
-		letter := c + ":"
-		out, _ := RunOut("mountvol.exe", letter, "/S")
-		if strings.Contains(out, "错误") || strings.Contains(out, "denied") {
+		if drives&(1<<uint(c[0]-'A')) != 0 {
 			continue
 		}
-		if _, err := os.Stat(letter + "\\EFI"); err == nil {
-			return c
+		letter := c + ":"
+		if _, err := RunOut("mountvol.exe", letter, "/S"); err != nil {
+			// A different letter cannot fix missing ESP, permissions or timeout.
+			return ""
 		}
 		if _, err := os.Stat(letter + "\\"); err == nil {
 			return c
 		}
+		UnmountESP(c)
+		return ""
 	}
 	return ""
 }

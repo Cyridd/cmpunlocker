@@ -1,4 +1,4 @@
-// 40HX 一键安装工具 v2.1.0 (CMP 40HX Windows Unlock Installer)
+// 40HX 一键安装工具 v2.1.1 (CMP 40HX Windows Unlock Installer)
 // 功能:
 //
 //	Install: CPU-RM (EnableGpuFirmware=0) + ESP 双路部署 40HXUNLK.EFI (V70)
@@ -48,11 +48,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -254,12 +254,12 @@ func setupLog(defName string) {
 	if i := argIndex("-log"); i >= 0 && i+1 < len(os.Args) {
 		p = os.Args[i+1]
 	}
-	if f, err := os.Create(p); err == nil {
+	// On Windows O_SYNC uses FILE_FLAG_WRITE_THROUGH. Persist actual writes
+	// without waking an idle GUI or resident guard to flush every 100 ms.
+	if f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_SYNC, 0o644); err == nil {
 		os.Stdout = f
 		os.Stderr = f
 		fmt.Fprintf(f, "==== 40HX tool %s ====\n", time.Now().Format("2006-01-02 15:04:05"))
-		// fsync every 100 ms so the last lines before a BSOD reach the disk
-		go logSyncLoop(f)
 	}
 }
 
@@ -1093,12 +1093,26 @@ func redeployDriverFile(sysFile string) bool {
 	return true
 }
 
-func ensureSvcLoaded(name string, sysFile string) {
+func ensureGen2Services() {
+	var exclusions sync.Once
+	for _, driver := range []struct{ name, file string }{
+		{"ThrottleStop", "ThrottleStop.sys"},
+		{"WinRing0_1_2_0", "WinRing0x64.sys"},
+	} {
+		ensureSvcLoaded(driver.name, driver.file, &exclusions)
+	}
+}
+
+func ensureSvcLoaded(name string, sysFile string, exclusions *sync.Once) {
 	if out, _ := hxcore.RunOut("sc.exe", "query", name); strings.Contains(out, "RUNNING") {
 		return // 已运行
 	}
 	if redeployDriverFile(sysFile) {
-		hxcore.AddDefenderExclusions()
+		exclusions.Do(func() {
+			if err := hxcore.AddDefenderExclusions(); err != nil {
+				fmt.Println("[Gen2] Defender exclusions:", err)
+			}
+		})
 	}
 	bin := fmt.Sprintf("\\SystemRoot\\System32\\drivers\\%s", sysFile)
 	hxcore.RunOut("sc.exe", "create", name, "type=", "kernel", "start=", "demand", "binPath=", bin)
@@ -1320,7 +1334,10 @@ func gen2Main() {
 	// code19(安装器注释 §785 已实证 "nvlddmkm 正占用 GPU 时 retrain 导致异常")。
 	// 普通机器 nv 登录后几秒即 RUNNING → 此处几乎不等待; 慢速/多卡机器则等到就绪,
 	// 避免与 nv 初始化重叠(固定 30s 延迟的脆弱性由此消除)。
-	waitForNvDriver(60 * time.Second)
+	if !waitForNvDriver(60 * time.Second) {
+		gen2StatusFail(tr("NVIDIA driver is not ready; Gen2 skipped. See the installer log.", "Драйвер NVIDIA не готов; Gen2 пропущен. См. журнал установщика.", "NVIDIA 驱动尚未就绪；已跳过 Gen2。请查看安装器日志。"))
+		return
+	}
 
 	defer cleanupByovd() // 注册最早→最后执行(在句柄 Close 后), 失败也清理
 
@@ -1331,8 +1348,7 @@ func gen2Main() {
 			copyEmbedTo(filepath.Join(sysDir, df), df) // 占用中忽略错误
 		}
 	}
-	ensureSvcLoaded("ThrottleStop", "ThrottleStop.sys")
-	ensureSvcLoaded("WinRing0_1_2_0", "WinRing0x64.sys")
+	ensureGen2Services()
 
 	th, err := hxcore.OpenThrottleStop()
 	if err != nil {
@@ -1348,8 +1364,14 @@ func gen2Main() {
 	}
 	// th/wh 句柄可能在 -hard 回退(Stage2)中被重开, 统一在下方 wh 处闭包按最终值关闭
 
-	wh, err := hxcore.OpenDevice(`\\.\WinRing0_1_2_0`)
+	var wh syscall.Handle
+	// Close ThrottleStop even if opening WinRing0 fails. The closure also
+	// tracks handles reopened by PnP recovery.
+	defer func() { hxcore.CloseHandle(th); hxcore.CloseHandle(wh) }()
+	wh, err = hxcore.OpenDevice(`\\.\WinRing0_1_2_0`)
 	if err != nil {
+		hxcore.CloseHandle(th)
+		th = 0
 		if !isAdmin() {
 			fmt.Println(tr("[Gen2] WinRing0 is not loaded and this is not an administrator — handing off to the SYSTEM task, exiting silently", "[Gen2] WinRing0 не загружен, и это не администратор — передаём задаче SYSTEM, тихий выход", "[Gen2] WinRing0 未加载且当前非管理员 — 交给 SYSTEM 任务处理, 静默退出"))
 			gen2StatusFail(tr("WinRing0 driver not loaded, and this is a normal-privilege context (the SYSTEM task will start it)", "Драйвер WinRing0 не загружен, и это контекст обычных прав (запустит задача SYSTEM)", "WinRing0 驱动未加载, 且当前为普通权限(由 SYSTEM 任务负责拉起)"))
@@ -1360,8 +1382,6 @@ func gen2Main() {
 		gen2Notify(tr("The WinRing0 driver is not running.\nPossible causes: ① an AV quarantined WinRing0x64.sys (this tool already added a Defender exclusion; for third-party AVs, allow it in the security center); ② the local ThrottleStop app is holding/conflicting with it (close ThrottleStop and retry — this tool reuses it automatically).\nRight-click the installer -> Run as administrator, then reboot.", "Драйвер WinRing0 не запущен.\nВозможные причины: ① антивирус поместил WinRing0x64.sys в карантин (этот инструмент уже добавил исключение Defender; для сторонних антивирусов разрешите его в центре безопасности); ② локальное приложение ThrottleStop занимает/конфликтует (закройте ThrottleStop и повторите — инструмент использует его автоматически).\nЩёлкните установщик правой кнопкой -> Запуск от имени администратора, затем перезагрузитесь.", "WinRing0 驱动未运行。\n可能原因: ①杀软隔离了 WinRing0x64.sys(本工具已加 Defender 排除, 第三方杀软请在安全中心放行); ②本机 ThrottleStop 软件占用/冲突(关闭 ThrottleStop 后重试, 本工具会自动复用)。\n请右键安装程序 -> 以管理员身份运行, 再重启。"))
 		return
 	}
-	// 闭包按最终值关闭 th/wh(支持 -hard 回退中重开驱动句柄)
-	defer func() { hxcore.CloseHandle(th); hxcore.CloseHandle(wh) }()
 
 	// 定位 40HX (VEN_10DE&DEV_1F0B), 不硬编码 BDF
 	// v2.6.0: 慢速 GPU 初始化(开机 40HX 未就绪)会偶发定位失败 → 重试最多 3 次,
@@ -1491,6 +1511,10 @@ func gen2Main() {
 	// redo PL0+TLS+retrain) BEFORE Stage2. Disable with: Gen2PnpFallback=0 (default 1).
 	if cur < 2 && hxcore.ConfigInt("Gen2PnpFallback", 1) != 0 {
 		cur = gen2PnpFallbackV2(&th, &wh, &gpuBDF, root)
+		if cur == 0 {
+			gen2StatusFail(tr("GPU unavailable after PnP recovery; further Gen2 writes skipped. See the installer log.", "GPU недоступна после восстановления PnP; дальнейшие записи Gen2 пропущены. См. журнал установщика.", "PnP 恢复后 GPU 不可用；已跳过后续 Gen2 写入。请查看安装器日志。"))
+			return
+		}
 	}
 
 	// v2.6.0: 判据修正 — 驱动/ASPM 会在空闲时把链路降到 Gen1 省电, 只看当前
@@ -1579,10 +1603,23 @@ func gen2Main() {
 const gen2GuardInterval = 1 * time.Minute
 
 func residentGuard() {
+	release := lockOnce("Global\\40HXGen2Guard")
+	if release == nil {
+		return
+	}
+	defer release()
 	fmt.Println(tr("[Guard] Resident guard started: checks the Gen2 target (TLS) every minute and retrains automatically if the configuration is lost (TLS<2); stops on logoff or when the task ends.", "[Страж] Резидентный страж запущен: каждую минуту проверяет цель Gen2 (TLS) и автоматически переобучает при потере конфигурации (TLS<2); останавливается при выходе или завершении задачи.", "[守护] 常驻守护启动: 每 1 分钟检查 Gen2 目标(TLS), 配置丢失(TLS<2)自动重训; 注销或任务结束即停止。"))
 	for {
 		time.Sleep(gen2GuardInterval)
+		if hxcore.DriverStrategy() != hxcore.DriverStrategyResident {
+			cleanupByovd()
+			return
+		}
 		st := hxcore.ReadUnlockStateV2(0, 0)
+		if st.TLS == 0 {
+			// An unavailable device is not evidence of a lost Gen2 policy.
+			continue
+		}
 		if st.TLS >= 2 {
 			continue // 目标仍在: 空闲降速属正常, 不动
 		}
@@ -1674,7 +1711,7 @@ func gen2PnpRecover40HX() bool {
 		`if($iid){ Disable-PnpDevice -InstanceId $iid -Confirm:$false; Start-Sleep -Seconds 2; ` +
 		`Enable-PnpDevice -InstanceId $iid -Confirm:$false; Start-Sleep -Seconds 4; Write-Output "PnP-OK $iid" } ` +
 		`else { Write-Output 'PnP-NONE' }`
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", ps).CombinedOutput()
+	out, err := hxcore.RunOutTimeout(90*time.Second, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)
 	fmt.Printf(tr("    PnP recovery: %s (err=%v)\n", "    Восстановление PnP: %s (err=%v)\n", "    PnP 恢复: %s (err=%v)\n"), strings.TrimSpace(string(out)), err)
 	return err == nil && strings.Contains(string(out), "PnP-OK")
 }
@@ -1682,7 +1719,7 @@ func gen2PnpRecover40HX() bool {
 // 重启 NVDisplay 容器(恢复 GPU-Z / 任务管理器的显示, Link Disable 后常需)
 func gen2RestartNVDisplay() {
 	ps := `Restart-Service NVDisplay.ContainerLocalSystem -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2`
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", ps).CombinedOutput()
+	out, err := hxcore.RunOut("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)
 	fmt.Printf(tr("    NVDisplay container restart: %s (err=%v)\n", "    Перезапуск контейнера NVDisplay: %s (err=%v)\n", "    NVDisplay 容器重启: %s (err=%v)\n"), strings.TrimSpace(string(out)), err)
 }
 
@@ -1690,6 +1727,7 @@ func gen2RestartNVDisplay() {
 func gen2ReopenDrivers(th, wh *syscall.Handle) bool {
 	hxcore.CloseHandle(*th)
 	hxcore.CloseHandle(*wh)
+	*th, *wh = 0, 0
 	ok := true
 	if nt, e := hxcore.OpenThrottleStop(); e != nil {
 		fmt.Printf(tr("    [!] ThrottleStop reopen failed: %v\n", "    [!] Не удалось повторно открыть ThrottleStop: %v\n", "    [!] ThrottleStop 重开失败: %v\n"), e)
@@ -1776,7 +1814,10 @@ func gen2HardFallback(th, wh *syscall.Handle, gpuBDF uint32, bar0Phys uint64, ro
 		} else {
 			fmt.Println(tr("[Gen2 -hard] Training did not succeed; still running PnP recovery to return the GPU to a normal state", "[Gen2 -hard] Обучение не удалось; всё равно выполняется восстановление PnP, чтобы вернуть GPU в нормальное состояние", "[Gen2 -hard] 训练未成, 仍执行 PnP 恢复确保 GPU 回到正常状态"))
 		}
-		gen2PnpRecover40HX()
+		if !gen2PnpRecover40HX() || !waitForNvDriver(60*time.Second) {
+			gen2VerdictHard(gpuBDF, cur, false)
+			return
+		}
 		if !gen2ReopenDrivers(th, wh) {
 			fmt.Println(tr("[Gen2 -hard][!] Driver reopen failed; aborting the rest of the recovery", "[Gen2 -hard][!] Не удалось повторно открыть драйвер; прерывание оставшегося восстановления", "[Gen2 -hard][!] 驱动重开失败, 中止后续恢复"))
 			gen2VerdictHard(gpuBDF, cur, false)
@@ -1898,40 +1939,54 @@ func deleteGen2Retry() {
 // 释放, 比文件锁更可靠(文件锁挡不住两个进程同时 sc start 同一服务名)。
 func gen2AcquireSingleInstance() (bool, func()) {
 	name, _ := windows.UTF16PtrFromString("Global\\40HXGen2SingleInstance")
-	h, err := windows.CreateMutex(nil, true, name)
-	if err != nil {
-		// 拿不到互斥体 → 放行(宁可多跑一次, 不漏解锁)
-		fmt.Println(tr("[Gen2] Failed to create the single-instance mutex; proceeding anyway:", "[Gen2] Не удалось создать мьютекс единственного экземпляра; продолжаем:", "[Gen2] 单实例互斥体创建失败, 放行:"), err)
-		return true, func() {}
+	// The named object's lifetime is the instance guard; no thread-owned
+	// mutex is needed, so release is safe even if a Go goroutine migrates.
+	h, err := windows.CreateMutex(nil, false, name)
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		_ = windows.CloseHandle(h)
+		return false, nil
 	}
-	if windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
-		_ = windows.CloseHandle(windows.Handle(h))
+	if err != nil {
+		fmt.Println(tr("[Gen2] Cannot establish exclusive access; skipping:", "[Gen2] Не удалось получить исключительный доступ; пропускаем:", "[Gen2] 无法获取独占访问；已跳过："), err)
 		return false, nil
 	}
 	return true, func() {
-		_ = windows.ReleaseMutex(windows.Handle(h))
-		_ = windows.CloseHandle(windows.Handle(h))
+		_ = windows.CloseHandle(h)
 	}
 }
 
-// waitForNvDriver: v2.6.0 时序保护 — 必须等 nvlddmkm 真正 RUNNING 后再动 GPU。
-// 抢在 nv 驱动初始化前 retrain 会被 nv 起来后重置 PCIe 链路 / 覆盖 GPU 寄存器,
-// 既冲掉 Gen2, 又可能触发 code19(安装器注释 §785 已实证)。服务不存在(nv 未装)则
-// 直接放行; 超时(60s)仍继续, 不阻塞解锁。
+// Query SCM directly, using only read access and numeric service states.
+// Do not retrain while NVIDIA is absent, failed or still initializing.
 func waitForNvDriver(timeout time.Duration) bool {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		fmt.Println("[Gen2] OpenSCManager:", err)
+		return false
+	}
+	defer windows.CloseServiceHandle(scm)
+	name, _ := windows.UTF16PtrFromString("nvlddmkm")
+	service, err := windows.OpenService(scm, name, windows.SERVICE_QUERY_STATUS)
+	if err != nil {
+		fmt.Println("[Gen2] OpenService nvlddmkm:", err)
+		return false
+	}
+	defer windows.CloseServiceHandle(service)
 	deadline := time.Now().Add(timeout)
 	for {
-		out, _ := hxcore.RunOut("sc.exe", "query", "nvlddmkm")
-		if strings.Contains(out, "does not exist") || strings.Contains(out, "未安装") ||
-			strings.Contains(out, "1060") {
-			fmt.Println(tr("[Gen2] nvlddmkm service not found; skipping the wait and unlocking directly", "[Gen2] Служба nvlddmkm не найдена; пропуск ожидания и прямая разблокировка", "[Gen2] 未检测到 nvlddmkm 服务, 跳过等待直接解锁"))
+		var state windows.SERVICE_STATUS
+		if err := windows.QueryServiceStatus(service, &state); err != nil {
+			fmt.Println("[Gen2] QueryServiceStatus nvlddmkm:", err)
+			return false
+		}
+		if state.CurrentState == windows.SERVICE_RUNNING {
 			return true
 		}
-		if strings.Contains(out, "RUNNING") {
-			return true
+		if state.CurrentState == windows.SERVICE_STOPPED {
+			fmt.Printf("[Gen2] nvlddmkm stopped (Win32=%d service=%d); Gen2 skipped\n", state.Win32ExitCode, state.ServiceSpecificExitCode)
+			return false
 		}
 		if time.Now().After(deadline) {
-			fmt.Printf(tr("[Gen2] nvlddmkm did not reach RUNNING within %s (see the log); continuing the unlock anyway\n", "[Gen2] nvlddmkm не перешёл в RUNNING за %s (см. журнал); разблокировка продолжается\n", "[Gen2] nvlddmkm 在 %s 内未进入 RUNNING(详见日志), 仍继续解锁\n"), timeout)
+			fmt.Printf(tr("[Gen2] nvlddmkm did not reach RUNNING within %s; Gen2 skipped\n", "[Gen2] nvlddmkm не перешёл в RUNNING за %s; Gen2 пропущен\n", "[Gen2] nvlddmkm 在 %s 内未进入 RUNNING；已跳过 Gen2\n"), timeout)
 			return false
 		}
 		fmt.Println(tr("[Gen2] Waiting for nvlddmkm to become ready...", "[Gen2] Ожидание готовности nvlddmkm...", "[Gen2] 等待 nvlddmkm 就绪..."))

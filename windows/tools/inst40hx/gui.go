@@ -283,7 +283,7 @@ func (st *guiState) end() {
 // setActionsEnabled: 初始自动扫描期间禁用执行按钮, 防止与手动操作并发抢 IO。
 func (st *guiState) setActionsEnabled(on bool) {
 	st.sync(func() {
-		for _, b := range []*walk.PushButton{st.pbInstall, st.pbFull, st.pbSave, st.pbGen2} {
+		for _, b := range []*walk.PushButton{st.pbInstall, st.pbFull, st.pbSave, st.pbGen2, st.pbGen2Install} {
 			if b != nil {
 				b.SetEnabled(on)
 			}

@@ -8,8 +8,10 @@ The former items 1 and 2 are completed for the tested CMP40HX CPU-RM paths:
 | 2. Windows without GSP | ZERO/FULL 960 KiB EFI initialization and FULL unlock tested by me. Installer installation and GSP-OFF upgrade also pass; Gen2 leaves GSP OFF. [Report](docs/research/CPU_RM_SMALL_WPR.md). |
 
 GRID/vGPU was part of the original Linux request but has not been independently
-validated. That compatibility question remains separate from the completed
-proprietary CPU-RM compute unlock.
+validated. [A community report on GRID 19.6 / 580.178.05](docs/research/GRID_CPU_RM_REPORT.md)
+now confirms compute unlock and healthy native/vGPU-manager initialization on
+one Proxmox host. Gen2 remains unresolved, and guest throughput, numerical
+correctness and lifecycle tests are still needed.
 
 Remaining directions are feasibility studies, with no promised schedule.
 Open an issue or discussion if you have hardware or results to contribute.
