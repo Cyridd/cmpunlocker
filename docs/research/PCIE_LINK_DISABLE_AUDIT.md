@@ -38,6 +38,14 @@ However, after the runtime operation the NVIDIA device detached from GSP/RM;
 active driver references. The result therefore proves link training, not a
 usable persistent driver configuration.
 
+The later [CPU-RM Gen2 experiments](CPU_RM_PCIE_GEN2.md) retain an optional
+pre-driver policy setup for investigating this platform boundary. Earlier
+policy application followed by ordinary retraining could change what native
+initialization samples, but has not been tested on this Alder Lake system.
+The successful MSI B550 CPU-RM result does not establish an Alder Lake fix.
+Keep that comparison separate from Link Disable, which caused the driver
+loss recorded above.
+
 ### CMP 50HX audit
 
 The independent [`CMP50HX-PCIE-LINK-DISABLE-AUDIT.md`](https://github.com/xrip/cmp50hx-unlock/blob/f323ca22710699781e34d858d64a86f58f019c3e/docs/CMP50HX-PCIE-LINK-DISABLE-AUDIT.md) investigation found the

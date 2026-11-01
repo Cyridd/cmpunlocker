@@ -61,8 +61,9 @@ The full tables (including OpenCL and Vulkan), PCIe Gen2, ReBAR and pipeline mea
 ### Linux
 
 For the **proprietary driver with GSP OFF**, follow
-[`linux/cpu-rm/README.md`](linux/cpu-rm/README.md). It runs before NVIDIA loads
-and leaves the installed proprietary driver intact. The commands below are
+[`linux/cpu-rm/README.md`](linux/cpu-rm/README.md). Compute unlock runs before
+NVIDIA loads; the optional [CPU-RM Gen2 helper](linux/cpu-rm/gen2.sh) runs after
+native initialization and was validated with 615.78.08. The commands below are
 for the **open kernel modules**.
 
 Requires the NVIDIA open kernel module stack and matching userspace/firmware for one of the supported versions (`580.173.02`, `610.57.04`, `615.78.08` default), a matching kernel headers package, and a C toolchain. Select the version with `--driver-version=VER`; per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).

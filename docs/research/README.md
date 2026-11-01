@@ -7,6 +7,7 @@ install or use the project; start from the [main README](../../README.md) and th
 | Note | Contents |
 |---|---|
 | [`CPU_RM_SMALL_WPR.md`](CPU_RM_SMALL_WPR.md) | Successful proprietary Linux and Windows GSP-OFF handoff, exact heap geometry, paired throughput and numerical checks |
+| [`CPU_RM_PCIE_GEN2.md`](CPU_RM_PCIE_GEN2.md) | Proprietary Linux Gen2: native policy reset, successful runtime-only cold control and doubled DMA bandwidth |
 | [`WINDOWS_CPU_RM_HISTORY.md`](WINDOWS_CPU_RM_HISTORY.md) | Curated earlier Windows controls: Booter boundary, SEC2 halt timeout, unsuccessful FLR/SB/PMU alternatives |
 | [`615_BOOTER_COMPATIBILITY.md`](615_BOOTER_COMPATIBILITY.md) | 615.78.08 Booter compatibility and PCIe policy fixes, with hardware-validated compute unlock and Gen2 x16 |
 | [`CMP170HX_PATCH_PORTABILITY.md`](CMP170HX_PATCH_PORTABILITY.md) | Source assessment of 170HX patch candidates for 40HX, existing equivalents and memory-specific workarounds |

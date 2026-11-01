@@ -7,6 +7,7 @@
 #include <linux/string.h>
 
 #include "inspect.h"
+#include "gen2.h"
 #include "unlock.h"
 
 static char *target;
@@ -15,7 +16,7 @@ MODULE_PARM_DESC(target, "Exact PCI address of one CMP40HX, e.g. 0000:10:00.0");
 
 static char *mode = "inspect";
 module_param(mode, charp, 0444);
-MODULE_PARM_DESC(mode, "inspect/sec2_timeline: read only; sec2_ports/sec2_vm: diagnostic reads with restored ports/window; direct: SS0/SS1; unlock: Booter");
+MODULE_PARM_DESC(mode, "inspect/sec2_timeline: read only; sec2_ports/sec2_vm: diagnostic reads with restored ports/window; direct: SS0/SS1; unlock: Booter; gen2_runtime: explicit idle CPU-RM PCIe experiment");
 static bool timeline_armed;
 module_param(timeline_armed, bool, 0444);
 MODULE_PARM_DESC(timeline_armed, "Read-only SEC2 timeline is sampling; start the first native query now");
@@ -72,18 +73,47 @@ static bool mmu_invalidate;
 module_param(mmu_invalidate, bool, 0444);
 MODULE_PARM_DESC(mmu_invalidate, "Diagnostic: invalidate all MMU PDB/VA mappings with global ACK after quiesced CPU-RM handoff");
 
+static char *gen2 = "off";
+module_param(gen2, charp, 0444);
+MODULE_PARM_DESC(gen2, "Opt-in pre-driver Gen2 experiment: off/prepare/retrain (normal CPU-RM unlock only)");
+static char *gen2_policy = "rmw";
+module_param(gen2_policy, charp, 0444);
+MODULE_PARM_DESC(gen2_policy, "Gen2 register policy: rmw preserves unrelated bits; windows uses the Windows full MISC/CYA constants");
+static int gen2_error;
+module_param(gen2_error, int, 0444);
+MODULE_PARM_DESC(gen2_error, "Separate Gen2 errno; never causes compute-unlock FLR");
+static bool gen2_device_ok;
+module_param(gen2_device_ok, bool, 0444);
+MODULE_PARM_DESC(gen2_device_ok, "Gen2 experiment ended with accessible GPU, active link and full compute selectors");
+static unsigned int gen2_link_status;
+module_param(gen2_link_status, uint, 0444);
+MODULE_PARM_DESC(gen2_link_status, "Live PCIe Link Status after the Gen2 experiment");
+
 static int __init cmp40_preboot_init(void)
 {
     struct pci_dev *pdev = NULL;
-    bool unlock;
+    bool unlock, do_gen2, runtime_gen2;
     int ret;
 
     /* No wildcard selection, implicit writes, detach or background work. */
     if (!target || strlen(target) != 12)
         return -EINVAL;
-    if (!mode || (strcmp(mode, "inspect") && strcmp(mode, "unlock") && strcmp(mode, "direct") && strcmp(mode, "sec2_ports") && strcmp(mode, "sec2_vm") && strcmp(mode, "sec2_timeline")))
+    if (!mode || (strcmp(mode, "inspect") && strcmp(mode, "unlock") && strcmp(mode, "direct") && strcmp(mode, "sec2_ports") && strcmp(mode, "sec2_vm") && strcmp(mode, "sec2_timeline") && strcmp(mode, "gen2_runtime")))
         return -EINVAL;
+    runtime_gen2 = !strcmp(mode, "gen2_runtime");
     unlock = !strcmp(mode, "unlock") || !strcmp(mode, "direct");
+    if (!gen2 || (strcmp(gen2, "off") && strcmp(gen2, "prepare") && strcmp(gen2, "retrain")) ||
+        !gen2_policy || (strcmp(gen2_policy, "rmw") && strcmp(gen2_policy, "windows")))
+        return -EINVAL;
+    do_gen2 = strcmp(gen2, "off") != 0;
+    if (runtime_gen2 && strcmp(gen2, "retrain"))
+        return -EINVAL;
+    if (do_gen2 && ((!runtime_gen2 && strcmp(mode, "unlock")) || !stock_handoff || !cpu_rm_handoff ||
+                   !small_wpr_heap || locked_control || signed_unload || loader_control ||
+                   mmu_invalidate || unload_before_down || unload_full_wpr ||
+                   loader_fb_control || loader_virtual_control || loader_native_fbif ||
+                   loader_native_addresses || loader_native_physical || loader_boundary))
+        return -EINVAL;
     if (locked_control && (strcmp(mode, "unlock") || !stock_handoff || !cpu_rm_handoff))
         return -EINVAL;
     if (signed_unload && (strcmp(mode, "unlock") || !stock_handoff || !cpu_rm_handoff))
@@ -141,7 +171,20 @@ static int __init cmp40_preboot_init(void)
         ret = -EBUSY;
         goto out;
     }
-    if (!strcmp(mode, "sec2_timeline")) {
+    if (runtime_gen2) {
+        struct cmp40_gen2_result result;
+
+        /* No firmware runs, DMA allocation, detach, PCI enable or FLR here.
+         * The external diagnostic helper checks idle proprietary GSP OFF;
+         * gen2.c additionally requires halted GSP and full selectors.
+         */
+        gen2_error = cmp40_gen2_runtime(pdev, !strcmp(gen2_policy, "windows"), &result);
+        gen2_device_ok = result.device_ok;
+        gen2_link_status = result.link_status;
+        pci_info(pdev, "cmp40_preboot: GEN2_RUNTIME_RESULT error=%d device_ok=%u status=%04x\n",
+                 gen2_error, gen2_device_ok, gen2_link_status);
+        ret = 0;
+    } else if (!strcmp(mode, "sec2_timeline")) {
         /* Keep the device/active-power references, but do not hold the PCI
          * device lock across sampling: native initialization must proceed.
          * This mode performs no GPU writes or ownership transitions.
@@ -160,17 +203,34 @@ static int __init cmp40_preboot_init(void)
     } else if (!unlock) {
         ret = cmp40_inspect(pdev);
         if (!ret)
+            cmp40_gen2_snapshot(pdev, "inspect");
+        if (!ret)
             pci_info(pdev, "cmp40_preboot: INSPECT_PASS (no writes)\n");
     } else if (!strcmp(mode, "direct")) {
         ret = cmp40_direct_selectors(pdev);
         if (!ret)
             pci_info(pdev, "cmp40_preboot: PRE_DRIVER_DIRECT_PASS (driver compatibility untested)\n");
     } else {
+        if (do_gen2)
+            cmp40_gen2_snapshot(pdev, "before_compute");
         ret = turing_unlock_card(pdev, &resources_retained, cpu_rm_handoff,
                                  stock_handoff, locked_control, signed_unload, loader_control, mmu_invalidate, unload_before_down, loader_fb_control, loader_virtual_control, loader_native_fbif, loader_native_addresses, loader_native_physical, loader_boundary, unload_full_wpr, small_wpr_heap);
         if (!ret)
             pci_info(pdev, "cmp40_preboot: PRE_DRIVER_%s_PASS (verify native driver and workload next)\n",
                      locked_control ? "CONTROL" : "UNLOCK");
+        /* turing_unlock_card has already freed DMA and restored device state.
+         * Keep link errors out of its FLR cleanup and unlock_error entirely.
+         */
+        if (!ret && !resources_retained && do_gen2) {
+            struct cmp40_gen2_result result;
+
+            gen2_error = cmp40_gen2_prepare(pdev, !strcmp(gen2, "retrain"),
+                                           !strcmp(gen2_policy, "windows"), &result);
+            gen2_device_ok = result.device_ok;
+            gen2_link_status = result.link_status;
+            pci_info(pdev, "cmp40_preboot: GEN2_RESULT error=%d device_ok=%u status=%04x\n",
+                     gen2_error, gen2_device_ok, gen2_link_status);
+        }
     }
 out:
     pci_dev_unlock(pdev);
@@ -201,4 +261,4 @@ module_init(cmp40_preboot_init);
 module_exit(cmp40_preboot_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CMP40HX CPU-RM pre-driver unlock and inspection");
-MODULE_VERSION("0.14.0");
+MODULE_VERSION("0.16.0");

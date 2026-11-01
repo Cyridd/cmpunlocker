@@ -111,6 +111,72 @@ sudo modprobe -r cmp40_preboot
 SEC2/loader controls remain in the source for reproducing the research;
 they are not part of the installation procedure.
 
+## PCIe Gen2 with CPU-RM
+
+Gen2 can be applied entirely **after native NVIDIA initialization**. A cold-boot
+control with no preliminary Gen2 writes reached Gen2 x16 using the CPU-RM helper.
+This was measured on CMP40HX VBIOS `90.06.67.00.06`, MSI B550 and proprietary
+NVIDIA 615.78.08; see [the hardware report](../../docs/research/CPU_RM_PCIE_GEN2.md).
+
+After installing the rebuilt module and firmware, start from an unbound cold
+boot and run this order, replacing the example PCI address:
+
+```bash
+sudo bash linux/cpu-rm/unlock.sh --gpu 0000:01:00.0 --load-nvidia
+sudo modprobe -r cmp40_preboot
+sudo bash linux/cpu-rm/gen2.sh --gpu 0000:01:00.0
+```
+
+The first helper verifies compute unlock and firmware/DMA cleanup. Unload its
+completed one-shot module before using it again for runtime Gen2. The Gen2
+helper verifies proprietary GSP OFF, native health and absence of open NVIDIA
+clients, then holds a temporary NVML client while the module sets the GPU-side
+policy and requests ordinary upstream retraining. It additionally requires
+full compute selectors, halted GSP and an active PCIe link. Its runtime mode
+uses existing PCI decoding and leaves the native driver's PCI enable count
+unchanged.
+
+`--module /path/cmp40_preboot.ko` on the Gen2 helper selects a local matching
+build instead of the installed module. An already active Gen2 link completes
+with reads only. Check live `LnkCap/LnkCap2/LnkSta`, native health and a DMA or
+compute workload afterward. Maximum-speed reports can remain stale after the
+capability changes: the test retained a sysfs `max_link_speed` of 2.5 GT/s even
+while actual transfers used Gen2 x16 at about 6.8 GB/s.
+
+The helper is explicit and one-shot; no automatic service is installed or
+enabled. Other cards, driver versions, NVIDIA reinitialization and
+suspend/resume need separate validation. Automatic integration must apply
+Gen2 after the first native NVIDIA initialization, before GPU clients start.
+
+### Pre-driver research controls
+
+`--gen2 prepare` and `--gen2 retrain` on `unlock.sh` remain available for
+controlled cold-boot comparisons. Their default policy changes only the known
+rate, MISC and `DIS_G2` fields and sets XVE override `6`; the explicit
+`--gen2-policy windows` variant writes the Windows full MISC/CYA values.
+Pre-driver training reached Gen2, but native CPU-RM reset the policy to Gen1.
+The subsequent cold control established that late Gen2 works from the stock
+Gen1 capability state without preliminary PCIe preparation.
+
+Early preparation remains an optional comparison for other platforms,
+including the Gen2 training reports in
+[discussion #10](https://github.com/Cyridd/cmpunlocker/discussions/10) and the
+[Alder Lake audit](../../docs/research/PCIE_LINK_DISABLE_AUDIT.md). An early
+policy setup could affect native initialization or capability sampling;
+neither report has yet been fixed by this experiment. The
+[hardware report](../../docs/research/CPU_RM_PCIE_GEN2.md#early-preparation-on-other-platforms)
+describes the cold-boot controls. The reported open/GSP path is a separate
+comparison from this proprietary GSP-OFF helper.
+
+Gen2 outcomes are recorded separately in `gen2_error`, `gen2_device_ok` and
+`gen2_link_status`; compute unlock has its own `unlock_error`. A Gen2 timeout
+never enters the Booter FLR error path. Failed training restores the original
+TLS fields on both ends; GPU-side policy remains available for diagnosis.
+All Gen2 modes use the actual upstream port and ordinary Retrain Link, without
+Link Disable or driver reprobe. The existing
+`tools/cmp40hx-driver-reprobe-gen2.sh` depends on the patched open driver's
+Gen2 setup running again at probe time, so use the CPU-RM helper for this path.
+
 ## Boot ordering and removal
 
 Persist CPU-RM selection in a modprobe configuration if desired:
