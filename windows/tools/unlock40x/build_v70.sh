@@ -56,6 +56,7 @@ case "${CPU_RM_CONTROL:-full}" in
 esac
 python3 "$SRCDIR/verify_selector_payload.py"
 python3 "$SRCDIR/verify_cpu_rm_metadata.py"
+python3 "$SRCDIR/verify_cpu_rm_selectors.py"
 extra_defs+=(-DCPU_RM_HANDOFF -DHANDOFF_PRELOAD_DEFAULT "-DSTAGE_CONTROL=$cpu_rm_stage")
 if [ "${VBIOS_DUMP:-0}" = 1 ]; then
     # The 1 MiB BAR0 VBIOS capture is optional and disabled for the normal

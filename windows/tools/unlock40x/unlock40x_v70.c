@@ -6926,7 +6926,18 @@ static EFI_STATUS u40x_stage_check_locked(const U40X_SOFT_IO *io)
     if (u40x_mmio_unavailable(ss0) || u40x_mmio_unavailable(ss1) ||
         u40x_mmio_unavailable(hi) || u40x_mmio_unavailable(lo))
         return EFI_DEVICE_ERROR;
-    return ss0 == 0 && ss1 == 0 && hi == 0 && lo == 0x1FFFFE00U
+#ifdef CPU_RM_HANDOFF
+    /* Locked selectors need not be zero, including after Linux -> Windows.
+     * Only the exact full pair means the compute unlock is already applied.
+     * Keep the final Booter result check exact for both FULL and ZERO. */
+    if (ss0 == VAL_SS0_UNLOCKED && ss1 == VAL_SS1_UNLOCKED)
+        return EFI_NOT_READY;
+#else
+    /* Historical stage controls require their measured zero baseline. */
+    if (ss0 != 0 || ss1 != 0)
+        return EFI_NOT_READY;
+#endif
+    return hi == 0 && lo == 0x1FFFFE00U
         ? EFI_SUCCESS : EFI_NOT_READY;
 }
 
@@ -8314,7 +8325,7 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         return u40x_stage_abort(EFI_DEVICE_ERROR);
     Status = u40x_stage_check_locked(&u40x_soft_io);
     if (EFI_ERROR(Status)) {
-        Print(L"[stage] expected cold locked selectors and WPR2 down\n");
+        Print(L"[stage] initial selector/WPR2 precondition failed\n");
         return u40x_stage_abort(Status);
     }
 #if STAGE_CONTROL >= 11 || defined(FWSEC_SB_RESTORE)
