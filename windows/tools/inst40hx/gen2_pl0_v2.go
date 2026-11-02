@@ -84,7 +84,7 @@ func gen2BAR0Ok(th syscall.Handle, bar0Phys uint64) bool {
 	return true
 }
 
-// gen2WritePL0V2 — замена gen2WritePL0 и inline-таблицы. false = ничего не писали.
+// false means preparation failed; callers must skip later TLS/retrain writes.
 // BOOT_0 проверяется при КАЖДОМ вызове (в т.ч. после Link Disable/PnP, где BAR0
 // перечитывается; в 3.2.0 и в форке такой проверки там нет).
 func gen2WritePL0V2(th syscall.Handle, bar0Phys uint64) bool {
@@ -101,9 +101,9 @@ func gen2WritePL0V2(th syscall.Handle, bar0Phys uint64) bool {
 		}
 		addr := bar0Phys + e.off
 		old, err := hxcore.TSRead(th, addr)
-		if err != nil {
+		if err != nil || old == 0xFFFFFFFF || old&0xFFFF0000 == 0xBADF0000 {
 			fmt.Printf("  [!] %s read failed: %v (skip)\n", e.name, err)
-			continue
+			return false
 		}
 		want := e.next(old)
 		if efi {
@@ -111,14 +111,18 @@ func gen2WritePL0V2(th syscall.Handle, bar0Phys uint64) bool {
 		}
 		if err := hxcore.TSWrite(th, addr, want); err != nil {
 			fmt.Printf("  [!] %s write failed: %v\n", e.name, err)
-			continue
+			return false
 		}
 		rb, rerr := hxcore.TSRead(th, addr)
 		cmpMask := uint32(0xFFFFFFFF)
 		if e.rmw && !efi {
 			cmpMask = e.mask
 		}
-		if rerr != nil || rb&cmpMask != want&cmpMask {
+		if rerr != nil || rb == 0xFFFFFFFF || rb&0xFFFF0000 == 0xBADF0000 {
+			fmt.Printf("  [!] %s readback unavailable: 0x%08X err=%v; aborting preparation\n", e.name, rb, rerr)
+			return false
+		}
+		if rb&cmpMask != want&cmpMask {
 			fmt.Printf("  [warn] %s 0x%08X -> want 0x%08X, read back 0x%08X\n", e.name, old, want, rb)
 		} else {
 			fmt.Printf("  %s OK 0x%08X -> 0x%08X (rb 0x%08X)\n", e.name, old, want, rb)
@@ -147,13 +151,16 @@ func gen2PnpFallbackV2(th, wh *syscall.Handle, gpuBDF *uint32, root uint32) uint
 	}
 	if b, ok := hxcore.FindGPUPCI(*wh); ok {
 		*gpuBDF = b
+	} else {
+		fmt.Println("[Gen2] CMP40HX not rediscovered after PnP; no further writes")
+		return 0
 	}
-	raw, _ := hxcore.PciRd(*wh, *gpuBDF, 0x10)
-	bar0 := uint64(raw & 0xFFFFFFF0)
-	if raw == 0 || raw == 0xFFFFFFFF || !gen2WritePL0V2(*th, bar0) {
+	bar0, err := hxcore.GPUBar0(*wh, *gpuBDF)
+	if err != nil || !gen2WritePL0V2(*th, bar0) {
 		fmt.Println("[Gen2][!] BAR0 invalid after PnP reload; no MMIO writes")
-		return hxcore.LinkSpeed(*wh, *gpuBDF)
+		return 0
 	}
+	root = hxcore.FindGPUExclusiveRoot(*wh, *gpuBDF)
 	gen2SetTLS(*wh, root, 2)
 	gen2SetTLS(*wh, *gpuBDF, 2)
 	cur := hxcore.LinkSpeed(*wh, *gpuBDF)

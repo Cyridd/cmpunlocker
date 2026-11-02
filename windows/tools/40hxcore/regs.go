@@ -122,9 +122,12 @@ func PciRd(wh syscall.Handle, bdf uint32, reg uint32) (uint32, error) {
 	binary.LittleEndian.PutUint32(ib[0:], bdf)
 	binary.LittleEndian.PutUint32(ib[4:], reg)
 	ob := make([]byte, 4)
-	_, err := IoCtl(wh, ioctlRpci, ib, ob)
+	n, err := IoCtl(wh, ioctlRpci, ib, ob)
 	if err != nil {
 		return 0, err
+	}
+	if n != 4 {
+		return 0, fmt.Errorf("PCI read returned %d bytes, expected 4", n)
 	}
 	return binary.LittleEndian.Uint32(ob), nil
 }
@@ -147,11 +150,11 @@ func PcieCap(wh syscall.Handle, bdf uint32) uint32 {
 	}
 	cur := hdr & 0xFF
 	for i := 0; i < 20; i++ {
-		if cur < 0x40 || cur > 0xFF {
+		if cur < 0x40 || cur > 0xFC || cur&3 != 0 {
 			return 0
 		}
 		c, err := PciRd(wh, bdf, cur)
-		if err != nil {
+		if err != nil || c == 0xFFFFFFFF {
 			return 0
 		}
 		if (c & 0xFF) == 0x10 {

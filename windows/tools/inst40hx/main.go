@@ -2,7 +2,7 @@
 // 功能:
 //
 //	Install: CPU-RM (EnableGpuFirmware=0) + ESP 双路部署 40HXUNLK.EFI (V70)
-//	      + BootOrder 置顶 + 驱动 + Gen2 自启动
+//	      + boot entry registration + drivers + Gen2 logon autostart
 //	-gen2        立即执行 Gen2 解锁(供登录自启动调用, 幂等)
 //	-uninstall   卸载(移除启动项/Run键/驱动服务/EnableGpuFirmware)
 //	-status      状态检查
@@ -33,7 +33,7 @@
 //  2. ESP 双路部署: \EFI\40HX\40HXUNLK.EFI (BCD 主路径)
 //     + \EFI\Boot\bootx64.efi (UEFI 标准 fallback, 原文件备份 .40hx.bak)
 //     解决部分主板不认非标准 EFI 路径/忽略 BCD displayorder 导致"装完重启没反应"
-//  3. BootOrder 写入后从固件读回验证, 不在首位时明确弹窗提示 BIOS 手动置顶
+//  3. Boot priority is configured manually; installation displays a reminder.
 //  4. 关键 BIOS 操作全部进消息框 (社区用户不看 README/日志)
 //
 // Small-WPR firmware preserves full selectors with GSP disabled (CPU-RM).
@@ -66,10 +66,11 @@ import (
 var embedded embed.FS
 
 const (
-	gpuVenDev = "VEN_10DE&DEV_1F0B"
-	efiDir    = "\\EFI\\40HX"
-	efiFile   = "40HXUNLK.EFI"
-	bootDesc  = "40HX Unlock"
+	gpuVenDev       = "VEN_10DE&DEV_1F0B"
+	efiDir          = "\\EFI\\40HX"
+	efiFile         = "40HXUNLK.EFI"
+	bootDesc        = "40HX Unlock"
+	rebarPolicyFile = "REBAR.CFG"
 	// v2.4: UEFI 标准回退路径 (固件 BootOrder 全部无效/未签名时自动尝试此路径;
 	// 解决部分主板忽略 BCD displayorder / 不认非标准 \EFI\40HX 目录)
 	efiStdDir = "\\EFI\\Boot"
@@ -154,11 +155,15 @@ func main() {
 			regTaskOnly()
 			return
 		case "-rebar":
-			// ReBAR 令牌开关(需管理员写 bcdedit loadoptions)。清除 norebar = 开。
-			applyRebarLoadOption(true)
+			// Explicit opt-in to experimental ReBAR relocation.
+			if !applyRebarLoadOption(true) {
+				os.Exit(1)
+			}
 			return
 		case "-norebar":
-			applyRebarLoadOption(false)
+			if !applyRebarLoadOption(false) {
+				os.Exit(1)
+			}
 			return
 		case "-h", "-help", "--help":
 			printHelp()
@@ -335,7 +340,7 @@ func printHelp() {
 	fmt.Println(tr("          40HXInstaller.exe -uninstall # uninstall", "          40HXInstaller.exe -uninstall # удалить", "       40HXInstaller.exe -uninstall # 卸载"))
 	fmt.Println(tr("          40HXInstaller.exe -status    # show status", "          40HXInstaller.exe -status    # показать состояние", "       40HXInstaller.exe -status    # 状态"))
 	fmt.Println(tr("          40HXInstaller.exe -lang en|ru|zh # select language", "          40HXInstaller.exe -lang en|ru|zh # выбрать язык", "       40HXInstaller.exe -lang en|ru|zh # 选择语言"))
-	fmt.Println(tr("          40HXInstaller.exe -rebar      # enable ReBAR (8 GB BAR1) on the boot entry", "          40HXInstaller.exe -rebar      # включить ReBAR (BAR1 8 ГБ) в записи загрузки", "       40HXInstaller.exe -rebar      # 在启动项启用 ReBAR (8 GB BAR1)"))
+	fmt.Println(tr("          40HXInstaller.exe -rebar      # opt into experimental ReBAR relocation (8 GB BAR1)", "          40HXInstaller.exe -rebar      # включить экспериментальное перемещение ReBAR (BAR1 8 ГБ)", "       40HXInstaller.exe -rebar      # 在启动项启用 ReBAR (8 GB BAR1)"))
 	fmt.Println(tr("          40HXInstaller.exe -norebar    # disable ReBAR (skip the BAR1 resize)", "          40HXInstaller.exe -norebar    # отключить ReBAR (пропустить увеличение BAR1)", "       40HXInstaller.exe -norebar    # 关闭 ReBAR (跳过 BAR1 放大)"))
 	fmt.Println(tr("          40HXInstaller.exe -efi <path> # deploy your own signed 40HXUNLK.EFI (Secure Boot; see README)", "          40HXInstaller.exe -efi <путь> # установить собственный подписанный 40HXUNLK.EFI (Secure Boot; см. README)", "       40HXInstaller.exe -efi <路径> # 部署自己签名的 40HXUNLK.EFI (Secure Boot; 见 README)"))
 	fmt.Println(tr("            (a 40HXUNLK.signed.efi next to the installer is picked up automatically)", "            (файл 40HXUNLK.signed.efi рядом с установщиком подхватывается автоматически)", "            (安装器同目录的 40HXUNLK.signed.efi 会自动被采用)"))
@@ -519,8 +524,6 @@ func deployEspEfi(esp string) (backedUp bool, err error) {
 	}
 	pA := filepath.Join(dirA, efiFile)
 	if werr := writeVerified(pA, data); werr != nil {
-		// 写失败或校验不一致 → 删掉可能半截的文件, 避免被 BCD 引用成坏引导
-		os.Remove(pA)
 		return false, werr
 	}
 	fmt.Printf(tr("    [A] %s  (%d bytes, verify OK)\n", "    [A] %s  (%d байт, проверка OK)\n", "    [A] %s  (%d bytes, 校验 OK)\n"), "\\EFI\\40HX\\"+efiFile, len(data))
@@ -532,40 +535,32 @@ func deployEspEfi(esp string) (backedUp bool, err error) {
 	}
 	pB := filepath.Join(dirB, efiStdF) // bootx64.efi
 	pBak := pB + efiBakExt             // bootx64.efi.40hx.bak
-	if _, berr := os.Stat(pBak); berr != nil {
+	if _, berr := os.Stat(pBak); os.IsNotExist(berr) {
 		// 无备份记录 → 若目标存在且不是我们已部署的副本, 先备份
 		if old, oerr := os.ReadFile(pB); oerr == nil && !bytes.Equal(old, data) {
-			if cerr := os.Rename(pB, pBak); cerr != nil {
+			if cerr := hxcore.BackupFileVerified(pB, pBak); cerr != nil {
 				return false, fmt.Errorf(tr("failed to back up the original %s: %v", "не удалось создать резервную копию исходного %s: %v", "备份原 %s 失败: %v"), pB, cerr)
 			}
 			fmt.Printf(tr("    [B] original %s backed up as %s\n", "    [B] исходный %s сохранён как %s\n", "    [B] 原 %s 已备份为 %s\n"), efiStdF, efiStdF+efiBakExt)
 			backedUp = true
-		} else if oerr != nil {
-			// 目标不存在: 无备份(本来就是空位)
+		} else if oerr != nil && !os.IsNotExist(oerr) {
+			return false, oerr
 		}
+	} else if berr != nil {
+		return false, berr
+	} else if backup, berr := os.ReadFile(pBak); berr != nil || len(backup) == 0 {
+		return false, fmt.Errorf("existing bootx64.efi backup is unreadable or empty: %v", berr)
 	}
 	if werr := writeVerified(pB, data); werr != nil {
-		os.Remove(pB)
 		return backedUp, werr
 	}
 	fmt.Printf(tr("    [B] %s  (%d bytes, verify OK)\n", "    [B] %s  (%d байт, проверка OK)\n", "    [B] %s  (%d bytes, 校验 OK)\n"), "\\EFI\\Boot\\"+efiStdF, len(data))
 	return backedUp, nil
 }
 
-// writeVerified: 写文件后立即读回比对 — 防止写入中断/半截导致引导损坏。
-// 不一致则删除并返回错误(调用方据此中止, 不让坏文件留在引导路径)。
+// Verify a flushed sibling staging file before replacing the live name.
 func writeVerified(path string, data []byte) error {
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return err
-	}
-	rb, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf(tr("post-write verification read failed %s: %v", "чтение при проверке после записи не удалось %s: %v", "写后校验读取失败 %s: %v"), path, err)
-	}
-	if !bytes.Equal(rb, data) {
-		return fmt.Errorf(tr("post-write verification mismatch %s (%d ≠ %d bytes)", "несоответствие при проверке после записи %s (%d ≠ %d байт)", "写后校验不一致 %s (%d ≠ %d bytes)"), path, len(rb), len(data))
-	}
-	return nil
+	return hxcore.WriteFileVerified(path, data, 0o644)
 }
 
 // alreadyInstalled: 检测是否已安装过(避免无意义/重复的覆盖安装)。
@@ -587,77 +582,6 @@ func alreadyInstalled() bool {
 	}
 	return false
 }
-
-// verifyBootEntry: 读回 {fwbootmgr} displayorder, 确认 40HX Unlock 是否在首位。
-// 返回 (exists, isFirst, displayOrder描述)。
-// 用 bcdedit /enum firmware 读固件 NVRAM — 若固件忽略 bcdedit 的写入,
-// 这里会如实反映(不在列表/不在首位), 从而让安装器给出 BIOS 手动指引。
-// 注意: bcdedit 输出为 GBK, 中文系统"标识符/说明"是乱码; 但字段值
-// (guid / displayorder / 40HX Unlock / path) 均为 ASCII, 按块解析可靠。
-func verifyBootEntry() (bool, bool, string) {
-	out, err := hxcore.RunOut("bcdedit.exe", "/enum", "firmware")
-	if err != nil {
-		return false, false, tr("(bcdedit read failed: ", "(сбой чтения bcdedit: ", "(bcdedit 读取失败: ") + err.Error() + ")"
-	}
-	lines := strings.Split(out, "\r\n")
-	if len(lines) < 2 {
-		lines = strings.Split(out, "\n")
-	}
-
-	// 1. 收集 displayorder 下的 GUID 序列(固件实际启动顺序)
-	var order []string
-	for i := 0; i < len(lines); i++ {
-		t := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(t, "displayorder") {
-			// 首个 GUID 可能同行: "displayorder {guid}"
-			if m := guidRe().FindString(t); m != "" {
-				order = append(order, strings.Trim(m, "{}"))
-			}
-			// 后续缩进行 {guid}
-			for j := i + 1; j < len(lines); j++ {
-				s := strings.TrimSpace(lines[j])
-				if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
-					order = append(order, strings.Trim(s, "{}"))
-				} else if s != "" {
-					break
-				}
-			}
-			break // displayorder 只在 {fwbootmgr} 段, 取首个即可
-		}
-	}
-
-	// 2. 找 description 为 "40HX Unlock" 的块的 GUID
-	target := ""
-	for i := 0; i < len(lines); i++ {
-		if strings.HasPrefix(strings.TrimSpace(lines[i]), "description") &&
-			strings.Contains(lines[i], bootDesc) {
-			// 往上找最近的 {guid} 行 = 该块 identifier
-			for j := i - 1; j >= 0 && j > i-6; j-- {
-				if m := guidRe().FindString(lines[j]); m != "" {
-					target = strings.Trim(m, "{}")
-					break
-				}
-			}
-			break
-		}
-	}
-	if target == "" {
-		joined := strings.Join(order, " > ")
-		if joined == "" {
-			joined = tr("(firmware has no displayorder entries)", "(в прошивке нет записей displayorder)", "(固件无 displayorder 条目)")
-		}
-		return false, false, joined
-	}
-	if len(order) == 0 {
-		return true, false, tr("(displayorder is empty)", "(displayorder пуст)", "(displayorder 为空)")
-	}
-	isFirst := order[0] == target
-	return true, isFirst, strings.Join(order, " > ")
-}
-
-var _guidRe = regexp.MustCompile(`\{([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\}`)
-
-func guidRe() *regexp.Regexp { return _guidRe }
 
 // ===================== 安装 =====================
 
@@ -750,44 +674,19 @@ func installEFI() bool {
 	}
 	efiOK = true
 
-	// BootOrder (v2.4: 写回验证 + BIOS 指引弹框); 仅 EFI 部署成功才执行
-	fmt.Println(tr("    · Setting the firmware boot entry (40HX Unlock on top)...", "    · Настройка записи загрузки прошивки (40HX Unlock первым)...", "    · 设置固件启动项(40HX Unlock 置顶)..."))
-	bootOK := false
+	// Register the entry; boot priority and launch selection are manual.
+	fmt.Println(tr("    · Registering the firmware boot entry (40HX Unlock)...", "    · Регистрация записи загрузки прошивки (40HX Unlock)...", "    · 注册固件启动项 (40HX Unlock)..."))
 	if err := setupBootEntry(); err != nil {
-		fmt.Println(tr("[!] Failed to set the boot entry automatically:", "[!] Не удалось автоматически задать запись загрузки:", "[!] 自动设置启动项失败:"), err)
-	} else {
-		if ex, first, ord := verifyBootEntry(); ex {
-			bootOK = first
-			if first {
-				fmt.Println(tr("    Boot entry set on top and verified (first in the firmware displayorder)", "    Запись загрузки поставлена первой и проверена (первая в displayorder прошивки)", "    启动项已置顶并验证通过 (固件 displayorder 首位)"))
-			} else {
-				fmt.Println(tr("    [!] Boot entry created, but not first in displayorder:", "    [!] Запись загрузки создана, но не первая в displayorder:", "    [!] 启动项已创建, 但不在 displayorder 首位:"))
-				fmt.Println(tr("        current firmware order: ", "        текущий порядок прошивки: ", "        当前固件顺序: ") + ord)
-				fmt.Println(tr("        Enter BIOS and manually set '40HX Unlock' as the first boot entry (see dialog)", "        Войдите в BIOS и вручную установите '40HX Unlock' первой записью загрузки (см. диалог)", "        请进 BIOS 手动将 '40HX Unlock' 设为第一启动项(见弹窗)"))
-			}
-		} else {
-			fmt.Println(tr("    [!] Could not find the '40HX Unlock' entry in the firmware boot list", "    [!] Не удалось найти запись '40HX Unlock' в списке загрузки прошивки", "    [!] 未能在固件启动列表中找到 '40HX Unlock' 项"))
-			fmt.Println(tr("        (some boards ignore BCD writes; enter BIOS to add it / move it to the top manually)", "        (некоторые платы игнорируют запись BCD; войдите в BIOS, чтобы добавить/поднять запись вручную)", "        (部分主板忽略 BCD 写入, 请进 BIOS 手动添加/置顶)"))
-		}
+		fmt.Println(tr("[!] Failed to register the boot entry:", "[!] Не удалось зарегистрировать запись загрузки:", "[!] 注册启动项失败:"), err)
 	}
-	if !bootOK {
-		// BIOS 指引弹窗 (社区用户不看日志/README 的关键一步)
-		msgbox(tr("40HX Installer (important: please follow the steps)", "Установщик 40HX (важно: следуйте инструкциям)", "40HX 安装器 (重要: 请按提示操作)"),
-			tr("The automatic boot entry was not accepted by the firmware.\n", "Автоматическая запись загрузки не принята прошивкой.\n", "自动启动项未被固件接受。\n")+
-				tr("Reboot and press Del/F2 to enter BIOS, then do the following (otherwise it will not unlock):\n\n", "Перезагрузитесь и нажмите Del/F2 для входа в BIOS, затем выполните следующее (иначе разблокировки не будет):\n\n", "请重启并按 Del/F2 进 BIOS, 完成以下设置(否则不解锁):\n\n")+
-				tr("1. Disable Secure Boot (if on, the unsigned EFI is rejected)\n", "1. Отключите Secure Boot (если включён, неподписанный EFI отклоняется)\n", "1. 关闭 Secure Boot(已开则未签名 EFI 会被拒)\n")+
-				tr("2. Disable Fast Boot / Fast Startup (if present)\n", "2. Отключите Fast Boot / быстрый запуск (если есть)\n", "2. 关闭 Fast Boot / 快速启动(若有)\n")+
-				tr("3. In [Boot Order / Boot Priority] set '40HX Unlock' as the first entry\n", "3. В [Порядок загрузки / Boot Priority] установите '40HX Unlock' первым пунктом\n", "3. 在 [启动顺序/Boot Priority] 中把 '40HX Unlock' 设为第一项\n")+
-				tr("   or manually pick \\EFI\\40HX\\40HXUNLK.EFI from the boot device menu\n", "   или вручную выберите \\EFI\\40HX\\40HXUNLK.EFI из меню загрузочных устройств\n", "   或手动从启动设备选择 \\EFI\\40HX\\40HXUNLK.EFI\n")+
-				tr("4. If the list only shows Windows Boot Manager:\n", "4. Если в списке только Windows Boot Manager:\n", "4. 若列表只有 Windows Boot Manager:\n")+
-				tr("   - some boards only show the entry after CSM is disabled (pure UEFI)\n", "   - некоторые платы показывают запись только после отключения CSM (чистый UEFI)\n", "   - 部分主板需关闭 CSM(纯 UEFI)后才会出现该启动项\n")+
-				tr("   - or boot directly from the UEFI drive letter (uses the bootx64 fallback)\n\n", "   - или загрузитесь прямо с буквы диска UEFI (используется запасной bootx64)\n\n", "   - 或直接选 UEFI 盘符启动(走 bootx64 回退)\n\n")+
-				tr("The installer also deployed the unlock EFI to:\n", "Установщик также развернул разблокировочный EFI в:\n", "安装器已把解锁 EFI 同时部署到:\n")+
-				tr("  \\EFI\\40HX\\40HXUNLK.EFI  (BCD path)\n", "  \\EFI\\40HX\\40HXUNLK.EFI  (путь BCD)\n", "  \\EFI\\40HX\\40HXUNLK.EFI  (BCD 路径)\n")+
-				tr("  \\EFI\\Boot\\bootx64.efi    (standard fallback path)\n\n", "  \\EFI\\Boot\\bootx64.efi    (стандартный запасной путь)\n\n", "  \\EFI\\Boot\\bootx64.efi    (标准回退路径)\n\n")+
-				tr("Detailed log: ", "Подробный журнал: ", "详细日志: ")+filepath.Join(os.TempDir(), "40HX_installer.log"),
-			mbIconInfo)
-	}
+	bootReminder := tr("Set '40HX Unlock' as the first boot entry in BIOS, or select it manually from the BIOS boot menu before Windows starts.", "Установите '40HX Unlock' первым в порядке загрузки BIOS или выбирайте его вручную в меню загрузки BIOS перед запуском Windows.", "请在 BIOS 中将 '40HX Unlock' 设为第一启动项，或在启动 Windows 前从 BIOS 启动菜单手动选择它。")
+	fmt.Println("    " + bootReminder)
+	msgbox(tr("40HX Installer (select the unlock EFI at boot)", "Установщик 40HX (выберите EFI разблокировки при загрузке)", "40HX 安装器 (启动时选择解锁 EFI)"),
+		bootReminder+"\n\n"+
+			tr("If the entry is missing, select the EFI file manually:\n", "Если запись отсутствует, выберите файл EFI вручную:\n", "若没有该启动项，请手动选择 EFI 文件：\n")+
+			"  \\EFI\\40HX\\40HXUNLK.EFI\n\n"+
+			tr("Disable Secure Boot when using an unsigned EFI, and disable Fast Boot while testing.\n\n", "При использовании неподписанного EFI отключите Secure Boot; на время проверки отключите Fast Boot.\n\n", "使用未签名 EFI 时请关闭 Secure Boot；测试期间请关闭 Fast Boot。\n\n")+
+			tr("Detailed log: ", "Подробный журнал: ", "详细日志: ")+filepath.Join(os.TempDir(), "40HX_installer.log"), mbIconInfo)
 	return efiOK
 }
 
@@ -885,13 +784,11 @@ func install() {
 	}
 
 	// 5+6. EFI 部署与启动项 (v2.6.0: 抽取为 installEFI, GUI 按组件复用)
-	fmt.Println(tr("[5/8]+[6/8] Deploying the unlock EFI and firmware boot entry (dual-path write + displayorder on top)...", "[5/8]+[6/8] Развёртывание разблокировочного EFI и записи загрузки прошивки (запись по двум путям + displayorder первым)...", "[5/8]+[6/8] 部署解锁 EFI 与固件启动项(双路写入 + displayorder 置顶)..."))
+	fmt.Println(tr("[5/8]+[6/8] Deploying the unlock EFI and registering the firmware boot entry...", "[5/8]+[6/8] Развёртывание разблокировочного EFI и регистрация записи загрузки прошивки...", "[5/8]+[6/8] 部署解锁 EFI 并注册固件启动项..."))
 	efiOK := installEFI()
 	if efiOK {
-		// ReBAR: the unlock EFI resizes BAR1 to 8 GiB at boot by default. Clear
-		// any stale "norebar" token so a full install always enables it; check
-		// afterwards with 40HXCheck.exe (NVIDIA APP/Control Panel never show it).
-		applyRebarLoadOption(true)
+		// A full installation retains stock BARs. ReBAR needs explicit opt-in.
+		applyRebarLoadOption(false)
 	}
 	// Select CPU-RM only after the EFI upgrade has been attempted and checked.
 	fmt.Print(tr("Disabling GSP (recommended) ... ", "Отключение GSP (рекомендуется) ... ", "关闭 GSP（推荐）... "))
@@ -943,10 +840,10 @@ func install() {
 		efiNote = tr("At reboot, please note:\n", "При перезагрузке обратите внимание:\n", "重启时请注意:\n") +
 			tr("  · A black screen / 40HX text log for about 10-30 seconds is normal (unlocking in progress)\n", "  · Чёрный экран / текстовый лог 40HX в течение примерно 10-30 секунд — это нормально (идёт разблокировка)\n", "  · 若黑屏/显示 40HX 文字日志约 10~30 秒, 属正常(正在解锁)\n") +
 			tr("  · After unlocking, it boots into Windows automatically\n\n", "  · После разблокировки автоматически загрузится Windows\n\n", "  · 解锁完成后会自动进入 Windows\n\n") +
-			tr("If it boots straight into Windows after reboot (no unlock ran), enter BIOS (Del/F2):\n", "Если после перезагрузки сразу загрузилась Windows (разблокировка не выполнялась), войдите в BIOS (Del/F2):\n", "若重启后直接进了 Windows(没跑解锁), 请进 BIOS(Del/F2):\n") +
+			tr("To run the unlock EFI before Windows, enter BIOS (Del/F2):\n", "Чтобы EFI разблокировки выполнился до Windows, войдите в BIOS (Del/F2):\n", "要在 Windows 前运行解锁 EFI，请进入 BIOS (Del/F2)：\n") +
 			tr("  1. Disable Secure Boot (required for the unsigned EFI)\n", "  1. Отключите Secure Boot (нужно для неподписанного EFI)\n", "  1. 关闭 Secure Boot(未签名 EFI 需要)\n") +
 			tr("  2. Disable Fast Boot\n", "  2. Отключите Fast Boot\n", "  2. 关闭 Fast Boot\n") +
-			tr("  3. Set '40HX Unlock' as the first boot entry\n", "  3. Установите '40HX Unlock' первым в порядке загрузки\n", "  3. 把 '40HX Unlock' 设为第一启动项\n") +
+			tr("  3. Set '40HX Unlock' as the first boot entry or select it manually in the BIOS boot menu\n", "  3. Установите '40HX Unlock' первым в порядке загрузки или выберите его вручную в меню загрузки BIOS\n", "  3. 将 '40HX Unlock' 设为第一启动项，或在 BIOS 启动菜单中手动选择它\n") +
 			tr("     (if the list shows only Windows Boot Manager, disable CSM and look again)\n", "     (если в списке только Windows Boot Manager, отключите CSM и посмотрите снова)\n", "     (若列表只有 Windows Boot Manager, 关 CSM 后再看)\n")
 	} else {
 		efiNote = tr("[!] The EFI compute unlock was not deployed this time (see the dialog/log above for the reason):\n", "[!] Разблокировка вычислений через EFI в этот раз не развёрнута (причину см. в диалоге/журнале выше):\n", "[!] 本次 EFI 算力解锁未部署(原因见上方弹窗/日志):\n") +
@@ -954,7 +851,7 @@ func install() {
 			tr("  · Gen2 autostart is registered and unaffected\n", "  · Автозапуск Gen2 зарегистрирован и не затронут\n", "  · Gen2 自启已注册, 不受影响\n")
 	}
 	msgbox(tr("40HX Installer (installation complete)", "Установщик 40HX (установка завершена)", "40HX 安装器 (安装完成)"),
-		tr("✅ Installation complete! ", "✅ Установка завершена! ", "✅ 安装完成! ")+map[bool]string{true: tr("Unlock will run automatically after reboot.", "Разблокировка выполнится автоматически после перезагрузки.", "重启后将自动执行解锁。"), false: tr("The Gen2 part is ready.", "Часть Gen2 готова.", "Gen2 部分已就绪。")}[efiOK]+"\n\n"+
+		tr("✅ Installation complete! ", "✅ Установка завершена! ", "✅ 安装完成! ")+map[bool]string{true: tr("Select '40HX Unlock' at boot to run the unlock EFI.", "Выберите '40HX Unlock' при загрузке, чтобы запустить EFI разблокировки.", "请在启动时选择 '40HX Unlock' 以运行解锁 EFI。"), false: tr("The Gen2 part is ready.", "Часть Gen2 готова.", "Gen2 部分已就绪。")}[efiOK]+"\n\n"+
 			efiNote+
 			tr("\nAfter rebooting into the system:\n", "\nПосле перезагрузки в систему:\n", "\n重启进系统后:\n")+
 			tr("  · Double-click 40HXCheck.exe in the same folder to verify — it shows\n", "  · Дважды щёлкните 40HXCheck.exe в той же папке для проверки — отобразится\n", "  · 双击同目录的 40HXCheck.exe 验证 — 显示\n")+
@@ -1134,13 +1031,21 @@ func ensureSvcLoaded(name string, sysFile string, exclusions *sync.Once) {
 }
 
 func setupBootEntry() error {
-	// 幂等: 已存在 "40HX Unlock" 项则跳过 (用全量 firmware 枚举, 描述在项详情)
-	if out, _ := hxcore.RunOut("bcdedit.exe", "/enum", "firmware"); strings.Contains(out, bootDesc) {
-		fmt.Println(tr("    Boot entry already exists; skipping", "    Запись загрузки уже существует; пропускаем", "    启动项已存在, 跳过"))
+	return setupBootEntryWithRunner(hxcore.RunOut, hxcore.MountESP, hxcore.UnmountESP)
+}
+
+func setupBootEntryWithRunner(run bcdCommandFunc, mountESP func() string, unmountESP func(string)) error {
+	out, err := run("bcdedit.exe", "/enum", "firmware")
+	if err != nil {
+		return fmt.Errorf("bcdedit firmware enumeration: %w\n%s", err, strings.TrimSpace(out))
+	}
+	// Preserve the existing entry and its position, path and loadoptions.
+	if guid := find40HXBootGUIDInOutput(out); guid != "" {
+		fmt.Printf(tr("    Reused boot entry {%s}\n", "    Использована существующая запись загрузки {%s}\n", "    使用现有启动项 {%s}\n"), guid)
 		return nil
 	}
 	// 1. copy {bootmgr} 作模板
-	out, err := hxcore.RunOut("bcdedit.exe", "/copy", "{bootmgr}", "/d", bootDesc)
+	out, err = run("bcdedit.exe", "/copy", "{bootmgr}", "/d", bootDesc)
 	if err != nil {
 		return fmt.Errorf("bcdedit copy: %v", err)
 	}
@@ -1150,32 +1055,32 @@ func setupBootEntry() error {
 		return errors.New(tr("Failed to parse bcdedit output: ", "Не удалось разобрать вывод bcdedit: ", "无法解析 bcdedit 输出: ") + out)
 	}
 	guid := m[1]
-	cleanup := func() { hxcore.RunOut("bcdedit.exe", "/delete", "{"+guid+"}", "/f") }
+	cleanup := func() { run("bcdedit.exe", "/delete", "{"+guid+"}", "/f") }
 
 	// 2. 找 ESP 盘符 (mountvol 重挂)
-	esp := hxcore.MountESP()
+	esp := mountESP()
 	if esp == "" {
 		cleanup()
 		return errors.New(tr("Failed to mount the ESP", "Не удалось смонтировать ESP", "无法挂载 ESP"))
 	}
-	defer hxcore.UnmountESP(esp)
+	defer unmountESP(esp)
 
 	// 3. set device + path
-	if _, err := hxcore.RunOut("bcdedit.exe", "/set", "{"+guid+"}", "device", "partition="+esp+":"); err != nil {
+	if _, err := run("bcdedit.exe", "/set", "{"+guid+"}", "device", "partition="+esp+":"); err != nil {
 		cleanup()
 		return err
 	}
 	path := efiDir + "\\" + efiFile // \EFI\40HX\40HXUNLK.EFI
-	if _, err := hxcore.RunOut("bcdedit.exe", "/set", "{"+guid+"}", "path", path); err != nil {
+	if _, err := run("bcdedit.exe", "/set", "{"+guid+"}", "path", path); err != nil {
 		cleanup()
 		return err
 	}
-	// 4. displayorder addfirst
-	if _, err := hxcore.RunOut("bcdedit.exe", "/set", "{fwbootmgr}", "displayorder", "{"+guid+"}", "/addfirst"); err != nil {
+	// Append a new entry so it is selectable without promoting it.
+	if _, err := run("bcdedit.exe", "/set", "{fwbootmgr}", "displayorder", "{"+guid+"}", "/addlast"); err != nil {
 		cleanup()
 		return err
 	}
-	fmt.Printf(tr("    Boot entry %s moved to the top\n", "    Запись загрузки %s перемещена наверх\n", "    启动项 %s 已置顶\n"), guid)
+	fmt.Printf(tr("    Registered boot entry {%s} at the end of the boot list\n", "    Запись загрузки {%s} зарегистрирована в конце списка загрузки\n", "    已在启动列表末尾注册启动项 {%s}\n"), guid)
 	return nil
 }
 
@@ -1186,6 +1091,10 @@ func find40HXBootGUID() string {
 	if err != nil {
 		return ""
 	}
+	return find40HXBootGUIDInOutput(out)
+}
+
+func find40HXBootGUIDInOutput(out string) string {
 	re := regexp.MustCompile(`\{([0-9a-fA-F-]{36})\}`)
 	for _, blk := range regexp.MustCompile(`\r?\n\r?\n`).Split(out, -1) {
 		if strings.Contains(blk, bootDesc) {
@@ -1197,36 +1106,52 @@ func find40HXBootGUID() string {
 	return ""
 }
 
-// applyRebarLoadOption: ReBAR 令牌开关 — 通过 40HX 启动项的 loadoptions 传给解锁 EFI。
-//
-//	enable=true  → 删除任何 "norebar"(ReBAR 开, 即 EFI 默认); 幂等。
-//	enable=false → 写 loadoptions "norebar"(EFI 跳过 8 GiB BAR1 放大)。
-//
-// EFI 默认(无令牌)= 开, 所以即使固件忽略 loadoptions, "开"也不会退化到关 —
-// 启用永不产生回退。生效后用 40HXCheck.exe 验证(NVIDIA APP/控制面板不显示 ReBAR)。
-func applyRebarLoadOption(enable bool) {
+// ReBAR relocation defaults off in the EFI. An explicit option opts in;
+// norebar remains an overriding opt-out, including for older EFI images.
+func applyRebarLoadOption(enable bool) bool {
 	guid := find40HXBootGUID()
 	if guid == "" {
 		fmt.Println(tr("  [ReBAR] no '40HX Unlock' boot entry found — deploy the compute EFI first (ReBAR is applied at boot by that EFI)",
 			"  [ReBAR] запись загрузки '40HX Unlock' не найдена — сначала разверните compute EFI (ReBAR применяется этим EFI при загрузке)",
 			"  [ReBAR] 未找到 '40HX Unlock' 启动项 — 请先部署算力 EFI(ReBAR 由该 EFI 开机时施加)"))
-		return
+		return false
 	}
+	esp := hxcore.MountESP()
+	if esp == "" {
+		fmt.Println("  [ReBAR] cannot mount the ESP to save the EFI policy; no setting changed")
+		return false
+	}
+	defer hxcore.UnmountESP(esp)
 	if enable {
-		// 删除可能存在的 norebar; 无令牌时 bcdedit 返回非零属正常, 不报错。
-		hxcore.RunOut("bcdedit.exe", "/deletevalue", "{"+guid+"}", "loadoptions")
-		fmt.Println(tr("  [ReBAR] enabled — 'norebar' cleared from the boot entry; the unlock EFI resizes BAR1 to 8 GB at boot. Verify with 40HXCheck.exe.",
-			"  [ReBAR] включён — 'norebar' удалён из записи загрузки; разблокировочный EFI увеличит BAR1 до 8 ГБ при загрузке. Проверьте через 40HXCheck.exe.",
-			"  [ReBAR] 已启用 — 已从启动项清除 'norebar'; 解锁 EFI 会在开机时把 BAR1 放大到 8 GB。用 40HXCheck.exe 验证。"))
-		return
+		for _, path := range []string{esp + ":" + efiDir + "\\" + efiFile, esp + ":" + efiStdDir + "\\" + efiStdF} {
+			image, err := os.ReadFile(path)
+			if err != nil || !efiFileCurrent(path) || !rebarPolicySupported(image) {
+				fmt.Printf("  [ReBAR] deploy the current Compute EFI first; %s does not match this policy-aware build\n", path)
+				return false
+			}
+		}
 	}
-	if _, err := hxcore.RunOut("bcdedit.exe", "/set", "{"+guid+"}", "loadoptions", "norebar"); err != nil {
-		fmt.Println(tr("  [ReBAR] failed to set 'norebar': ", "  [ReBAR] не удалось установить 'norebar': ", "  [ReBAR] 设置 'norebar' 失败: "), err)
-		return
+	if err := setRebarBootOption(hxcore.RunOut, guid, enable); err != nil {
+		fmt.Println(tr("  [ReBAR] boot option update failed:", "  [ReBAR] сбой изменения параметра загрузки:", "  [ReBAR] 启动参数更新失败:"), err)
+		return false
 	}
-	fmt.Println(tr("  [ReBAR] disabled — 'norebar' set on the boot entry; the EFI will skip the BAR1 resize (compute unlock is unaffected).",
-		"  [ReBAR] отключён — 'norebar' установлен в записи загрузки; EFI пропустит увеличение BAR1 (разблокировка вычислений не затрагивается).",
-		"  [ReBAR] 已禁用 — 启动项已写入 'norebar'; EFI 将跳过 BAR1 放大(不影响算力解锁)。"))
+	fmt.Printf("  [ReBAR] boot entry {%s}: loadoptions readback verified\n", guid)
+	policy := rebarPolicyDisabled
+	if enable {
+		policy = rebarPolicyEnabled
+	}
+	policyPath := esp + ":" + efiDir + "\\" + rebarPolicyFile
+	if err := writeVerified(policyPath, []byte(policy)); err != nil {
+		fmt.Printf("  [ReBAR] BCD updated, but EFI policy write/readback failed: %v\n", err)
+		return false
+	}
+	fmt.Printf("  [ReBAR] EFI policy %s\\%s: write/readback verified\n", efiDir, rebarPolicyFile)
+	if enable {
+		fmt.Println("  [ReBAR] experimental opt-in saved on the ESP (also used by the fallback EFI). Activation still requires an EFI resize result and the Windows BAR1 size after reboot. Disable with -norebar if needed.")
+		return true
+	}
+	fmt.Println("  [ReBAR] opt-in cleared on the ESP and 'norebar' saved in BCD; compute unlock is unaffected.")
+	return true
 }
 
 func setRunKey() error {
@@ -1428,11 +1353,12 @@ func gen2Main() {
 
 	// 1. PL0 writes (BAR0) — 经 ThrottleStop 物理内存写
 	fmt.Println(tr("[Gen2] Writing XVE/link registers (ThrottleStop)...", "[Gen2] Запись регистров XVE/канала (ThrottleStop)...", "[Gen2] 写 XVE/链路寄存器 (ThrottleStop)..."))
-	bar0raw, _ := hxcore.PciRd(wh, gpuBDF, 0x10)
-	if bar0raw == 0 || bar0raw == 0xFFFFFFFF {
-		bar0raw = 0xF6000000
+	bar0Phys, barErr := hxcore.GPUBar0(wh, gpuBDF)
+	if barErr != nil {
+		fmt.Println("[Gen2] no verified BAR0; aborting:", barErr)
+		gen2StatusFail(barErr.Error())
+		return
 	}
-	bar0Phys := uint64(bar0raw & 0xFFFFFFF0)
 	fmt.Printf("[Gen2] BAR0 = 0x%08X\n", bar0Phys)
 	// v3.2.0 parity: the PL0 table lives in gen2_pl0_v2.go. gen2WritePL0V2 validates BAR0
 	// (plausible address + NV_PMC BOOT_0 family 0x16xxxxxx) on every call and writes nothing
@@ -1447,7 +1373,7 @@ func gen2Main() {
 	}
 
 	// 2. LNKCTL2 TLS=2 (GPU + root)
-	root := hxcore.FindRootPort(wh, gpuBus)
+	root := hxcore.FindGPUExclusiveRoot(wh, gpuBDF)
 	if root == 0xFFFFFFFF {
 		fmt.Println(tr("[Gen2] Root port not found; using GPU retrain fallback", "[Gen2] Корневой порт не найден; используется откат через переобучение GPU", "[Gen2] 未找到 root port, 用 GPU retrain fallback"))
 	}
@@ -1465,31 +1391,11 @@ func gen2Main() {
 		}
 		// v2.6.0: 读改写 — 只改 TLS(bit3:0), 保留其余位(对齐 python 版)。
 		// 此前直接写 {2,0} 清掉高 12 位, 个别 VBIOS 依赖这些位时链路异常。
-		curRaw, _ := hxcore.PciRd(wh, b.bdf, cap+0x30)
-		nv := uint16(curRaw&0xFFF0) | 2
-		hxcore.PciWr(wh, b.bdf, cap+0x30, []byte{byte(nv), byte(nv >> 8)})
-		rb, _ := hxcore.PciRd(wh, b.bdf, cap+0x30)
-		fmt.Printf(tr("  %s LNKCTL2 TLS=2 (0x%04X -> 0x%04X, read-back TLS=%d)\n", "  %s LNKCTL2 TLS=2 (0x%04X -> 0x%04X, обратное чтение TLS=%d)\n", "  %s LNKCTL2 TLS=2 (0x%04X -> 0x%04X, 回读 TLS=%d)\n"), b.tag, curRaw&0xFFFF, rb&0xFFFF, rb&0xF)
+		gen2SetTLS(wh, b.bdf, 2)
 	}
 
 	// 3. UPGRADE retrain: 清位→置位脉冲 (只置位在 40HX 上不生效)
-	retrain := func(bdf uint32) {
-		cap := hxcore.PcieCap(wh, bdf)
-		if cap == 0 {
-			return
-		}
-		ctl, _ := hxcore.PciRd(wh, bdf, cap+0x10)
-		lo := uint16(ctl & 0xFFFF)
-		buf := []byte{byte(lo & 0xFF), byte((lo >> 8) & 0xFF)}
-		buf[0] &^= 0x20 // clear bit5
-		hxcore.PciWr(wh, bdf, cap+0x10, buf)
-		time.Sleep(300 * time.Millisecond)
-		ctl2, _ := hxcore.PciRd(wh, bdf, cap+0x10)
-		lo2 := uint16(ctl2 & 0xFFFF)
-		buf2 := []byte{byte(lo2 & 0xFF), byte((lo2 >> 8) & 0xFF)}
-		buf2[0] |= 0x20 // set bit5
-		hxcore.PciWr(wh, bdf, cap+0x10, buf2)
-	}
+	retrain := func(bdf uint32) { gen2RetrainPulse(wh, bdf) }
 	// v2.6.0: 单次 root 重训 → 最多 6 轮 root/GPU 交替(对齐 python 版, 比初版 4 轮更稳)。
 	// 寨板/双卡下根端口一次脉冲常训不上(issue #8 "需反复禁用/启用"),
 	// 交替多轮显著提高成功率; 达成 Gen2 即提前退出(上限约 13s, 登录后 30s 才跑)。
@@ -1540,6 +1446,7 @@ func gen2Main() {
 	//   · 手动 -hard 保留: cur<2 即强制走该路径(不再要求 tls>=2)。
 	// Link Disable 期间 nvidia-smi 短暂报 "GPU is lost", 结束后自动 PnP 恢复。
 	if cur < 2 && (hasArg("-hard") || gen2AutoHardEnabled()) {
+		root = hxcore.FindGPUExclusiveRoot(wh, gpuBDF)
 		if hasArg("-hard") {
 			fmt.Println(tr("[Gen2] retrain did not succeed → -hard explicitly triggers the Link Disable fallback", "[Gen2] переобучение не удалось → -hard явно запускает откат Link Disable", "[Gen2] retrain 未成 → -hard 显式触发 Link Disable 回退"))
 		} else {
@@ -1648,11 +1555,17 @@ func gen2SetTLS(wh syscall.Handle, bdf uint32, tls uint16) {
 	if cap == 0 {
 		return
 	}
-	cur, _ := hxcore.PciRd(wh, bdf, cap+0x30)
-	nv := uint16(cur&0xFFF0) | (tls & 0xF)
-	_ = hxcore.PciWr(wh, bdf, cap+0x30, []byte{byte(nv), byte(nv >> 8)})
-	rb, _ := hxcore.PciRd(wh, bdf, cap+0x30)
-	fmt.Printf(tr("    TLS=%d written to LNKCTL2 (0x%04X -> 0x%04X, read-back TLS=%d)\n", "    TLS=%d записан в LNKCTL2 (0x%04X -> 0x%04X, обратное чтение TLS=%d)\n", "    TLS=%d 写 LNKCTL2 (0x%04X -> 0x%04X, 回读 TLS=%d)\n"), tls, cur&0xFFFF, rb&0xFFFF, rb&0xF)
+	hdr, err := hxcore.PciRd(wh, bdf, cap)
+	if err != nil || hdr == 0xFFFFFFFF || (hdr>>16)&15 < 2 || cap > 0xCC {
+		return
+	}
+	if err := hxcore.UpdatePCI16(wh, bdf, cap+0x30, 0xF, tls&0xF); err != nil {
+		fmt.Println("    TLS write skipped/failed:", err)
+		return
+	}
+	if rb, err := hxcore.PciRd(wh, bdf, cap+0x30); err == nil && rb != 0xFFFFFFFF {
+		fmt.Printf("    TLS requested=%d, read-back=%d\n", tls, rb&0xF)
+	}
 }
 
 // 16-bit LNKCTL 脉冲 retrain(bit5)
@@ -1664,52 +1577,50 @@ func gen2RetrainPulse(wh syscall.Handle, bdf uint32) {
 	if cap == 0 {
 		return
 	}
-	ctl, _ := hxcore.PciRd(wh, bdf, cap+0x10)
-	lo := uint16(ctl & 0xFFFF)
-	buf := []byte{byte(lo & 0xFF), byte((lo >> 8) & 0xFF)}
-	buf[0] &^= 0x20 // clear bit5
-	_ = hxcore.PciWr(wh, bdf, cap+0x10, buf)
+	if cap > 0xEC {
+		return
+	}
+	if err := hxcore.UpdatePCI16(wh, bdf, cap+0x10, 0x20, 0); err != nil {
+		return
+	}
 	time.Sleep(300 * time.Millisecond)
-	ctl2, _ := hxcore.PciRd(wh, bdf, cap+0x10)
-	lo2 := uint16(ctl2 & 0xFFFF)
-	buf2 := []byte{byte(lo2 & 0xFF), byte((lo2 >> 8) & 0xFF)}
-	buf2[0] |= 0x20 // set bit5
-	_ = hxcore.PciWr(wh, bdf, cap+0x10, buf2)
+	_ = hxcore.UpdatePCI16(wh, bdf, cap+0x10, 0, 0x20)
 }
 
 // Root Link Disable 循环(PL0+TLS 保持) — 使 LNKCAP.max=2 训上 Gen2
-func gen2RootLinkDisable(th syscall.Handle, wh *syscall.Handle, gpuBDF uint32, bar0Phys uint64, root uint32) {
+func gen2RootLinkDisable(wh *syscall.Handle, gpuBDF uint32, root uint32) bool {
 	if root == 0xFFFFFFFF {
 		fmt.Println(tr("    [warn] no root port; skipping Link Disable", "    [warn] нет корневого порта; пропуск Link Disable", "    [warn] 无 root port, 跳过 Link Disable"))
-		return
+		return false
+	}
+	if hxcore.FindGPUExclusiveRoot(*wh, gpuBDF) != root {
+		fmt.Println("    [warn] shared or unverified root port; Link Disable skipped")
+		return false
 	}
 	cap := hxcore.PcieCap(*wh, root)
 	if cap == 0 {
 		fmt.Println(tr("    [warn] root has no PCIe cap; skipping Link Disable", "    [warn] у корневого порта нет возможности PCIe; пропуск Link Disable", "    [warn] root 无 PCIe cap, 跳过 Link Disable"))
-		return
+		return false
 	}
-	ctl, _ := hxcore.PciRd(*wh, root, cap+0x10)
-	fmt.Printf("    ROOT Link Disable (ctl=0x%04X)\n", ctl&0xFFFF)
-	lo := uint16(ctl & 0xFFFF)
-	set := lo | 0x10 // bit4 = Link Disable
-	_ = hxcore.PciWr(*wh, root, cap+0x10, []byte{byte(set), byte(set >> 8)})
-	time.Sleep(500 * time.Millisecond)
-	// PL0 + TLS 在 link down 期间保持
-	gen2WritePL0V2(th, bar0Phys)
+	// Configure TLS while the endpoint is still reachable. No GPU MMIO or
+	// config operations may delay clearing Link Disable once it is asserted.
 	gen2SetTLS(*wh, root, 2)
 	gen2SetTLS(*wh, gpuBDF, 2)
-	// clear bit4 → 重新训练
-	ctl2, _ := hxcore.PciRd(*wh, root, cap+0x10)
-	clr := uint16(ctl2&0xFFFF) &^ 0x10
-	_ = hxcore.PciWr(*wh, root, cap+0x10, []byte{byte(clr), byte(clr >> 8)})
-	time.Sleep(2000 * time.Millisecond)
+	if err := gen2LinkDisableCycle(root, cap+0x10,
+		func(bdf, reg uint32) (uint32, error) { return hxcore.PciRd(*wh, bdf, reg) },
+		func(bdf, reg uint32, data []byte) error { return hxcore.PciWr(*wh, bdf, reg, data) },
+		time.Sleep); err != nil {
+		fmt.Println("    [warn] Root Link Disable stopped:", err)
+		return false
+	}
+	return true
 }
 
 // PnP 禁用/启用 40HX — 恢复 Link Disable 后的 "GPU is lost"(nvidia-smi/GPU-Z 断连)
 func gen2PnpRecover40HX() bool {
-	ps := `$iid=(Get-PnpDevice -Class Display | Where-Object { $_.InstanceId -match 'DEV_1F0B' } | Select-Object -First 1).InstanceId; ` +
-		`if($iid){ Disable-PnpDevice -InstanceId $iid -Confirm:$false; Start-Sleep -Seconds 2; ` +
-		`Enable-PnpDevice -InstanceId $iid -Confirm:$false; Start-Sleep -Seconds 4; Write-Output "PnP-OK $iid" } ` +
+	ps := `$ErrorActionPreference='Stop'; $iid=(Get-PnpDevice -Class Display | Where-Object { $_.InstanceId -match 'VEN_10DE&DEV_1F0B' } | Select-Object -First 1).InstanceId; ` +
+		`if($iid){ try { Disable-PnpDevice -InstanceId $iid -Confirm:$false; Start-Sleep -Seconds 2 } finally { ` +
+		`Enable-PnpDevice -InstanceId $iid -Confirm:$false }; Start-Sleep -Seconds 4; Write-Output "PnP-OK $iid" } ` +
 		`else { Write-Output 'PnP-NONE' }`
 	out, err := hxcore.RunOutTimeout(90*time.Second, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)
 	fmt.Printf(tr("    PnP recovery: %s (err=%v)\n", "    Восстановление PnP: %s (err=%v)\n", "    PnP 恢复: %s (err=%v)\n"), strings.TrimSpace(string(out)), err)
@@ -1750,11 +1661,15 @@ func gen2RestoreGPULnkctl(wh syscall.Handle, gpuBDF uint32) {
 	if cap == 0 {
 		return
 	}
-	ctl, _ := hxcore.PciRd(wh, gpuBDF, cap+0x10)
+	ctl, err := hxcore.PciRd(wh, gpuBDF, cap+0x10)
+	if err != nil || ctl == 0xFFFFFFFF || cap > 0xEC {
+		return
+	}
 	cur := uint16(ctl & 0xFFFF)
 	if (cur & 0x0140) != 0x0140 {
-		want := (cur &^ 0x3) | 0x0140
-		_ = hxcore.PciWr(wh, gpuBDF, cap+0x10, []byte{byte(want), byte(want >> 8)})
+		if err := hxcore.UpdatePCI16(wh, gpuBDF, cap+0x10, 0x3, 0x0140); err != nil {
+			return
+		}
 		rb, _ := hxcore.PciRd(wh, gpuBDF, cap+0x10)
 		fmt.Printf(tr("    GPU LNKCTL restored 0x%04X -> 0x%04X\n", "    GPU LNKCTL восстановлен 0x%04X -> 0x%04X\n", "    GPU LNKCTL 恢复 0x%04X -> 0x%04X\n"), cur, rb&0xFFFF)
 	}
@@ -1766,17 +1681,25 @@ func gen2HardFallback(th, wh *syscall.Handle, gpuBDF uint32, bar0Phys uint64, ro
 	fmt.Println(tr("[Gen2 -hard] Warning: this path briefly makes nvidia-smi report 'GPU is lost' (a momentary link drop + driver reset),", "[Gen2 -hard] Предупреждение: этот путь на короткое время заставит nvidia-smi сообщить 'GPU is lost' (кратковременный разрыв канала + сброс драйвера),", "[Gen2 -hard] 警告: 此路径会让 nvidia-smi 短暂报 'GPU is lost'(链路瞬断+驱动重置),"))
 	fmt.Println(tr("[Gen2 -hard] It recovers via PnP after a few seconds. Use it manually only when you have confirmed retrain-only cannot reach Gen2 on your hardware.", "[Gen2 -hard] Восстанавливается через PnP через несколько секунд. Используйте вручную только если убедились, что retrain-only не достигает Gen2 на вашем оборудовании.", "[Gen2 -hard] 约数秒后经 PnP 恢复。仅在你确认 retrain-only 在贵硬件训不上时手动使用。"))
 	// 链路重置后 BAR 可能重映射 → 重新确认 BAR0
-	if bar0raw, _ := hxcore.PciRd(*wh, gpuBDF, 0x10); bar0raw != 0 && bar0raw != 0xFFFFFFFF {
-		bar0Phys = uint64(bar0raw & 0xFFFFFFF0)
+	var err error
+	bar0Phys, err = hxcore.GPUBar0(*wh, gpuBDF)
+	if err != nil {
+		fmt.Println("[Gen2 -hard] abort:", err)
+		return
 	}
 	fmt.Printf("[Gen2 -hard] BAR0 = 0x%08X\n", bar0Phys)
 	didLD := false
 	// 1. re-assert PL0
-	gen2WritePL0V2(*th, bar0Phys)
+	if !gen2WritePL0V2(*th, bar0Phys) {
+		return
+	}
 	// 2. Root Link Disable 循环
 	if root != 0xFFFFFFFF {
-		gen2RootLinkDisable(*th, wh, gpuBDF, bar0Phys, root)
-		didLD = true
+		didLD = gen2RootLinkDisable(wh, gpuBDF, root)
+		if !didLD {
+			gen2VerdictHard(gpuBDF, 0, false)
+			return
+		}
 	}
 	cur := hxcore.LinkSpeed(*wh, gpuBDF)
 	fmt.Printf(tr("[Gen2 -hard] After Link Disable: Gen%d\n", "[Gen2 -hard] После Link Disable: Gen%d\n", "[Gen2 -hard] Link Disable 后: Gen%d\n"), cur)
@@ -1786,9 +1709,18 @@ func gen2HardFallback(th, wh *syscall.Handle, gpuBDF uint32, bar0Phys uint64, ro
 			// 社区 byovd.py: retrain 第 3 轮(attempts==2)仍 Gen1 再走一次 Link Disable 循环
 			if i == 2 && cur < 2 && root != 0xFFFFFFFF {
 				fmt.Println(tr("[Gen2 -hard] retrain still failing → a second Link Disable cycle", "[Gen2 -hard] переобучение всё ещё не удаётся → второй цикл Link Disable", "[Gen2 -hard] retrain 仍失败 → 二次 Link Disable 循环"))
-				gen2RootLinkDisable(*th, wh, gpuBDF, bar0Phys, root)
+				if !gen2RootLinkDisable(wh, gpuBDF, root) {
+					gen2VerdictHard(gpuBDF, 0, false)
+					return
+				}
 			}
-			gen2WritePL0V2(*th, bar0Phys)
+			if !gen2WritePL0V2(*th, bar0Phys) {
+				if !didLD {
+					gen2VerdictHard(gpuBDF, 0, false)
+					return
+				}
+				break // A completed LD still needs PnP recovery; skip further writes.
+			}
 			gen2SetTLS(*wh, root, 2)
 			gen2SetTLS(*wh, gpuBDF, 2)
 			bdf := gpuBDF
@@ -1825,10 +1757,21 @@ func gen2HardFallback(th, wh *syscall.Handle, gpuBDF uint32, bar0Phys uint64, ro
 		}
 		time.Sleep(3000 * time.Millisecond)
 		// retrain-only(不再二次 LD)
-		if bar0raw, _ := hxcore.PciRd(*wh, gpuBDF, 0x10); bar0raw != 0 && bar0raw != 0xFFFFFFFF {
-			bar0Phys = uint64(bar0raw & 0xFFFFFFF0)
+		if bdf, found := hxcore.FindGPUPCI(*wh); found {
+			gpuBDF = bdf
+		} else {
+			return
 		}
-		gen2WritePL0V2(*th, bar0Phys)
+		bar0Phys, err = hxcore.GPUBar0(*wh, gpuBDF)
+		if err != nil {
+			fmt.Println("[Gen2 -hard] abort:", err)
+			return
+		}
+		root = hxcore.FindGPUExclusiveRoot(*wh, gpuBDF)
+		if !gen2WritePL0V2(*th, bar0Phys) {
+			gen2VerdictHard(gpuBDF, 0, false)
+			return
+		}
 		gen2SetTLS(*wh, root, 2)
 		gen2SetTLS(*wh, gpuBDF, 2)
 		for i := 0; i < 6; i++ {

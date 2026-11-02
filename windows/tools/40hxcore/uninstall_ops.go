@@ -6,6 +6,7 @@ package hxcore
 // 电源设置(快速启动/ASPM)属用户偏好, 刻意不提供回滚操作 — 恢复方法见 README。
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"regexp"
@@ -79,8 +80,15 @@ func UninstallEspEfi() bool {
 	defer RunOut("mountvol.exe", esp+":", "/D")
 	removed := false
 	target := esp + ":\\EFI\\40HX\\40HXUNLK.EFI"
+	installed, _ := os.ReadFile(target)
 	if err := os.Remove(target); err == nil {
 		removed = true
+	}
+	policy := esp + ":\\EFI\\40HX\\REBAR.CFG"
+	if err := os.Remove(policy); err == nil {
+		removed = true
+	} else if !os.IsNotExist(err) {
+		fmt.Printf("  [ReBAR] could not remove ESP policy %s: %v\n", policy, err)
 	}
 	if entries, err := os.ReadDir(esp + ":\\EFI\\40HX"); err == nil && len(entries) == 0 {
 		os.Remove(esp + ":\\EFI\\40HX")
@@ -92,19 +100,22 @@ func UninstallEspEfi() bool {
 	}
 	std := esp + ":\\EFI\\Boot\\bootx64.efi"
 	bak := esp + ":\\EFI\\Boot\\bootx64.efi.40hx.bak"
-	if data, berr := os.ReadFile(bak); berr == nil {
-		if werr := os.WriteFile(std, data, 0o644); werr != nil {
+	if _, berr := os.Stat(bak); berr == nil {
+		if werr := RestoreFileBackupVerified(std, bak); werr != nil {
 			fmt.Println(T("  [!] Failed to write the restored bootx64.efi:", "  [!] Не удалось записать восстановленный bootx64.efi:", "  [!] 还原 bootx64.efi 写失败:"), werr)
 			fmt.Println(T("      The backup is still at bootx64.efi.40hx.bak and can be restored by hand.", "      Резервная копия по-прежнему лежит в bootx64.efi.40hx.bak — ее можно восстановить вручную.", "      原备份仍保留在 bootx64.efi.40hx.bak, 可手动还原"))
 			return removed
 		}
-		if rb, rerr := os.ReadFile(std); rerr == nil && len(rb) == len(data) {
-			os.Remove(bak)
-			fmt.Println(T("    Restored the original bootx64.efi from .40hx.bak (verified)", "    Исходный bootx64.efi восстановлен из .40hx.bak (проверка пройдена)", "    已还原原 bootx64.efi (来自 .40hx.bak, 校验 OK)"))
-		} else {
-			fmt.Println(T("  [!] bootx64.efi did not verify after restore — the .bak is kept for manual recovery", "  [!] bootx64.efi не прошел проверку после восстановления — .bak оставлен для ручного восстановления", "  [!] bootx64.efi 还原后校验不一致 — 保留 .bak 供手动处理"))
-		}
+		fmt.Println(T("    Restored the original bootx64.efi from .40hx.bak (verified)", "    Исходный bootx64.efi восстановлен из .40hx.bak (проверка пройдена)", "    已还原原 bootx64.efi (来自 .40hx.bak, 校验 OK)"))
 		removed = true
+	} else if os.IsNotExist(berr) && len(installed) != 0 {
+		// A fresh installation may have had no fallback file to back up.
+		// Delete only a byte-identical copy of the installed unlock image.
+		if current, err := os.ReadFile(std); err == nil && bytes.Equal(current, installed) {
+			if err := os.Remove(std); err == nil {
+				removed = true
+			}
+		}
 	}
 	return removed
 }

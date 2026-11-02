@@ -69,6 +69,7 @@ jobs:
           cp windows/release-files/EFI应急修复指南.md "$OUT/"
           cp windows/release-files/AI辅助安装提示词.txt "$OUT/"
           cp windows/release-files/make_usb_efi.bat "$OUT/"
+          cp windows/release-files/copy_efi_verified.ps1 "$OUT/"
           cp windows/tools/verify_source.ps1 "$OUT/"
 
       - name: Write SHA256SUMS.txt

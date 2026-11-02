@@ -55,6 +55,7 @@ copy /y "%ROOT%\release-files\README.md" "%OUT%\README.md" >nul || goto :fail
 copy /y "%ROOT%\release-files\EFI应急修复指南.md" "%OUT%\EFI应急修复指南.md" >nul || goto :fail
 copy /y "%ROOT%\release-files\AI辅助安装提示词.txt" "%OUT%\AI辅助安装提示词.txt" >nul || goto :fail
 copy /y "%ROOT%\release-files\make_usb_efi.bat" "%OUT%\make_usb_efi.bat" >nul || goto :fail
+copy /y "%ROOT%\release-files\copy_efi_verified.ps1" "%OUT%\copy_efi_verified.ps1" >nul || goto :fail
 copy /y "%ROOT%\tools\verify_source.ps1" "%OUT%\verify_source.ps1" >nul
 
 echo [4/5] Writing build metadata...

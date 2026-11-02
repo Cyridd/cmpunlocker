@@ -53,16 +53,11 @@ func scanStatus() []statusItem {
 	}
 	items = append(items, statusItem{tr("ESP unlock EFI", "EFI разблокировки на ESP", "ESP 解锁 EFI"), espEFI,
 		map[bool]string{true: tr("current EFI deployed", "актуальный EFI установлен", "已部署当前 EFI"), false: tr("EFI missing or outdated — select Compute EFI to upgrade", "EFI отсутствует или устарел — выберите compute EFI для обновления", "EFI 缺失或已过期 — 请选择算力 EFI 更新")}[espEFI]})
-	// 启动项三态(与安装器 verifyBootEntry 同口径): 首位 / 存在但不在首位 / 未创建
-	bootOK := false
+	// Entry presence is independent of the manually configured boot priority.
+	bootOK := find40HXBootGUID() != ""
 	bootNote := tr("not created", "не создана", "未创建")
-	if ex, first, ord := verifyBootEntry(); ex {
-		if first {
-			bootOK = true
-			bootNote = tr("present and first in displayorder", "присутствует и первая в displayorder", "存在且 displayorder 首位")
-		} else {
-			bootNote = tr("present but not first in displayorder (current order: ", "присутствует, но не первый в displayorder (текущий порядок: ", "存在但不在 displayorder 首位(当前顺序: ") + ord + tr(") — set it first in BIOS", ") — поставьте первой в BIOS", ") — 需进 BIOS 置顶")
-		}
+	if bootOK {
+		bootNote = tr("present (boot priority is configured manually)", "присутствует (приоритет загрузки настраивается вручную)", "已创建 (启动优先级由您手动设置)")
 	}
 	items = append(items, statusItem{tr("Firmware boot entry", "Запись загрузки прошивки", "固件启动项"), bootOK, bootNote})
 
@@ -225,7 +220,7 @@ func (st *guiState) refreshTexts() {
 	if st.ckGsp != nil {
 		st.ckGsp.SetText(tr("Disable GSP (recommended)", "Отключить GSP (рекомендуется)", "关闭 GSP（推荐）"))
 		st.ckEfi.SetText(tr("Compute EFI + firmware boot entry", "EFI разблокировки + запись загрузки", "算力 EFI + 固件启动项"))
-		st.ckRebar.SetText(tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)"))
+		st.ckRebar.SetText(tr("Experimental ReBAR relocation (8 GB BAR1)", "Экспериментальное перемещение ReBAR (BAR1 8 ГБ)", "实验性 ReBAR 地址重分配 (8 GB BAR1)"))
 		st.ckDrv.SetText(tr("Deploy Gen2 drivers + Defender exclusions", "Установить драйверы Gen2 + исключения Defender", "Gen2 驱动部署 + Defender 排除"))
 		st.ckTask.SetText(tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"))
 		st.ckFast.SetText(tr("Power: disable Fast Startup", "Питание: отключить быстрый запуск", "电源: 关闭快速启动"))
@@ -313,14 +308,10 @@ func (st *guiState) summaryText(items []statusItem) string {
 	if it, ok := m[tr("Gen2 login task", "Задача входа Gen2", "Gen2 登录任务")]; ok && !it.ok {
 		warns = append(warns, tr("Gen2 login auto-start is not registered", "Автозапуск Gen2 при входе не зарегистрирован", "Gen2 登录自启未注册"))
 	}
-	// 启动项: 仅 UEFI 下检查(存在但不在首位 / 未创建)
+	// Check entry presence only on UEFI systems.
 	if it, ok := m[tr("Firmware boot entry", "Запись загрузки прошивки", "固件启动项")]; ok && !it.ok {
 		if bl, ok2 := m[tr("Boot mode", "Режим загрузки", "引导模式")]; !ok2 || bl.ok {
-			if strings.Contains(it.note, tr("not first", "не первый", "不在")) {
-				warns = append(warns, tr("The boot entry exists but is not first; move it to the top in BIOS", "Запись загрузки есть, но не первая; поднимите ее на первое место в BIOS", "启动项存在但不在首位, 需 BIOS 置顶"))
-			} else {
-				warns = append(warns, tr("Firmware boot entry is missing", "Запись загрузки прошивки отсутствует", "固件启动项未创建"))
-			}
+			warns = append(warns, tr("Firmware boot entry is missing", "Запись загрузки прошивки отсутствует", "固件启动项未创建"))
 		}
 	}
 	if len(warns) == 0 {
@@ -352,11 +343,7 @@ func (st *guiState) envGuide(items []statusItem) string {
 	}
 	if it, ok := m[tr("Firmware boot entry", "Запись загрузки прошивки", "固件启动项")]; ok && !it.ok {
 		if bl, ok2 := m[tr("Boot mode", "Режим загрузки", "引导模式")]; !ok2 || bl.ok {
-			if strings.Contains(it.note, tr("not first", "не первый", "不在")) {
-				g = append(g, tr("· A boot entry exists but is not first in displayorder: enter the BIOS and set '40HX Unlock' as the first boot entry (otherwise it may not run at startup)", "· Запись загрузки существует, но не первая в displayorder: войдите в BIOS и сделайте '40HX Unlock' первой записью загрузки (иначе при старте может не выполниться)", "· 启动项存在但不在 displayorder 首位: 进 BIOS 把 '40HX Unlock' 设为第一启动项(否则开机可能不执行)"))
-			} else {
-				g = append(g, tr("· Firmware boot entry not created: tick [Compute EFI + firmware boot entry] above to create and pin it automatically; if the BIOS list still does not show it, repair the boot with PE (firPE)/DiskGenius or manually set the UEFI disk as the first boot (uses the bootx64 fallback)", "· Запись загрузки прошивки не создана: отметьте [EFI разблокировки + запись загрузки] выше, чтобы создать и поднять её автоматически; если список BIOS всё равно её не показывает, восстановите загрузку через PE (firPE)/DiskGenius или вручную сделайте диск UEFI первым в загрузке (сработает резерв bootx64)", "· 固件启动项未创建: 勾选上方[算力 EFI 部署 + 固件启动项]即可自动创建并置顶; 若 BIOS 列表仍不显示, 用 PE(firPE)/DiskGenius 修复引导或手动把 UEFI 盘设为首启(走 bootx64 兜底)"))
-			}
+			g = append(g, tr("· Firmware boot entry missing: select [Compute EFI + firmware boot entry] to register it. Then set '40HX Unlock' first in BIOS or select it manually at boot.", "· Запись загрузки прошивки отсутствует: выберите [EFI разблокировки + запись загрузки] для её регистрации. Затем установите '40HX Unlock' первым в BIOS или выбирайте его вручную при загрузке.", "· 固件启动项未创建：请选择 [算力 EFI 部署 + 固件启动项] 注册它，然后在 BIOS 中将 '40HX Unlock' 设为第一项或启动时手动选择它。"))
 		}
 	}
 	if it, ok := m[tr("Gen2 drivers (never deployed)", "Драйверы Gen2 (не разворачивались)", "Gen2 驱动(从未部署)")]; ok && !it.ok {
@@ -474,14 +461,8 @@ func (st *guiState) applySmartDefaults() {
 		if needEfi {
 			pre = append(pre, tr("Compute EFI+boot entry", "Compute EFI+запись загрузки", "算力 EFI+启动项"))
 		}
-		// ReBAR is applied by that same unlock EFI at boot. Preselect it exactly
-		// when the EFI/boot entry is being (re)deployed so a fresh install turns
-		// it on; when the entry is already in place we leave it unchecked (no
-		// re-assert). Full installation always re-enables it regardless.
-		st.ckRebar.SetChecked(needEfi)
-		if needEfi {
-			pre = append(pre, tr("ReBar 8 GB", "ReBar 8 ГБ", "ReBar 8 GB"))
-		}
+		// Relocation is experimental and must be selected explicitly.
+		st.ckRebar.SetChecked(false)
 		st.ckTask.SetChecked(needTask)
 		if needTask {
 			pre = append(pre, tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"))
@@ -643,7 +624,7 @@ func runGUI() {
 						Children: []Widget{
 							CheckBox{AssignTo: &st.ckGsp, Text: tr("Disable GSP (recommended)", "Отключить GSP (рекомендуется)", "关闭 GSP（推荐）")},
 							CheckBox{AssignTo: &st.ckEfi, Text: tr("Compute EFI + firmware boot entry", "EFI разблокировки + запись загрузки", "算力 EFI + 固件启动项")},
-							CheckBox{AssignTo: &st.ckRebar, Text: tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)")},
+							CheckBox{AssignTo: &st.ckRebar, Text: tr("Experimental ReBAR relocation (8 GB BAR1)", "Экспериментальное перемещение ReBAR (BAR1 8 ГБ)", "实验性 ReBAR 地址重分配 (8 GB BAR1)")},
 							CheckBox{AssignTo: &st.ckDrv, Text: tr("Deploy Gen2 drivers + Defender exclusions", "Установить драйверы Gen2 + исключения Defender", "Gen2 驱动部署 + Defender 排除")},
 							CheckBox{AssignTo: &st.ckTask, Text: tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启")},
 							CheckBox{AssignTo: &st.ckFast, Text: tr("Power: disable Fast Startup", "Питание: отключить быстрый запуск", "电源: 关闭快速启动")},
@@ -820,7 +801,7 @@ func (st *guiState) installSelected(sel map[string]bool) {
 	defer st.sync(func() { st.pbInstall.SetEnabled(true) })
 	nameOf := map[string]string{
 		"gsp": tr("Disable GSP (recommended)", "Отключить GSP (рекомендуется)", "关闭 GSP（推荐）"), "drv": tr("Gen2 driver deployment", "Развёртывание драйверов Gen2", "Gen2 驱动部署"), "efi": tr("Compute EFI + boot entry", "Compute EFI + запись загрузки", "算力 EFI + 启动项"),
-		"rebar": tr("ReBar Unlock (8 GB BAR1)", "Разблокировка ReBar (BAR1 8 ГБ)", "ReBar 解锁 (8 GB BAR1)"),
+		"rebar": tr("Experimental ReBAR relocation (8 GB BAR1)", "Экспериментальное перемещение ReBAR (BAR1 8 ГБ)", "实验性 ReBAR 地址重分配 (8 GB BAR1)"),
 		"task":  tr("Gen2 login auto-start", "Автозапуск Gen2 при входе", "Gen2 登录自启"), "fast": tr("Disable Fast Startup", "Откл. быстрый запуск", "关闭快速启动"), "aspm": tr("Disable ASPM", "Откл. ASPM", "关闭 ASPM"),
 		"perf": tr("High-performance power plan", "План электропитания высокой производительности", "高性能电源计划"), "defoff": tr("Disable Defender real-time protection", "Откл. защиту Defender в реальном времени", "关闭 Defender 实时防护"),
 	}
@@ -845,12 +826,19 @@ func (st *guiState) installSelected(sel map[string]bool) {
 			fmt.Println(tr("  [Defender] driver files / backup directory whitelisted", "  [Defender] файлы драйверов / каталог резервных копий добавлены в белый список", "  [Defender] 驱动文件/备份目录已加白"))
 		}
 	}
+	efiOK := true
 	if sel["efi"] {
 		fmt.Println(tr("──── Compute EFI deployment + firmware boot entry (dual-path write + pin to top) ────", "──── Развёртывание compute EFI + запись загрузки прошивки (двойная запись + закрепление сверху) ────", "──── 算力 EFI 部署 + 固件启动项 (双路写入 + 置顶) ────"))
-		if installEFI() && !sel["gsp"] {
-			// Also migrate login targets when GSP was already explicitly zero.
-			if err := refreshExistingGen2Entries(); err != nil {
-				fmt.Println(tr("  [Gen2] Login entry upgrade failed:", "  [Gen2] Сбой обновления автозапуска:", "  [Gen2] 登录启动项更新失败:"), err)
+		efiOK = installEFI()
+		if efiOK {
+			if !sel["rebar"] {
+				applyRebarLoadOption(false)
+			}
+			if !sel["gsp"] {
+				// Also migrate login targets when GSP was already explicitly zero.
+				if err := refreshExistingGen2Entries(); err != nil {
+					fmt.Println(tr("  [Gen2] Login entry upgrade failed:", "  [Gen2] Сбой обновления автозапуска:", "  [Gen2] 登录启动项更新失败:"), err)
+				}
 			}
 		}
 	}
@@ -863,8 +851,12 @@ func (st *guiState) installSelected(sel map[string]bool) {
 		}
 	}
 	if sel["rebar"] {
-		fmt.Println(tr("──── ReBar Unlock (ensure the boot entry lets the EFI resize BAR1 to 8 GB) ────", "──── Разблокировка ReBar (запись загрузки разрешает EFI увеличить BAR1 до 8 ГБ) ────", "──── ReBar 解锁 (确保启动项允许 EFI 把 BAR1 放大到 8 GB) ────"))
-		applyRebarLoadOption(true)
+		fmt.Println(tr("──── Experimental ReBAR relocation (explicit opt-in) ────", "──── Экспериментальное перемещение ReBAR (явное включение) ────", "──── 实验性 ReBAR 地址重分配 (显式启用) ────"))
+		if efiOK {
+			applyRebarLoadOption(true)
+		} else {
+			fmt.Println(tr("  [ReBAR] not applied: EFI deployment failed", "  [ReBAR] не применён: развёртывание EFI завершилось ошибкой", "  [ReBAR] 未应用：EFI 部署失败"))
+		}
 	}
 	if sel["task"] {
 		fmt.Println(tr("──── Gen2 login auto-start (SYSTEM task + Run-key fallback) ────", "──── Автозапуск Gen2 при входе (задача SYSTEM + резервный ключ Run) ────", "──── Gen2 登录自启 (SYSTEM 任务 + Run 键兜底) ────"))

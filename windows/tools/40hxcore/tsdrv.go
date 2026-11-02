@@ -2,6 +2,7 @@ package hxcore
 
 import (
 	"encoding/binary"
+	"fmt"
 	"syscall"
 )
 
@@ -35,8 +36,10 @@ func TSRead(th syscall.Handle, addr uint64) (uint32, error) {
 	ib := make([]byte, 8)
 	binary.LittleEndian.PutUint64(ib, addr)
 	ob := make([]byte, 4)
-	if _, err := IoCtl(th, ioctlTsR, ib, ob); err != nil {
+	if n, err := IoCtl(th, ioctlTsR, ib, ob); err != nil {
 		return 0, err
+	} else if n != 4 {
+		return 0, fmt.Errorf("physical read returned %d bytes, expected 4", n)
 	}
 	return binary.LittleEndian.Uint32(ob), nil
 }

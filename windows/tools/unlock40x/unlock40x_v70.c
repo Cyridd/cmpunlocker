@@ -309,6 +309,30 @@ static BOOLEAN u40x_has_load_option(EFI_HANDLE IH, const CHAR16 *Option) {
     return FALSE;
 }
 
+/* Resource relocation is experimental: an unused EFI memory-map address is
+ * not proof of root-complex routing or an ACPI _CRS resource grant. Default
+ * boots without a command-line or ESP-policy opt-in keep stock BARs. */
+static BOOLEAN u40x_rebar_file_enabled;
+
+static INT32 u40x_rebar_policy_parse(const UINT8 *data, UINTN bytes)
+{
+    static const char enabled[] = "CMP40HX_REBAR_V1=1\n";
+    static const char disabled[] = "CMP40HX_REBAR_V1=0\n";
+    if (!data) return -1;
+    if (bytes == sizeof(enabled) - 1 &&
+        CompareMem(data, enabled, bytes) == 0) return 1;
+    if (bytes == sizeof(disabled) - 1 &&
+        CompareMem(data, disabled, bytes) == 0) return 0;
+    return -1;
+}
+
+static BOOLEAN u40x_rebar_requested(EFI_HANDLE image)
+{
+    return !u40x_has_load_option(image, L"norebar") &&
+           (u40x_has_load_option(image, L"--experimental-rebar") ||
+            u40x_rebar_file_enabled);
+}
+
 typedef enum {
     U40X_HANDOFF_STOCK, U40X_HANDOFF_FLR,
     U40X_HANDOFF_PRELOAD, U40X_HANDOFF_GSP_RESET
@@ -403,6 +427,75 @@ static void EFIAPI u40x_print(const CHAR16 *fmt, ...) {
 #define Print u40x_print
 #endif
 
+
+/* Read policy on the loaded image's ESP once, before any GPU mutation.
+ * This also covers firmware/fallback launches with binary OptionalData.
+ * Missing, unreadable or malformed files contribute no opt-in. */
+static VOID u40x_load_rebar_policy(EFI_HANDLE image)
+{
+    EFI_LOADED_IMAGE_PROTOCOL *li = NULL;
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs = NULL;
+    EFI_FILE_PROTOCOL *root = NULL, *file = NULL;
+    EFI_STATUS status;
+    UINT8 data[64];
+    UINTN bytes = sizeof(data);
+    INT32 policy;
+
+    u40x_rebar_file_enabled = FALSE;
+    if (!BS || !image) return;
+    status = BS->HandleProtocol(image, &u40x_li_guid, (void **)&li);
+    if (EFI_ERROR(status) || !li || !li->DeviceHandle) return;
+    Print(L"[boot] LoadOptionsSize=%u bytes\n", li->LoadOptionsSize);
+    if (li->LoadOptions && li->LoadOptionsSize) {
+        const UINT8 *options = (const UINT8 *)li->LoadOptions;
+        CHAR16 prefix[49];
+        const CHAR16 *hex = L"0123456789abcdef";
+        UINTN count = li->LoadOptionsSize < 16 ? li->LoadOptionsSize : 16;
+        UINTN i;
+        for (i = 0; i < count; i++) {
+            prefix[3 * i] = hex[options[i] >> 4];
+            prefix[3 * i + 1] = hex[options[i] & 15];
+            prefix[3 * i + 2] = L' ';
+        }
+        prefix[3 * count] = 0;
+        Print(L"[boot] LoadOptions prefix (hex): %s\n", prefix);
+    }
+    status = BS->HandleProtocol(li->DeviceHandle, &u40x_fs_guid, (void **)&fs);
+    if (EFI_ERROR(status) || !fs) goto unavailable;
+    status = fs->OpenVolume(fs, &root);
+    if (EFI_ERROR(status) || !root) goto unavailable;
+    status = root->Open(root, &file, L"\\EFI\\40HX\\REBAR.CFG", EFI_FILE_MODE_READ, 0);
+    root->Close(root);
+    if (EFI_ERROR(status) || !file) goto unavailable;
+    status = file->Read(file, &bytes, data);
+    if (EFI_ERROR(status)) {
+        file->Close(file);
+        goto unavailable;
+    }
+    policy = u40x_rebar_policy_parse(data, bytes);
+    if (policy >= 0) {
+        UINT8 extra;
+        UINTN remaining = 1;
+        status = file->Read(file, &remaining, &extra);
+        if (EFI_ERROR(status)) {
+            file->Close(file);
+            goto unavailable;
+        }
+        if (remaining) policy = -1;
+    }
+    file->Close(file);
+    if (policy < 0) {
+        Print(L"[rebar] ESP policy invalid; no file opt-in\n");
+        return;
+    }
+    u40x_rebar_file_enabled = policy == 1;
+    Print(L"[rebar] ESP policy: %s (\\EFI\\40HX\\REBAR.CFG)\n",
+          u40x_rebar_file_enabled ? L"enabled" : L"disabled");
+    return;
+unavailable:
+    Print(L"[rebar] ESP policy unavailable (status=0x%llx); no file opt-in\n",
+          (UINT64)status);
+}
 
 /* ---- v36: crt0 replacement ----
  * gnu-efi normally has crt0-efi-x86_64.o set ST/BS/ImageHandle globals +
@@ -8134,10 +8227,10 @@ u40x_rebar_try(UINT64 want, UINT32 selector)
 #ifdef CPU_RM_HANDOFF
 static VOID u40x_cpu_rm_rebar(EFI_HANDLE parent)
 {
-    if (!u40x_has_load_option(parent, L"norebar"))
+    if (u40x_rebar_requested(parent))
         u40x_rebar_try(U40X_REBAR_SIZE, U40X_REBAR_SELECTOR);
     else
-        Print(L"[rebar] skipped: disabled by norebar load option\n");
+        Print(L"[rebar] stock BARs retained; no effective opt-in from boot options or ESP policy\n");
 }
 #endif
 
@@ -8164,6 +8257,7 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
     InitializeLib(ImageHandle, SystemTable);
     Print(L"\n=== CMP40HX Unlock v70-40HX (TU106 GSP WITH_LOADER) ===\n");
+    u40x_load_rebar_policy(ImageHandle);
 
     /* Runtime handoff / ReBAR opt-out via boot-entry LoadOptions (ported from
      * 50hx --return-to-grub). --return-to-bootloader (aliases --return-to-grub /
@@ -8173,7 +8267,7 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         u40x_has_load_option(ImageHandle, L"--return-to-bootloader") ||
         u40x_has_load_option(ImageHandle, L"--return-to-grub") ||
         u40x_has_load_option(ImageHandle, L"--return-to-limine");
-    rebarDisabled = u40x_has_load_option(ImageHandle, L"norebar");
+    rebarDisabled = !u40x_rebar_requested(ImageHandle);
     handoffMode = u40x_handoff_mode(ImageHandle);
     handoffFlr = handoffMode == U40X_HANDOFF_FLR;
     handoffSoft = handoffMode == U40X_HANDOFF_PRELOAD || handoffMode == U40X_HANDOFF_GSP_RESET;
@@ -8262,8 +8356,14 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 #endif
     if (returnToBootloader)
         Print(L"[40HX] load option: return-to-bootloader (hand back to parent boot manager)\n");
-    if (rebarDisabled)
+    if (u40x_has_load_option(ImageHandle, L"norebar"))
         Print(L"[40HX] load option: norebar (ReBAR resize disabled)\n");
+    else if (rebarDisabled)
+        Print(L"[40HX] ReBAR disabled: no effective opt-in (or control mode)\n");
+    else
+        Print(L"[40HX] ReBAR requested; boot-token=%u ESP-policy=%u\n",
+              (UINT32)u40x_has_load_option(ImageHandle, L"--experimental-rebar"),
+              (UINT32)u40x_rebar_file_enabled);
 
     /* ---------- [1] 找卡（黑盒 fast-probe + 有界） ---------- */
     if (!u40x_find_gpu()) {

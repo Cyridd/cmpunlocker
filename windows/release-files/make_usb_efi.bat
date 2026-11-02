@@ -14,6 +14,12 @@ rem ============================================================
 
 rem ---- 0. 定位解锁 EFI(主流程与还原流程都要用) ----
 set "SRC=%~dp0files\40HXUNLK.EFI"
+set "COPYHELPER=%~dp0copy_efi_verified.ps1"
+if not exist "%COPYHELPER%" (
+    echo [ERROR] Missing copy_efi_verified.ps1. Extract the entire release ZIP.
+    pause
+    exit /b 1
+)
 if not exist "%SRC%" set "SRC=%~dp0gen2\40HXUNLK.EFI"
 if not exist "%SRC%" set "SRC=%~dp040HXUNLK.EFI"
 
@@ -203,11 +209,18 @@ if not exist "%USR%\EFI\Boot\" (
 )
 
 set "BAK=%USR%\EFI\Boot\bootx64.efi.40hx.bak"
+if exist "%BAK%" (
+    powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; try { if ([IO.File]::ReadAllBytes('%BAK%').Length -eq 0) { exit 1 } } catch { exit 1 }"
+    if errorlevel 1 goto BACKUPFAIL
+)
 if exist "%USR%\EFI\Boot\bootx64.efi" (
     fc /b "%SRC%" "%USR%\EFI\Boot\bootx64.efi" >nul 2>&1
     if errorlevel 1 (
         if not exist "%BAK%" (
-            copy /y "%USR%\EFI\Boot\bootx64.efi" "%BAK%" >nul
+            powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%COPYHELPER%" -Source "%USR%\EFI\Boot\bootx64.efi" -Destination "%BAK%" -NoReplace
+            if errorlevel 1 goto BACKUPFAIL
+            fc /b "%USR%\EFI\Boot\bootx64.efi" "%BAK%" >nul 2>&1
+            if errorlevel 1 goto BACKUPFAIL
             echo [i] 已备份 U 盘原 bootx64.efi 为 bootx64.efi.40hx.bak
         ) else (
             echo [i] 已存在旧备份 bootx64.efi.40hx.bak, 未覆盖。
@@ -217,9 +230,9 @@ if exist "%USR%\EFI\Boot\bootx64.efi" (
     )
 )
 
-copy /y "%SRC%" "%USR%\EFI\40HX\40HXUNLK.EFI" >nul
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%COPYHELPER%" -Source "%SRC%" -Destination "%USR%\EFI\40HX\40HXUNLK.EFI"
 if errorlevel 1 goto COPYFAIL
-copy /y "%SRC%" "%USR%\EFI\Boot\bootx64.efi" >nul
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%COPYHELPER%" -Source "%SRC%" -Destination "%USR%\EFI\Boot\bootx64.efi"
 if errorlevel 1 goto COPYFAIL
 
 rem ---- 6. 回读校验 ----
@@ -271,6 +284,11 @@ echo.
 pause
 exit /b 0
 
+:BACKUPFAIL
+echo [ERROR] Original bootx64.efi backup is empty, unreadable, or failed verification. The original was preserved.
+pause
+exit /b 1
+
 :COPYFAIL
 echo.
 echo [!!] 复制失败: %USR% 无法写入。
@@ -321,10 +339,18 @@ if /i "%USR%"=="%SystemDrive%" (
 
 set "BAK=%USR%\EFI\Boot\bootx64.efi.40hx.bak"
 if exist "%BAK%" (
-    copy /y "%BAK%" "%USR%\EFI\Boot\bootx64.efi" >nul
+    powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%COPYHELPER%" -Source "%BAK%" -Destination "%USR%\EFI\Boot\bootx64.efi"
     if errorlevel 1 (
         echo [!!] 还原失败, 备份文件仍在: %BAK%
+        pause
+        exit /b 1
     ) else (
+        fc /b "%BAK%" "%USR%\EFI\Boot\bootx64.efi" >nul 2>&1
+        if errorlevel 1 (
+            echo [ERROR] Restored EFI differs from the backup. The backup was preserved.
+            pause
+            exit /b 1
+        )
         del /f /q "%BAK%" >nul 2>&1
         echo [i] 已还原 U 盘原 bootx64.efi
     )

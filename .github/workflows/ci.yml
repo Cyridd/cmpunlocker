@@ -150,6 +150,11 @@ jobs:
           build uninstall40x 40HXUninstaller.exe
           build check40x     40HXCheck.exe
 
+      - name: Test the USB EFI copy helper
+        if: matrix.cross == '0'
+        shell: powershell
+        run: windows/tools/test_efi_copy.ps1
+
       # winres_gen produces a PE resource object, so it cross-generates fine
       # on Linux. Kept on the Linux leg because the byte comparison uses
       # `cmp`, which every Linux runner has.
@@ -187,7 +192,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/efi-out"
           docker run --rm \
-            -v "$GITHUB_WORKSPACE/windows/tools/unlock40x:/src:ro" \
+            -v "$GITHUB_WORKSPACE/windows/tools:/src:ro" \
             -v "$RUNNER_TEMP/efi-out:/out" \
             -w /src \
             "$EFI_IMAGE" \
@@ -215,7 +220,7 @@ jobs:
               check_pkg gnu-efi 4.0.4
 
               cp -r /src /build
-              cd /build
+              cd /build/unlock40x
               CPU_RM_CONTROL=zero EFI_OUT=/out/40HXZERO.EFI ./build_v70.sh
               CPU_RM_CONTROL=full VBIOS_DUMP=0 DIRECT_WRITE_PROBE=0 PRELOAD_PROBE=0 ./build_v70.sh
               cp unlock40x_v70.efi /out/
