@@ -1,0 +1,150 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# mkinitcpio install hook for a base + systemd initramfs.
+
+build() {
+    local fwdir=/usr/lib/firmware/cmp40-preboot/610.43.03 f firmware
+
+    if [[ " ${HOOKS[*]} " != *" base "* || " ${HOOKS[*]} " != *" systemd "* ]]; then
+        error "cmp40-unlock requires the base and systemd hooks"
+        return 1
+    fi
+    for f in "${MODULES[@]}"; do
+        case ${f//-/_} in
+            cmp40_preboot|cmp40_preboot\?)
+                error "cmp40-unlock: remove cmp40_preboot from MODULES; the service must load it with explicit parameters"
+                return 1
+                ;;
+        esac
+    done
+
+    # Preserve a bootable image when the per-kernel module or assets are missing.
+    if ! modinfo -k "$KERNELVERSION" cmp40_preboot &>/dev/null; then
+        warning "cmp40-unlock: cmp40_preboot is missing for $KERNELVERSION; unlock skipped (rebuild and install the module, then rerun mkinitcpio)"
+        return 0
+    fi
+    if ! firmware=$(modinfo -k "$KERNELVERSION" -F firmware cmp40_preboot) || [[ -z $firmware ]]; then
+        warning "cmp40-unlock: cannot read the module's firmware list; unlock skipped"
+        return 0
+    fi
+    while IFS= read -r f; do
+        if [[ ! -s /usr/lib/firmware/$f ]]; then
+            warning "cmp40-unlock: firmware /usr/lib/firmware/$f is missing or empty; unlock skipped"
+            return 0
+        fi
+    done <<< "$firmware"
+
+    add_module cmp40_preboot || return 1
+    for f in "$fwdir"/*; do
+        [[ -f $f ]] || continue
+        add_file "$f" || return 1
+    done
+    for f in /usr/bin/bash /usr/bin/modprobe /usr/bin/mkdir /usr/bin/rm /usr/bin/false; do
+        add_binary "$f" || return 1
+    done
+
+    add_file - /usr/lib/cmp40-unlock/cmp40-initrd-unlock 755 <<'SCRIPT' || return 1
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Unlock only; the native driver and Gen2 are loaded after the initramfs.
+set -u
+tag=cmp40-unlock
+fw=/usr/lib/firmware/cmp40-preboot/610.43.03
+block=/run/modprobe.d/cmp40-block-nvidia.conf
+
+msg() {
+    local lvl=$1; shift
+    { printf '<%s>%s: %s\n' "$lvl" "$tag" "$*" > /dev/kmsg; } 2>/dev/null ||
+        echo "$tag: $*"
+}
+skip() { msg 6 "skipped: $*"; exit 0; }
+rd() { if [[ -r $1 ]]; then printf '%s' "$(<"$1")"; else printf '?'; fi; }
+
+block_drivers() {
+    mkdir -p "${block%/*}" || return 1
+    {
+        echo "# Written by cmp40-unlock; removed only after verified firmware cleanup."
+        for m in nvidia nvidia_modeset nvidia_uvm nvidia_drm nvidia_peermem nvidia_vgpu_vfio nouveau; do
+            echo "install $m /usr/bin/false"
+        done
+    } > "$block"
+}
+fail() {
+    msg 3 "FAILED: $*"
+    if [[ -s $block ]]; then
+        msg 3 "GPU driver modprobe loads are blocked for this boot ($block). Power off completely before retrying."
+    else
+        msg 3 "no driver block is installed. Power off before using the GPU."
+    fi
+    exit 1
+}
+
+# Select exactly one CMP 40HX without loading a PCI driver.
+found=()
+for dev in /sys/bus/pci/devices/*; do
+    [[ -r $dev/vendor && -r $dev/device ]] || continue
+    if [[ $(<"$dev/vendor") == 0x10de && $(<"$dev/device") == 0x1f0b ]]; then
+        found+=("${dev##*/}")
+    fi
+done
+((${#found[@]} == 1)) || skip "expected exactly one 10de:1f0b device, found ${#found[@]}"
+gpu=${found[0]}
+device=/sys/bus/pci/devices/$gpu
+
+[[ ! -L $device/driver ]] || skip "$gpu is already bound to a driver"
+[[ ! -d /sys/module/nvidia ]] || skip "nvidia is already loaded"
+[[ ! -d /sys/module/cmp40_preboot ]] || skip "cmp40_preboot is already loaded"
+[[ ! -e $block && ! -L $block ]] || skip "a previous failure guard exists at $block"
+modprobe -n cmp40_preboot >/dev/null 2>&1 || skip "cmp40_preboot is not available in this initramfs"
+[[ -d $fw ]] || skip "firmware directory $fw is missing"
+
+# Leave the guard installed if modprobe, the wrapper or the service is interrupted.
+block_drivers || fail "could not install the driver block; unlock was not attempted"
+msg 6 "unlocking $gpu (CPU-RM, stock handoff, small WPR heap)"
+modprobe cmp40_preboot target="$gpu" mode=unlock cpu_rm_handoff=1 stock_handoff=1 small_wpr_heap=1 \
+    gen2=off gen2_policy=rmw || fail "modprobe cmp40_preboot failed for $gpu"
+
+p=/sys/module/cmp40_preboot/parameters
+ue=$(rd "$p/unlock_error")
+rr=$(rd "$p/resources_retained")
+[[ $ue == 0 && $rr == N ]] || fail "unlock_error=$ue resources_retained=$rr on $gpu"
+rm -f -- "$block" || fail "could not remove the driver block after successful unlock"
+msg 6 "pre-driver unlock completed on $gpu; verify with nvidia-smi after boot"
+SCRIPT
+
+    add_file - /usr/lib/systemd/system/cmp40-unlock.service 644 <<'UNIT' || return 1
+[Unit]
+Description=CMP 40HX CPU-RM pre-driver unlock
+DefaultDependencies=no
+ConditionKernelCommandLine=!cmp40.skip
+Before=systemd-modules-load.service systemd-udevd.service systemd-udev-trigger.service sysinit.target
+Before=systemd-udevd-control.socket systemd-udevd-kernel.socket
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+SyslogIdentifier=cmp40-unlock
+TimeoutStartSec=120
+ExecStart=/usr/lib/cmp40-unlock/cmp40-initrd-unlock
+UNIT
+
+    add_symlink /usr/lib/systemd/system/sysinit.target.wants/cmp40-unlock.service ../cmp40-unlock.service
+}
+
+help() {
+    cat <<'HELPEOF'
+Runs the CMP 40HX CPU-RM compute unlock before systemd loads modules or starts
+udev. Requires base and systemd; place it after modconf and after autodetect
+when autodetect is present. Do not list cmp40_preboot in MODULES.
+
+Install cmp40_preboot for each kernel and its firmware under
+/usr/lib/firmware/cmp40-preboot/610.43.03. Missing module or firmware files
+skip the unlock with a build warning. Verify the generated image before boot.
+
+Add cmp40.skip to the kernel command line to bypass the unlock for one boot.
+An attempted unlock blocks modprobe loads of NVIDIA and nouveau until
+unlock_error=0 and resources_retained=N. On failure or interruption, the
+guard stays in /run/modprobe.d; power off completely before retrying.
+Gen2 remains a separate post-driver operation.
+HELPEOF
+}

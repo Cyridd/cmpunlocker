@@ -132,6 +132,95 @@ sudo modprobe -r cmp40_preboot
 SEC2/loader controls remain in the source for reproducing the research;
 they are not part of the installation procedure.
 
+## Automatic unlock with mkinitcpio
+
+The optional [cmp40-unlock install hook](mkinitcpio/cmp40-unlock) runs compute
+unlock inside a systemd-based initramfs, before module loading and udev. It
+selects exactly one unbound `10de:1f0b`, uses the stock handoff and 1 MiB WPR
+heap, and leaves `gen2=off`. NVIDIA loads later through the normal boot path.
+
+I tested this hook on my CachyOS system with proprietary NVIDIA 615.78.08
+and GSP OFF. Automatic compute unlock worked after boot.
+
+Install the module and prepared firmware as described above for every kernel
+you boot. Keep `base`, `systemd` and `modconf` in `HOOKS`, and place
+`cmp40-unlock` immediately after `modconf`, after `autodetect` when present.
+Do not put `cmp40_preboot` in `MODULES`: the service must load it with explicit
+unlock parameters. Keep NVIDIA modules out of this initramfs as well.
+
+Persist GSP OFF before enabling automatic unlock. For example, create
+`/etc/modprobe.d/cmp40-cpu-rm.conf` with:
+
+```text
+options nvidia NVreg_EnableGpuFirmware=0
+```
+
+From the repository root:
+
+```bash
+sudo install -Dm644 linux/cpu-rm/mkinitcpio/cmp40-unlock /etc/initcpio/install/cmp40-unlock
+echo 'HOOKS=(${HOOKS[@]/modconf/modconf cmp40-unlock})' | sudo tee /etc/mkinitcpio.conf.d/20-cmp40-unlock.conf
+sudo mkinitcpio -P
+```
+
+The drop-in inserts the hook after an existing `modconf` entry. If you already
+added it directly to `HOOKS`, use that entry instead of the drop-in. Preserve
+any hooks your storage or encryption setup needs.
+
+Inspect each generated image before rebooting. Use the image path printed by
+mkinitcpio or configured by your bootloader, rather than assuming
+`/boot/initramfs-*.img`. A Limine setup can use
+`/boot/<machine-id>/<kernel-name>/initramfs`.
+If a bootloader tool maintains a separate copy, use its normal update command
+and inspect the image selected by the boot entry.
+
+```bash
+lsinitcpio /path/to/initramfs | rg 'cmp40|nvidia'
+```
+
+The output should include `cmp40_preboot.ko` (possibly compressed), the
+`cmp40-preboot/610.43.03/` firmware files, `cmp40-initrd-unlock` and
+`cmp40-unlock.service`. It should contain no `nvidia*.ko` files. If NVIDIA
+modules appear, remove their entries from `MODULES` or custom hooks and
+check whether `kms` includes them, then rebuild and inspect the image again.
+The install hook includes `cmp40_preboot` and its module dependencies without
+adding it to the automatic module-load list.
+
+After a cold boot:
+
+```bash
+journalctl -k -b | rg 'cmp40|NVRM'
+cat /sys/module/cmp40_preboot/parameters/{unlock_error,resources_retained}
+nvidia-smi
+```
+
+The log should show `PRE_DRIVER_UNLOCK_PASS` and
+`pre-driver unlock completed on <GPU>; verify with nvidia-smi after boot`
+before NVIDIA's module-load message. The two parameter files must print `0`
+and `N`. Confirm GSP Firmware `N/A` with `nvidia-smi -q` and run a CUDA workload
+to check native operation; the firmware completion markers alone do not prove
+workload stability.
+
+### Skips, failures and removal
+
+A missing per-kernel module or a missing or empty firmware file produces a
+build warning and omits the unlock from that image. Rebuild and reinstall the
+module after kernel updates, then regenerate the initramfs. At boot, the
+wrapper skips an absent or ambiguous CMP, a driver-owned card, or an already
+loaded NVIDIA/preboot module without attempting unlock.
+
+Before an attempt, the wrapper creates
+`/run/modprobe.d/cmp40-block-nvidia.conf` to block normal modprobe loads of
+NVIDIA, the vGPU module and nouveau. It removes that guard only after reading
+`unlock_error=0` and `resources_retained=N`. A failed or interrupted attempt
+leaves the guard installed. Power off completely before retrying; do not
+remove the guard or force a GPU driver to load during that boot.
+
+For a one-boot bypass, add `cmp40.skip` to the kernel command line. To remove
+the integration, remove the `cmp40-unlock` HOOKS entry or its
+`20-cmp40-unlock.conf` drop-in and `/etc/initcpio/install/cmp40-unlock`, then
+regenerate the initramfs. Keep GSP OFF if you still use the manual CPU-RM path.
+
 ## PCIe Gen2 with CPU-RM
 
 Gen2 can be applied entirely **after native NVIDIA initialization**. A cold-boot
@@ -147,6 +236,10 @@ sudo bash linux/cpu-rm/unlock.sh --gpu 0000:01:00.0 --load-nvidia
 sudo modprobe -r cmp40_preboot
 sudo bash linux/cpu-rm/gen2.sh --gpu 0000:01:00.0
 ```
+
+After a successful mkinitcpio unlock, verify `unlock_error=0` and
+`resources_retained=N`, then start at `sudo modprobe -r cmp40_preboot` in this
+sequence. The compute unlock has already run; do not invoke `unlock.sh` again.
 
 The first helper verifies compute unlock and firmware/DMA cleanup. Unload its
 completed one-shot module before using it again for runtime Gen2. The Gen2
@@ -210,9 +303,10 @@ Automatic unlock must run **before the first NVIDIA probe**, with this module,
 its firmware and any SHA-256 crypto dependency available. A
 `softdep nvidia pre: cmp40_preboot` alone does not check `unlock_error` and
 does not guarantee ordering when NVIDIA is loaded from an initramfs. Use
-the guarded helper in your early-boot configuration, and include its shell,
-modprobe/modinfo, firmware and crypto dependencies in the initramfs if needed.
-Distribution-specific automatic setup is not installed by this repository.
+the [mkinitcpio hook](#automatic-unlock-with-mkinitcpio) for the supported
+systemd initramfs setup. Other initramfs implementations need their own guarded
+early-boot integration, including the shell, modprobe/modinfo, firmware and
+crypto dependencies. No automatic setup is enabled by default.
 
 The Windows EFI's `--return-to-bootloader` option is retained as another
 pre-OS route, but native Linux acceptance here was measured with this Linux

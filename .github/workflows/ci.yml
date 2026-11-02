@@ -61,7 +61,7 @@ jobs:
           python3 -m unittest discover -s linux/cpu-rm/firmware -p 'test_*.py' -v
           python3 linux/cpu-rm/firmware/prepare.py
           make -C linux/cpu-rm offline-test
-          bash -n linux/cpu-rm/unlock.sh linux/cpu-rm/gen2.sh linux/cpu-rm/common.sh
+          bash -n linux/cpu-rm/unlock.sh linux/cpu-rm/gen2.sh linux/cpu-rm/common.sh linux/cpu-rm/mkinitcpio/cmp40-unlock
 
   go-tools:
     name: Go tools (${{ matrix.name }})

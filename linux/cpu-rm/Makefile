@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-.PHONY: all firmware offline-test gen2-test clean
+.PHONY: all firmware offline-test gen2-test mkinitcpio-test clean
 all:
 	$(MAKE) -C kernel
 firmware:
@@ -10,7 +10,9 @@ build/test_offline: test_offline.c kernel/boot.c kernel/prep.c kernel/layout.c k
 gen2-test:
 	python3 tests/run_gen2.py
 	python3 tests/run_helpers.py
-offline-test: build/test_offline gen2-test
+mkinitcpio-test:
+	python3 tests/run_mkinitcpio.py
+offline-test: build/test_offline gen2-test mkinitcpio-test
 	cd build && ./test_offline $(if $(ROM),"$(abspath $(ROM))")
 clean:
 	$(MAKE) -C kernel clean
