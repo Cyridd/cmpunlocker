@@ -29,7 +29,9 @@ try {
     Copy-Expect $src $dst $false $false
     if ([IO.File]::ReadAllText($dst) -ne 'original EFI contents') { throw 'Empty source replaced the live file.' }
     if ((Get-ChildItem -LiteralPath $dir -Filter '.40hx-stage-*').Count -ne 0) { throw 'Staging file leaked.' }
-    Write-Output 'EFI copy tests passed: backup, no-overwrite, sharing violation, replace, restore, empty source.'
 } finally {
     Remove-Item -LiteralPath $dir -Recurse -Force
 }
+# Expected helper failures leave LASTEXITCODE nonzero; return the test result.
+Write-Output 'EFI copy tests passed: backup, no-overwrite, sharing violation, replace, restore, empty source.'
+exit 0
