@@ -205,3 +205,58 @@ bandwidth. Keep Link Disable out of these comparisons. The two community
 reports use open/GSP drivers; switching them to proprietary CPU-RM is itself
 a driver-path change and cannot isolate the effect of earlier preparation
 in the open driver. The CPU-RM runtime helper requires GSP OFF.
+
+## VFIO passthrough: host retrain in issue #20
+
+[Issue #20](https://github.com/Cyridd/cmpunlocker/issues/20#issuecomment-6497769200)
+uses full VFIO passthrough on Proxmox 9.2, kernel `7.0.14-24-pve`, QEMU
+`11.0.3-4` and q35/OVMF. The guest runs patched open NVIDIA 610.57.04 with
+GSP ON. Its ASUS CMP40HX (`1043:8804`, VBIOS `90.06.67.00.04`) is directly
+behind a physical AMD `1022:14db` root port. This differs from the proprietary
+CPU-RM tests above and the GRID/vGPU host in [issue #8](GRID_CPU_RM_REPORT.md).
+
+The [host experiment result](https://github.com/Cyridd/cmpunlocker/issues/20#issuecomment-6569682975)
+records a masked Gen2 target write and an ordinary Retrain Link request on
+the physical root port, with the VM running and its GPU declared idle. The
+test left endpoint LnkCtl2 and GPU MMIO untouched. The bounded poll did not
+confirm Gen2:
+
+| Physical config field | Before request | After request, before rollback |
+|---|---|---|
+| GPU FLAGS | `0001` | `0001` |
+| GPU LnkCap | `00453d01` | `00453d01` |
+| GPU LnkSta | `1101` | `1101` |
+| Root FLAGS | `0142` | `0142` |
+| Root LnkCap | `00737105` | `00737105` |
+| Root LnkCap2 | `0180003e` | `0180003e` |
+| Root LnkCtl2 | `0041` | `0042` |
+| Root LnkSta | `3101` | `3101` |
+
+The physical root port accepted TLS=2. Both snapshots show Gen1 x16, and the
+five-second poll did not confirm Gen2. The endpoint reports capability v1
+and separately advertises a maximum speed of Gen1; capability version and
+negotiated speed are different fields. The root port supports Gen2 and up
+to 32 GT/s. Setting the physical root-port target and requesting retrain on
+the host was insufficient; the endpoint's Gen1 capability remains unresolved.
+The output does not capture a transient training sequence or establish the
+cause of that capability state.
+
+The script reports restoring the original root-port target after
+`GEN2_NOT_CONFIRMED`; no post-rollback readback was supplied. Guest
+`nvidia-smi` still works and shows P8 with no active processes, but no post-test
+CUDA workload, physical link sampling under load or kernel-error audit was
+supplied. BAR1 remains 64 MiB, BAR3
+32 MiB and the bridge's prefetchable window 96 MiB; ReBAR stays disabled.
+
+Earlier host snapshots show endpoint capability v2 with the VM stopped and
+v1 after guest initialization. A useful next control is to collect physical
+host snapshots with the VM stopped, with it running before guest NVIDIA
+initializes, and after `CMP40_GSP_READY`. This can separate assignment/reset
+effects from guest initialization as candidate causes of the capability
+change. The existing [diagnostic patch](PCIE_GEN2_DIAGNOSTIC.md) can then
+compare the guest's BAR0 policy mirrors with host config-space reads.
+Its PCI accessor output alone does not establish physical CAP2/CTL2 when
+the cached capability version is v1.
+
+This result does not establish a Gen2 fix or justify Link Disable, reset-policy
+changes or undocumented GPU register writes on the running VFIO device.

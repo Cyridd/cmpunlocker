@@ -10,7 +10,7 @@ install or use the project; start from the [main README](../../README.md) and th
 | [`CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md`](CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md) | Vulkan pipeline-bind delay with proprietary GSP OFF and argument-0 measurements using command buffers and glcore |
 | [`WINDOWS_DISK_PCI_AUDIT.md`](WINDOWS_DISK_PCI_AUDIT.md) | Disk I/O boundaries, Gen2 guards, experimental ReBAR policy and requirements for a conservative standalone EFI |
 | [`CPU_RM_SMALL_WPR.md`](CPU_RM_SMALL_WPR.md) | Successful proprietary Linux and Windows GSP-OFF handoff, exact heap geometry, paired throughput and numerical checks |
-| [`CPU_RM_PCIE_GEN2.md`](CPU_RM_PCIE_GEN2.md) | Proprietary Linux Gen2: native policy reset, successful runtime-only cold control and doubled DMA bandwidth |
+| [`CPU_RM_PCIE_GEN2.md`](CPU_RM_PCIE_GEN2.md) | Proprietary Linux runtime-only Gen2 and doubled DMA bandwidth; separate VFIO host retrain failure in issue #20 |
 | [`GRID_CPU_RM_REPORT.md`](GRID_CPU_RM_REPORT.md) | GRID 19.6 community host/guest compute results, reported clpeak stability, boot ordering and the cached-v1 Gen2 boundary |
 | [`WINDOWS_INSTALLER_AUDIT.md`](WINDOWS_INSTALLER_AUDIT.md) | v2.1.1 installer audit: duplicate Gen2 execution, bounded waits, handle cleanup and PCI scan cost |
 | [`WINDOWS_CPU_RM_HISTORY.md`](WINDOWS_CPU_RM_HISTORY.md) | Curated earlier Windows controls: Booter boundary, SEC2 halt timeout, unsuccessful FLR/SB/PMU alternatives |
