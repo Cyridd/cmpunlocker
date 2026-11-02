@@ -236,7 +236,7 @@ func ReadUnlockStateV2(retries int, delayMs int) *UnlockState {
 	// 只读, 与 EFI u40x_rebar_try 读同一寄存器同一编码 — 非破坏性。
 	if v, err := TSRead(th, bar0+XveRbarCtlOffset); err == nil {
 		enc := (v >> 8) & 0x3F
-		if enc < 32 { // 合理范围, 防移位溢出 (实测 8=256MB / 13=8GB)
+		if enc < 32 { // Avoid shift overflow; 6=64 MiB stock, 13=8 GiB unlocked.
 			st.RebarOK = true
 			st.RebarSizeMB = uint32(1) << enc
 			st.RebarOn = st.RebarSizeMB >= 8192 // >=8 GiB = 满显存

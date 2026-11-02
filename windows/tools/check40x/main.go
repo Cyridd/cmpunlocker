@@ -355,7 +355,7 @@ func spdName(s uint32) string {
 	return names[s]
 }
 
-// rebarSizeStr: BAR1 大小 (MiB) → 友好显示 ("8 GB" / "256 MB")。0 = 未读到。
+// rebarSizeStr formats BAR1 size in MiB ("8 GB" / "64 MB"); 0 means unreadable.
 func rebarSizeStr(mb uint32) string {
 	if mb == 0 {
 		return "?"
@@ -542,7 +542,7 @@ func check() {
 		if st.RebarOn {
 			rebar = fmt.Sprintf(tr("✓ enabled (BAR1 %s)", "✓ включён (BAR1 %s)", "✓ 已启用 (BAR1 %s)"), rebarSizeStr(st.RebarSizeMB))
 		} else {
-			rebar = fmt.Sprintf(tr("✗ not enabled (BAR1 %s; stock 256 MB — ReBAR unlock not in effect)", "✗ не включён (BAR1 %s; сток 256 MB — разблокировка ReBAR не действует)", "✗ 未启用 (BAR1 %s; 原生 256 MB — ReBAR 解锁未生效)"), rebarSizeStr(st.RebarSizeMB))
+			rebar = fmt.Sprintf(tr("✗ not enabled (BAR1 %s; stock 64 MB — ReBAR unlock not in effect)", "✗ не включён (BAR1 %s; сток 64 MB — разблокировка ReBAR не действует)", "✗ 未启用 (BAR1 %s; 原生 64 MB — ReBAR 解锁未生效)"), rebarSizeStr(st.RebarSizeMB))
 		}
 	}
 	w("  ReBAR    : %s\n", rebar)

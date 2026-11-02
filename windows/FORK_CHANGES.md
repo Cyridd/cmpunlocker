@@ -53,7 +53,7 @@ The notice asking for manual boot-order setup uses an information icon.
    the NVIDIA Control Panel never show ReBAR for this card, so the checker reads
    the XVE Resizable BAR control register (like GPU-Z) and prints whether it is
    enabled and the current BAR1 size (8 GB when the unlock resize is in effect,
-   256 MB stock).
+   64 MB stock).
 7. The installer exposes ReBAR as a component. The unlock EFI resizes BAR1 to
    8 GiB at boot by default; the installer's *ReBar Unlock* checkbox (and the
    `-rebar` command line) ensure the boot entry has no `norebar` token, while
