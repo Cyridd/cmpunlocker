@@ -237,6 +237,14 @@ not universal application speed-up guarantees.
 
 ### 615.78.08 follow-up
 
+The 2026-11-02 experiment confirmed the workaround with proprietary CPU-RM and
+`GSP Firmware Version: N/A`. For 1000 same pipeline binds, GPU time was
+138.649568 ms stock and 0.004480 ms with the local argument-0 glcore library.
+Alternating two pipelines measured 138.654816 and 0.004544 ms. GSP OFF alone
+does not remove the throttle. Each result is the median of three process
+medians, each from seven GPU timestamp submissions. See the
+[CPU-RM report](../docs/research/CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md).
+
 On 2026-10-18, `vk_shader_bind_matrix` confirmed the same patch on CMP 40HX
 with Vulkan 1.4.351 and a timestamp period of 1 ns/tick:
 

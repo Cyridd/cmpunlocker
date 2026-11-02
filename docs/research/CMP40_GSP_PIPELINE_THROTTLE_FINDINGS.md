@@ -4,6 +4,13 @@ Initial research: NVIDIA 610.57.04, GSP enabled, CMP 40HX / TU106.
 Follow-up: 615.78.08 runtime confirmation and 580.173.02 offline analysis on
 2026-10-18.
 
+The 2026-11-02 experiment reproduced the delay with proprietary CPU-RM and
+GSP OFF.
+Static inspection traced [NVIDIA-patcher](https://github.com/dartraiden/NVIDIA-patcher)'s
+Device ID replacement to the RM response that controls the emitter. See the
+[CPU-RM measurements](CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md)
+and [NVIDIA-patcher investigation](CMP40_NVIDIA_PATCHER_PIPELINE_CORRELATION.md).
+
 ## Proven trigger
 
 Each classic Vulkan pipeline bind emits this pushbuffer command:
@@ -113,12 +120,12 @@ MME loop and must not be interpreted as a universal application speed-up.
 
 ## Interpretation
 
-The GSP does execute the delay, but the proprietary userspace driver uploads
-the MME program and emits its invocation. The currently proven bypass point is
-therefore the userspace `libnvidia-glcore` emitter, not a speculative GSP
-registry key. `RMPriorityThrottleDelay` is unrelated: NVIDIA's open registry
-header documents it as a CPU thread-priority throttle delay while holding a
-GPU lock.
+The delay was reproduced on 2026-11-02 with proprietary CPU-RM and
+`GSP Firmware Version: N/A`, so running GSP firmware is not required. The
+userspace driver uploads the MME program and emits its invocation; changing
+the argument in `libnvidia-glcore` removes the delay. `RMPriorityThrottleDelay`
+is unrelated: NVIDIA's open registry header describes a CPU thread-priority
+throttle delay while holding a GPU lock.
 
 ## Additional releases
 
