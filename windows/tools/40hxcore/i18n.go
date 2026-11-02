@@ -22,7 +22,7 @@ import (
 // Version is the product version reported by every tool in this tree. Keeping
 // it in one place stops the installer, checker, and uninstaller from drifting
 // apart, which they had done before.
-const Version = "v2.1.1"
+const Version = "v2.1.2"
 
 type Language uint8
 

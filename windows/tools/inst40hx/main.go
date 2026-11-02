@@ -1,4 +1,4 @@
-// 40HX 一键安装工具 v2.1.1 (CMP 40HX Windows Unlock Installer)
+// 40HX 一键安装工具 v2.1.2 (CMP 40HX Windows Unlock Installer)
 // 功能:
 //
 //	Install: CPU-RM (EnableGpuFirmware=0) + ESP 双路部署 40HXUNLK.EFI (V70)
