@@ -16,6 +16,7 @@ applied again after a full GPU reset or power cycle.
 | --- | --- |
 | Compute | `SS0=0x88888888`, `SS1=0x00000008`; Tensor Core FP16 from about 1.1 to about 72 TFLOPS (clpeak WMMA) and INT8 `dp4a` from about 1 to about 34 TOPS on the reference card; see [`docs/results.md`](../docs/results.md) |
 | PCIe | Gen2 x16 when the platform accepts the retrain |
+| ReBAR | BAR1 enlarged from 64 MiB to 8 GiB; confirmed by me in GPU-Z and `40HXCheck.exe` with the ESP-policy build |
 | NVIDIA driver | GSP OFF / CPU-RM: ZERO/FULL initialization and FULL unlock tested by me |
 
 PCIe Gen3 and RT-core unlocks are research topics and are not advertised as
@@ -23,27 +24,35 @@ working features. This tree targets CMP 40HX only.
 
 ## ReBAR / 8 GiB BAR1
 
-The EFI can optionally activate the CMP 40HX's standard PCIe Resizable BAR
-control for the full 8 GiB framebuffer. It opens the TU106 XVE gate, selects
-ReBAR selector `7`, sizes BAR1, preserves the existing BAR3 window, and
-programs the upstream bridge's 64-bit prefetchable window before reenabling
-decode. A successful run is reported by `40HXCheck.exe` and by GPU-Z as an
-8192 MiB Resizable BAR.
+The default EFI path keeps the firmware-assigned BARs and bridge windows.
+Compute unlock and Gen2 do not require ReBAR relocation.
 
-The EFI does not assume a fixed address such as `0x800000000`. It first parses
-the upstream root bridge's ACPI resource descriptors, prefers an 8-GiB-aligned
-span immediately after the current bridge window, and otherwise uses the top of
-the reported 64-bit MMIO aperture. Some desktop firmware does not implement a
-useful `RootBridgeIo->Configuration()` resource list; on those systems it uses
-a bridge-relative fallback and still requires BAR readback plus VRAM aperture
-verification. If any check fails, all GPU and bridge registers are restored and
-the machine continues with stock BAR size.
+The **Experimental ReBAR relocation (8 GB BAR1)** checkbox is unchecked by
+default; full installation also leaves it disabled. To opt in after testing
+your platform, deploy the current Compute EFI and select Experimental ReBAR
+together. Later, `40HXInstaller.exe -rebar` can enable it as Administrator.
+The installer verifies the BCD loadoptions and writes an explicit policy to
+`\EFI\40HX\REBAR.CFG` on the ESP. Firmware may pass binary Windows
+OptionalData to a copied boot entry, so BCD readback alone is insufficient.
+Both the primary and fallback images must match the selected policy-aware EFI
+before enabling.
 
-This is deliberately best-effort rather than a promise of universal PCI
-resource allocation. Enable **Above 4G Decoding**, keep the motherboard's
-Resizable BAR support enabled, and test the actual topology. An 8 GiB BAR may
-be rejected when the root complex has no sufficiently large 64-bit MMIO
-aperture or when another bridge already occupies the candidate range.
+The EFI reads and caches the policy before GPU mutation, including when
+launched through the fallback path on that ESP. Missing or invalid policy
+files provide no opt-in. `-norebar` clears the file opt-in and saves the BCD
+opt-out. For another boot manager, a literal `--experimental-rebar` remains
+supported; a literal `norebar` overrides both sources. The installer reports
+saved configuration. Confirm activation through the EFI allocator result and
+the actual Windows BAR1 size after a cold boot.
+
+The experimental allocator resizes BAR1 to 8 GiB and relocates BAR1, BAR3 and
+the immediate upstream bridge's prefetchable window. It checks the EFI memory
+map, some other bridge windows, BAR readback and VRAM responses. These checks
+do **not** establish an ACPI `_CRS` resource grant, root-complex routing or safe
+resource allocation for every topology. Failed checks attempt to restore the
+original registers, but rollback cannot guarantee recovery from a stalled
+firmware/MMIO transaction. This is why relocation requires explicit opt-in.
+See [the disk/PCI audit](../docs/research/WINDOWS_DISK_PCI_AUDIT.md).
 
 ## Package Contents
 
@@ -280,7 +289,7 @@ The normal EFI build chainloads Windows directly so firmware does not perform a
 second POST and clear the volatile unlock. If you boot through your own EFI boot
 manager instead (grub, Limine, rEFInd, …), add the `--return-to-bootloader` load
 option to the entry that launches `40HXUNLK.EFI`. The application then applies
-the unlock (and the ReBAR resize) and returns `EFI_SUCCESS` to the parent boot
+the unlock (and ReBAR relocation only if explicitly requested) and returns `EFI_SUCCESS` to the parent boot
 manager instead of chainloading Windows itself, so your menu resumes normally.
 
 ```
@@ -407,16 +416,8 @@ The production path is CMP 40HX/TU106. Legacy GA102 helpers remain in the
 source only as historical research code and are not a claim of support for
 another CMP model. PCIe Gen3 and RT-core unlocks remain unverified research.
 
-The EFI release also contains a best-effort CMP 40HX ReBAR path. It selects
-standard ReBAR selector `7` (8 GiB / 8192 MiB BAR1), relocates BAR1 and BAR3
-inside the upstream bridge's 64-bit prefetch window, and verifies the VRAM
-aperture before accepting the change. The window is chosen from the root
-bridge resource descriptors when firmware exposes them; otherwise a
-topology-relative fallback is tried. Any failed readback or aperture check
-rolls the PCI configuration and XVE state back to the original values.
-I validated the ReBAR path on my CMP 40HX system. It remains
-platform-dependent: it needs Above 4G Decoding and a free 8 GiB-aligned
-64-bit MMIO span in the root-complex topology.
+The EFI also contains the optional experimental ReBAR allocator described
+above. It is disabled by default and is not required for Compute or Gen2.
 
 ## Scope and Safety
 

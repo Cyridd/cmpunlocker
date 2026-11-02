@@ -29,7 +29,7 @@ entries to use this installer. The Gen2 task no longer writes GSP settings.
 - `40HXUninstaller.exe` - remove the components and restore the boot entry.
 - `40HXCheck.exe` - verify compute selectors, GSP, ReBAR, and PCIe status.
 - `files/40HXUNLK.EFI` - UEFI unlock application.
-- `make_usb_efi.bat` - prepare a FAT32 USB fallback.
+- `make_usb_efi.bat` and `copy_efi_verified.ps1` - prepare a FAT32 USB fallback.
 
 No benchmark is bundled. For an independent compute check, use a third-party
 tool such as [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) or
@@ -44,20 +44,28 @@ are not enabled in this release image.
 
 ## ReBAR
 
-The EFI attempts the CMP 40HX ReBAR unlock after a successful compute unlock.
-It selects ReBAR selector `7` and a full 8 GiB (`8192 MiB`) BAR1, keeps BAR3
-in the same bridge window, and verifies both PCI readback and actual VRAM
-responses. The candidate MMIO64 window is selected from the upstream root
-bridge resource descriptors when available, with a bridge-relative fallback
-for firmware that returns no usable resource template. A failed safety check
-restores the original BARs, bridge window, and XVE registers, so the normal
-compute unlock can continue without ReBAR.
+ReBAR relocation is **experimental and disabled by default**. Compute unlock
+and Gen2 keep working with the firmware-assigned BARs. Boots without an
+explicit command-line or ESP-policy opt-in retain stock BARs.
 
-This is topology-dependent and is not a replacement for firmware resource
-allocation. **Above 4G Decoding** and motherboard ReBAR support must be
-enabled; another bridge may already consume the available 64-bit aperture.
-Verify the result with `40HXCheck.exe` or GPU-Z rather than assuming that a
-successful EFI log alone means that Windows retained the 8 GiB mapping.
+Deploy the current Compute EFI and select **Experimental ReBAR relocation
+(8 GB BAR1)** together. Later, `40HXInstaller.exe -rebar` can enable it as
+Administrator. The installer verifies BCD loadoptions and writes
+`\EFI\40HX\REBAR.CFG` on the ESP; the EFI reads and caches this policy before
+GPU mutation. This also covers fallback launches on the same ESP, where BCD
+loadoptions may not reach the image. Both deployed EFI images must match the
+selected policy-aware build before enabling.
+
+`40HXInstaller.exe -norebar` clears the file opt-in and saves the BCD opt-out.
+Another boot manager can still pass `--experimental-rebar` explicitly;
+literal `norebar` overrides both opt-in sources. Installer success confirms
+saved configuration. Confirm activation through the EFI resize result and
+actual Windows BAR1 size after a cold boot.
+
+The experimental allocator's memory-map, bridge and VRAM checks do not prove
+that every chosen address is routable or granted by ACPI `_CRS`. It remains
+platform-dependent and requires separate hardware testing. Verify Windows'
+actual BAR1 size using `40HXCheck.exe` or GPU-Z.
 
 ## Verification and Logs
 

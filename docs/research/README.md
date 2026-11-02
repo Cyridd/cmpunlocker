@@ -8,6 +8,7 @@ install or use the project; start from the [main README](../../README.md) and th
 |---|---|
 | [`CMP40_NVIDIA_PATCHER_PIPELINE_CORRELATION.md`](CMP40_NVIDIA_PATCHER_PIPELINE_CORRELATION.md) | NVIDIA-patcher's Device ID replacement and RM/glcore throttle control in 610/615, tested through the RM response byte |
 | [`CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md`](CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md) | Vulkan pipeline-bind delay with proprietary GSP OFF and argument-0 measurements using command buffers and glcore |
+| [`WINDOWS_DISK_PCI_AUDIT.md`](WINDOWS_DISK_PCI_AUDIT.md) | Disk I/O boundaries, Gen2 guards, experimental ReBAR policy and requirements for a conservative standalone EFI |
 | [`CPU_RM_SMALL_WPR.md`](CPU_RM_SMALL_WPR.md) | Successful proprietary Linux and Windows GSP-OFF handoff, exact heap geometry, paired throughput and numerical checks |
 | [`CPU_RM_PCIE_GEN2.md`](CPU_RM_PCIE_GEN2.md) | Proprietary Linux Gen2: native policy reset, successful runtime-only cold control and doubled DMA bandwidth |
 | [`GRID_CPU_RM_REPORT.md`](GRID_CPU_RM_REPORT.md) | GRID 19.6 community compute success, boot ordering/GSP compatibility and the cached-v1 Gen2 boundary |

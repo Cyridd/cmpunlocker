@@ -11,8 +11,8 @@ those binaries are reproducible from the v3.0 source.
 ## Changes in this fork
 
 The current FULL EFI supports **GSP OFF / CPU-RM** using the tested 960 KiB
-temporary Booter heap and complete native Booter handoff. It keeps the current
-ReBAR allocator, return-to-bootloader options and signed-image deployment.
+temporary Booter heap and complete native Booter handoff. It keeps return-to-bootloader options and signed-image deployment.
+ReBAR resource relocation now requires an explicit experimental opt-in.
 The installer now offers **Disable GSP (recommended)**, writes an explicit
 `EnableGpuFirmware=0`, detects outdated ESP payloads, upgrades EFI before
 switching GSP, and redirects existing Gen2 login entries to the current
@@ -54,11 +54,11 @@ The notice asking for manual boot-order setup uses an information icon.
    the XVE Resizable BAR control register (like GPU-Z) and prints whether it is
    enabled and the current BAR1 size (8 GB when the unlock resize is in effect,
    64 MB stock).
-7. The installer exposes ReBAR as a component. The unlock EFI resizes BAR1 to
-   8 GiB at boot by default; the installer's *ReBar Unlock* checkbox (and the
-   `-rebar` command line) ensure the boot entry has no `norebar` token, while
-   `-norebar` writes that token to opt out. Because the default (no token) is
-   "on", firmware that ignores load options keeps the previous behaviour.
+7. ReBAR resource relocation is experimental and disabled by default, including
+   full installation and USB/fallback boot. The unchecked installer component
+   or `-rebar` adds `--experimental-rebar` to the EFI entry; `-norebar` disables
+   it. Compute unlock and Gen2 do not require relocation. See the
+   [disk/PCI audit](../docs/research/WINDOWS_DISK_PCI_AUDIT.md).
 8. Secure Boot can stay enabled. `tools/unlock40x/sign_efi.sh` signs the built
    EFI with the operator's own `db` key (`sbctl`, or `sbsign`), and the installer
    deploys a user-supplied image via `-efi <path>` or a `40HXUNLK.signed.efi`
@@ -74,7 +74,7 @@ The notice asking for manual boot-order setup uses an information icon.
 
 Add the `--return-to-bootloader` load option to the EFI entry that launches
 `40HXUNLK.EFI` (for example, a Limine `cmdline:` or a grub `chainloader`
-argument). The application applies the unlock and the ReBAR resize, then returns
+argument). The application applies the unlock (ReBAR relocation requires its own opt-in), then returns
 `EFI_SUCCESS` to the parent boot manager instead of chainloading Windows itself,
 so your menu resumes normally. `--return-to-grub` and `--return-to-limine` are
 accepted as aliases.
