@@ -5,11 +5,15 @@
 - **Proprietary CPU-RM compute unlock:** native initialization and CUDA
   throughput validated on `610.43.03` and `615.78.08` with GSP OFF, on an
   8 GiB CMP40HX/TU106. Use [the separate guide](../linux/cpu-rm/README.md).
-  Other releases, GRID/vGPU, suspend/resume and other models are unvalidated.
+  Other releases, GRID/vGPU, suspend/resume and other models have not been
+  independently validated.
   This path does not apply the open-module PCIe/ReBAR/profiling patches.
   A [community GRID 19.6 / 580.178.05 report](research/GRID_CPU_RM_REPORT.md)
-  confirms compute unlock and healthy host initialization on one Proxmox
-  system. Its Gen2 attempt failed; guest performance has not been verified.
+  documents compute unlock and healthy host initialization on one Proxmox
+  system, Linux guest CUDA/Tensor Core throughput and Windows guest OpenCL
+  throughput. The reporter also ran clpeak repeatedly for about half an hour
+  without noticed instability or driver errors. These guest results have not
+  been independently reproduced; the physical link remains Gen1 x8.
 
 - **NVIDIA open-gpu-kernel-modules `580.173.02`, `610.57.04` and `615.78.08` (default).** Select one with `--driver-version=VER`; other driver versions require porting and revalidation. The userspace/firmware version must match the selected kernel-module version.
 

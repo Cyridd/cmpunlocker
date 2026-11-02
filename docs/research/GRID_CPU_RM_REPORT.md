@@ -1,10 +1,13 @@
 # CMP40HX CPU-RM on GRID 19.6
 
-The [2026-11-01 report in issue #8](https://github.com/Cyridd/cmpunlocker/issues/8#issuecomment-6555353992)
+The [host report in issue #8](https://github.com/Cyridd/cmpunlocker/issues/8#issuecomment-6555353992)
 describes successful compute unlock with the existing pre-driver module at
 commit `275bf98`, followed by proprietary GRID 19.6 / NVIDIA 580.178.05.
-The report was prepared with another language model and supplied by @Scirese;
-its logs are useful evidence, but I have not reproduced this host myself.
+The [guest follow-up](https://github.com/Cyridd/cmpunlocker/issues/8#issuecomment-6570291262)
+includes Linux CUDA and Windows OpenCL benchmarks, plus about half an hour
+of repeated clpeak runs without noticed instability or driver errors.
+These are community results supplied by @Scirese; they have not been
+independently reproduced here.
 
 ## Reported setup and result
 
@@ -21,9 +24,63 @@ its logs are useful evidence, but I have not reproduced this host myself.
 | PCIe result | Gen1 x8; runtime Gen2 did not succeed |
 
 This extends the compatibility evidence beyond the independently tested
-610.43.03 and 615.78.08 drivers. It does not yet establish Tensor Core
-throughput inside a guest, numerical correctness, sustained vGPU workloads,
-guest restart, host driver reinitialization or suspend/resume.
+610.43.03 and 615.78.08 drivers. Guest Tensor Core throughput is now documented,
+while numerical correctness, guest restart, host driver reinitialization and
+suspend/resume remain untested in this report.
+
+## Guest benchmarks and stability
+
+The follow-up reports that compute unlock works without additional changes
+to the guest drivers. The Linux guest exposes `NVIDIA RTXA6000-1Q` with
+1024 MB VRAM; the Windows guest exposes `NVIDIA RTXA6000-4Q` with 4095 MB.
+These are virtual profile names on the physical TU106 card. The Linux
+screenshot identifies `sm_75` and 34 SMs; the Windows screenshot lists
+34 compute units at 1650 MHz.
+
+### Linux guest: clpeak CUDA backend
+
+clpeak displays `Driver Version: 13.0` and `Toolkit: 13.4` in its CUDA header.
+The screenshot does not identify the guest's NVIDIA kernel-driver release.
+
+| Measurement | Reported result |
+|---|---:|
+| FP32 loop | 7.79 TFLOPS |
+| FP16, half / half2 | 16.4 / 16.4 TFLOPS |
+| FP64 | 258 GFLOPS |
+| Mixed FP16 × FP16 + FP32, shader cores | 8.18 TFLOPS |
+| INT32 IMAD | 8.08 TOPS |
+| INT8 `dp4a`, four variants | 32.1 / 32.1 / 32.2 / 32.0 TOPS |
+| WMMA FP16 | 65.8 TFLOPS |
+| WMMA INT8 | 131 TOPS |
+| WMMA INT4 | 247 TOPS |
+| Global memory, float / float2 / float4 | 372 / 391 / 404 GB/s |
+| Local memory, float / float2 / float4 | 2.77 / 3.43 / 3.74 TB/s |
+
+### Windows guest: OpenCL-Benchmark
+
+The screenshot reports guest driver `582.78 (Windows)` and OpenCL 3.0.
+
+| Measurement | Reported result |
+|---|---:|
+| FP64 | 0.258 TFLOPS |
+| FP32 | 8.251 TFLOPS |
+| FP16, half2 | 16.387 TFLOPS |
+| INT64 / INT32 / INT16 | 1.965 / 8.122 / 7.131 TIOPS |
+| INT8 `dp4a` | 29.730 TIOPS |
+| Coalesced memory read / write | 399.30 / 409.18 GB/s |
+| Misaligned memory read / write | 261.34 / 80.71 GB/s |
+| PCIe send / receive / bidirectional | 1.40 / 1.43 / 1.41 GB/s |
+
+OpenCL-Benchmark labels the PCIe link `Gen1 x16`, while the physical host
+report establishes Gen1 x8. The guest label does not verify physical lane
+width. The reporter suggests Gen1 x8 and VM overhead explain the lower
+throughput relative to the examples in [results](../results.md), but these
+runs do not isolate either cause.
+
+The repeated clpeak runs provide a reported stability observation over about
+half an hour. No paired stock/FULL guest runs, ZERO control, numerical check
+or captured kernel-error audit was supplied. Guest lifecycle and longer
+workloads still need separate validation.
 
 ## Integration fixes
 
@@ -93,8 +150,8 @@ Resolving accessor suppression alone would not prove usable Gen2.
   compute cleanup, native NVIDIA load, vGPU-module load or manager startup.
 - Compare separate cold boots with Gen2 off versus pre-driver `prepare`,
   keeping GRID, guests and the later helper identical.
-- Confirm guest Tensor Core throughput and numerical results independently
-  of PCIe speed, then exercise guest/manager lifecycle transitions.
+- Independently reproduce the guest measurements with paired stock/FULL and
+  numerical controls, then exercise guest/manager lifecycle transitions.
 
 The public runtime v1 guard remains in place. This report does not justify
 changing kernel PCI caches, blindly clearing CFG bit 22, or enabling Link

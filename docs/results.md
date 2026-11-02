@@ -4,7 +4,7 @@ Unless stated otherwise, the measurements below come from the Windows/UEFI unloc
 path on one system: CMP 40HX, AMD Ryzen 5 5600G host, NVIDIA driver `617.14`,
 CUDA Toolkit `13.4`. The Windows-side summary is in
 [`windows/README.md`](../windows/README.md#results). My Linux measurements
-are at the end of this page.
+and a separately attributed community GRID/vGPU report follow below.
 
 ## clpeak (CUDA backend)
 
@@ -224,3 +224,28 @@ upgrade: Disable GSP changed `EnableGpuFirmware=1` to `0`, and the Gen2 task
 left it at `0`. GRID/vGPU support has not been independently validated.
 The exact geometry, controls, full table, provenance and limitations are in
 [CPU_RM_SMALL_WPR.md](research/CPU_RM_SMALL_WPR.md).
+
+## Community GRID/vGPU guest results
+
+The [follow-up in issue #8](https://github.com/Cyridd/cmpunlocker/issues/8#issuecomment-6570291262)
+reports Linux and Windows guest benchmarks on one CMP40HX host running
+Proxmox VE 9.2.24, proprietary GRID 19.6 / 580.178.05 with GSP OFF and
+vgpu-unlock. Compute unlock used the pre-driver module at commit `275bf98`;
+the reporter says no additional guest-driver changes were needed. The
+physical link remained Gen1 x8.
+
+| Guest and benchmark | Reported measurements |
+|---|---|
+| Linux, clpeak CUDA, `NVIDIA RTXA6000-1Q` | FP32 7.79 TFLOPS; WMMA FP16 65.8 TFLOPS, INT8 131 TOPS, INT4 247 TOPS; `dp4a` 32.0 to 32.2 TOPS |
+| Windows, OpenCL-Benchmark, `NVIDIA RTXA6000-4Q`, driver 582.78 | FP32 8.251 TFLOPS; FP16 half2 16.387 TFLOPS; `dp4a` 29.730 TIOPS; PCIe send/receive 1.40/1.43 GB/s |
+
+The profile names are virtual identities on the physical TU106 card. The
+Windows benchmark's `Gen1 x16` label does not establish physical lane width;
+the host report specifies x8. The reporter also describes about half an hour
+of repeated clpeak runs without noticed instability or driver errors.
+
+These are community results without independent reproduction, paired
+stock/FULL guest measurements or numerical checks. They do not establish a
+guest speed-up factor or explain the differences from the other systems on
+this page. Guest details and the remaining Gen2 investigation are in
+[GRID_CPU_RM_REPORT.md](research/GRID_CPU_RM_REPORT.md).

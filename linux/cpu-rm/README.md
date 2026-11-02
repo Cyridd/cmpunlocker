@@ -11,7 +11,10 @@ separate choice. Its PCIe/ReBAR/profiling patches are not applied by this tool.
 GRID/vGPU, other CMP models, suspend/resume and other driver releases have not
 been independently validated for this CPU-RM path.
 The [GRID 19.6 community report](../../docs/research/GRID_CPU_RM_REPORT.md)
-confirms compute unlock on one 580.178.05 host; Gen2 remains unresolved there.
+documents compute unlock on one 580.178.05 host, Linux guest CUDA/Tensor Core
+benchmarks and Windows guest OpenCL benchmarks without additional guest-driver
+changes. About half an hour of repeated clpeak runs reportedly produced no
+noticed instability or driver errors. Gen2 remains unresolved there (Gen1 x8).
 
 ## Prepare and build
 
@@ -98,8 +101,9 @@ vGPU module before starting the manager and guests:
 sudo modprobe nvidia_vgpu_vfio
 ```
 
-This ordering addresses the reported early-driver-load problem; it does not
-install GRID or vgpu-unlock, or establish guest performance compatibility.
+This ordering addresses the reported early-driver-load problem. GRID and
+vgpu-unlock must be installed separately; the scope of the reported guest
+benchmarks is recorded in [the GRID report](../../docs/research/GRID_CPU_RM_REPORT.md#guest-benchmarks-and-stability).
 
 Expected pre-driver markers:
 

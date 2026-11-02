@@ -100,9 +100,10 @@ establish successful initialization.
 
 Use the [Linux guide](../../linux/cpu-rm/README.md) or
 [Windows guide](../../windows/README.md). The small heap is for this
-pre-driver transaction; running GSP-RM with it is not validated. GRID/vGPU,
-other boards/models, long-duration stability, reset recovery and
-suspend/resume remain outside the confirmed scope.
+pre-driver transaction; running GSP-RM with it is not validated. Other
+boards/models, long-duration stability, reset recovery and suspend/resume
+remain outside the confirmed scope. Separate community GRID/vGPU host and
+guest results are recorded in [the GRID report](GRID_CPU_RM_REPORT.md).
 
 ## Repository integration checks
 
