@@ -394,10 +394,29 @@ func rawPcieDump() string {
 	lnkcap, lnkctl, lnksta := rd(cap+0x0C), rd(cap+0x10), rd(cap+0x12)
 	lnkctl2, lnksta2 := rd(cap+0x30), rd(cap+0x32)
 	sb.WriteString(fmt.Sprintf("  LNKCAP =0x%08X  MaxLinkSpeed=%s\n", lnkcap, spdName(lnkcap&0xF)))
+	sb.WriteString(fmt.Sprintf("  LNKCAP2=0x%08X\n", rd(cap+0x2C)))
 	sb.WriteString(fmt.Sprintf("  LNKCTL =0x%08X (ASPM=%d RetrainLink=%d)\n", lnkctl, (lnkctl>>0)&3, (lnkctl>>5)&1))
 	sb.WriteString(fmt.Sprintf(tr("  LNKSTA =0x%08X current=%s width=x%d\n", "  LNKSTA =0x%08X текущая=%s ширина=x%d\n", "  LNKSTA =0x%08X 当前=%s 宽度=x%d\n"), lnksta, spdName(lnksta&0xF), (lnksta>>4)&0x3F))
 	sb.WriteString(fmt.Sprintf(tr("  LNKCTL2=0x%08X target=%s\n", "  LNKCTL2=0x%08X цель=%s\n", "  LNKCTL2=0x%08X 目标=%s\n"), lnkctl2, spdName(lnkctl2&0xF)))
 	sb.WriteString(fmt.Sprintf("  LNKSTA2=0x%08X\n", lnksta2))
+	if port, err := hxcore.FindGPUExclusivePort(wh, bdf); err != nil {
+		fmt.Fprintf(&sb, "  Immediate upstream: unavailable (%v)\n", err)
+	} else {
+		fmt.Fprintf(&sb, "  Immediate upstream: %s ID=%08X\n", port, port.VendorDevice)
+		for _, r := range []struct {
+			offset uint32
+			name   string
+		}{
+			{0x0C, "LNKCAP"}, {0x10, "LNKCTL/STA"}, {0x2C, "LNKCAP2"}, {0x30, "LNKCTL2/STA2"},
+		} {
+			v, err := hxcore.PciRd(wh, port.BDF, port.Capability+r.offset)
+			if err != nil || v == 0xFFFFFFFF {
+				fmt.Fprintf(&sb, "    %s unavailable (%v)\n", r.name, err)
+			} else {
+				fmt.Fprintf(&sb, "    %s=%08X\n", r.name, v)
+			}
+		}
+	}
 	// BAR0 BOOT_0 — 确认 BAR0 真指向 40HX MMIO
 	if bar0raw, e := hxcore.PciRd(wh, bdf, 0x10); e == nil {
 		bar0 := uint64(bar0raw & 0xFFFFFFF0)
@@ -435,10 +454,10 @@ func rawPcieDump() string {
 func knownIssuesBlock() string {
 	var sb strings.Builder
 	sb.WriteString(tr("\n--- Known limitations / potential issues ("+hxcore.Version+", not fully covered by the community) ---\n", "\n--- Известные ограничения / возможные проблемы ("+hxcore.Version+", не полностью проверено сообществом) ---\n", "\n--- 已知限制 / 潜在问题 ("+hxcore.Version+", 社区未全覆盖项) ---\n"))
-	sb.WriteString(tr("· Driver/GSP holds a link policy (GSP-RM): at idle/low load nvlddmkm writes the GPU-side TLS back to Gen1; the automatic Stage2 fallback or LD (-hard) clears it. Confirmed **not firmware write-protection** (batch numbers .06/.04 are not a criterion); **do NOT flash the VBIOS** — if it still fails, send diagnostics and logs to me.\n", "· Драйвер/GSP удерживает политику канала (GSP-RM): при простое/низкой нагрузке nvlddmkm возвращает TLS со стороны GPU в Gen1; автоматический откат Stage2 или LD (-hard) снимает это. Подтверждено, что это **не защита прошивки от записи** (номера партий .06/.04 не являются критерием); **НЕ прошивайте VBIOS** — если не помогло, отправьте диагностику и журналы мне.\n", "· 驱动/GSP 持有链路策略(GSP-RM): 空闲/低负载时 nvlddmkm 把 GPU 侧 TLS 回写 Gen1; Stage2 自动回退或 LD(-hard) 可解除。已确认**不是固件写保护**(批次号 .06/.04 不能当判据), **不要刷 VBIOS** — 仍失败发诊断与日志反馈给我。\n"))
-	sb.WriteString(tr("· Off-brand boards / multi-GPU: retrain-only cannot reach Gen2 on some boards/topologies and needs the Root Link Disable fallback (a brief link drop). Since v2.6 the logon task automatically tries Stage2 once (Gen2AutoHard); if it still fails, run `40HXInstaller.exe -gen2 -hard` by hand.\n", "· Некачественные платы / несколько карт: retrain-only не достигает Gen2 на некоторых платах/топологиях и требует отката Root Link Disable (кратковременный разрыв канала). С v2.6 задача входа автоматически один раз пробует Stage2 (Gen2AutoHard); если не помогло, выполните `40HXInstaller.exe -gen2 -hard` вручную.\n", "· 寨板/多卡: retrain-only 在部分主板/拓扑训不上 Gen2, 需 Root Link Disable 回退(瞬断链路)。v2.6 登录任务默认已自动尝试一次 Stage2(Gen2AutoHard); 仍失败可手动 `40HXInstaller.exe -gen2 -hard`。\n"))
+	sb.WriteString("\u00b7 Gen2 can remain unavailable after GPU register preparation. Collect the installer log and both sides of the PCIe link before choosing another recovery attempt.\n")
+	sb.WriteString("\u00b7 Complex PCIe topologies: ordinary retraining requires a verified immediate GPU-only port. Link Disable is limited to an exclusive direct bus-0 root port and is off by default.\n")
 	sb.WriteString(tr("· EFI cannot find the card (older versions only scanned bus 0-7): the current EFI extended this to 0-16 plus a CF8 0-255 fallback, covering AGESA/high buses (MSI B450 measured at bus 0x10). If it is still not found after reinstalling the current EFI, the firmware likely did not initialize that headless slot — in BIOS set Above4G + Re-Size BAR / Init Display First = PEG / move the card to the top CPU slot, and send 40hx_log.txt (with the \"diag: CF8 visible devices\" device-map section) to me.\n", "· EFI не находит карту (старые версии сканировали только шину 0-7): текущий EFI расширил это до 0-16 плюс резерв CF8 0-255, охватывая AGESA/высокие шины (MSI B450 измерена на шине 0x10). Если после переустановки текущего EFI карта все еще не найдена, прошивка, вероятно, не инициализировала этот безголовый слот — в BIOS включите Above4G + Re-Size BAR / Init Display First = PEG / переставьте карту в верхний слот CPU и отправьте 40hx_log.txt (с разделом карты устройств \"diag: CF8 visible devices\") мне.\n", "· EFI 找不到卡(旧版只扫 bus 0-7): v3.0 已扩到 0-16 + CF8 全 0-255 兜底, 覆盖 AGESA/高总线(微星 B450 实测 bus 0x10); 若重装 v3.0 EFI 后仍 not found, 多为固件没初始化该无头槽 — 走 BIOS: Above4G+Re-Size BAR / Init Display First=PEG / 插 CPU 顶槽, 并把 40hx_log.txt(含 \"diag: CF8 visible devices\" 设备映射段)发给我。\n"))
-	sb.WriteString(tr("· Idle power-saving downshift: dropping to Gen1 at low load is normal and returns to Gen2 under load; if diagnostics show TLS=Gen2 the configuration succeeded, this is not a failure.\n", "· Понижение скорости для экономии энергии в простое: падение до Gen1 при низкой нагрузке нормально и возвращается к Gen2 под нагрузкой; если диагностика показывает TLS=Gen2, настройка удалась, это не сбой.\n", "· 空闲省电降速: 负载低时链路降到 Gen1 属正常, 负载自动回 Gen2; 诊断 TLS=Gen2 即配置成功, 非失败。\n"))
+	sb.WriteString("\u00b7 A Gen2 target alone does not confirm a Gen2 link. Gen1 may be an idle state or failed training; verify the actual speed under sustained load on the CMP 40HX.\n")
 	sb.WriteString(tr("· Coexistence with the ThrottleStop app: this tool shares ThrottleStop\x27s driver name, reuses its driver, and neither removes nor interrupts it; if there is a conflict, close ThrottleStop and re-run.\n", "· Сосуществование с приложением ThrottleStop: инструмент использует то же имя драйвера, повторно использует его драйвер и не удаляет и не прерывает его; при конфликте закройте ThrottleStop и перезапустите.\n", "· ThrottleStop 软件共存: 本工具驱动与 ThrottleStop 同名, 自动复用其驱动、不删除不打断; 若冲突可关闭 ThrottleStop 后重跑。\n"))
 	sb.WriteString(tr("· AV quarantine: third-party AV may quarantine the driver .sys; Defender exclusions are added, for other AV please allow this project\x27s files in its security center.\n", "· Карантин антивируса: сторонний антивирус может поместить .sys драйвера в карантин; исключения Defender добавлены, для других антивирусов разрешите файлы этого проекта в их центре безопасности.\n", "· 杀软隔离: 第三方杀软可能隔离驱动 .sys; 已加 Defender 排除, 其他杀软请在安全中心放行本项目文件。\n"))
 	sb.WriteString(tr("· Driver signing: a renamed/recompiled .sys loses its original signature and would need test-signing / an EV certificate; official release files keep the original signature.\n", "· Подпись драйвера: переименованный/перекомпилированный .sys теряет исходную подпись и потребует тестовой подписи / EV-сертификата; официальные выпуски сохраняют исходную подпись.\n", "· 驱动签名: 改名重编的 .sys 会丢失原签名, 需测试签名/EV 证书; 正式发布件保持原签名。\n"))
@@ -505,7 +524,7 @@ func check() {
 	w("\n%s\n", bar)
 	state := tr("cannot measure (driver not ready)", "нельзя измерить (драйвер не готов)", "无法实测 (驱动未就绪)")
 	switch {
-	case st.SS0OK && st.Unlocked && st.Speed >= 2:
+	case st.SS0OK && st.Unlocked && hxcore.Gen2Reached(st.Speed):
 		state = tr("full compute + Gen2 reached", "полная вычислит. мощность + Gen2 достигнут", "算力满血 + Gen2 达成")
 	case st.SS0OK && st.Unlocked && st.TLS >= 2:
 		state = tr("full compute + Gen2 target configured (link not yet at Gen2)", "полная мощность + цель Gen2 настроена (канал еще не на Gen2)", "算力满血 + Gen2 目标已配置 (当前链路未到 Gen2)")
@@ -531,7 +550,7 @@ func check() {
 			spd += fmt.Sprintf(" ×%d", st.Width)
 		}
 		if st.Speed < 2 && st.TLS >= 2 {
-			spd += fmt.Sprintf(tr(" (target Gen%d — idle power-saving downshift is normal; if it stays Gen1 under sustained load see the verdict)", " (цель Gen%d — понижение для экономии в простое нормально; если под постоянной нагрузкой остается Gen1, см. заключение)", " (目标 Gen%d — 空闲省电降速属正常; 若持续负载仍 Gen1 见结论)"), st.TLS)
+			spd += fmt.Sprintf(" (target Gen%d; Gen2 link not confirmed by this measurement)", st.TLS)
 		}
 	}
 	w(tr("  Compute  : %s\n", "  Вычисления : %s\n", "  算力     : %s\n"), comp)
@@ -632,7 +651,7 @@ func check() {
 	// --- D. 结论与建议 ---
 	verdict := ""
 	switch {
-	case st.Unlocked && st.Speed >= 2:
+	case st.Unlocked && hxcore.Gen2Reached(st.Speed):
 		verdict = tr(">>> Unlock succeeded: full Tensor + Gen2", ">>> Разблокировка удалась: полный Tensor + Gen2", ">>> 解锁成功: Tensor 满血 + Gen2")
 		if st.Width >= 1 {
 			verdict += fmt.Sprintf(" ×%d", st.Width)
@@ -641,7 +660,7 @@ func check() {
 		}
 	case st.Unlocked && st.TLS >= 2:
 		if st.Speed == 1 {
-			verdict = tr(">>> Full compute + Gen2 target configured (currently Gen1: idle power-saving downshift or not yet retrained this run; returns to Gen2 under load/after retrain)", ">>> Полная мощность + цель Gen2 настроена (сейчас Gen1: понижение для экономии в простое или еще не переобучено в этом запуске; вернется к Gen2 под нагрузкой/после переобучения)", ">>> 算力满血 + Gen2 目标已配置 (当前 Gen1: 空闲省电降速或本次尚未训上; 负载/重训后回 Gen2)")
+			verdict = ">>> Full compute; Gen2 target set, but the link is currently Gen1. Idle downshift and failed training cannot be distinguished from TLS alone."
 		} else {
 			verdict = tr(">>> Full compute + Gen2 target configured (current link speed not measured)", ">>> Полная мощность + цель Gen2 настроена (текущая скорость канала не измерена)", ">>> 算力满血 + Gen2 目标已配置 (当前链路速率未测到)")
 		}
@@ -702,19 +721,19 @@ func check() {
 		tips = append(tips, tr("· Fast Startup (hybrid hibernation) is on: a shutdown-then-boot may skip a full UEFI boot → the EFI does not run;\n  the installer disables it automatically; manually: Control Panel > Power Options, uncheck 「Fast Startup」", "· Быстрый запуск (гибридный гибернат) включен: выключение и включение может пропустить полную загрузку UEFI → EFI не выполняется;\n  установщик отключает его автоматически; вручную: Панель управления > Электропитание, снимите флажок 「Быстрый запуск」", "· 快速启动(混合休眠)开启: 关机再开可能不做完整 UEFI 引导 → EFI 不执行;\n  安装器会自动关闭; 手动: 控制面板电源选项取消勾选『快速启动』"))
 	}
 	if aspmOK && (ac > 0 || dc > 0) {
-		tips = append(tips, tr("· PCIe link power saving (ASPM) is on: dropping to Gen1 at idle is normal saving and recovers under load;\n  to stay at Gen2 disable it: powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 0\n  (then the same with -setdcvalueindex, then -setactive SCHEME_CURRENT to apply)", "· Энергосбережение канала PCIe (ASPM) включено: падение до Gen1 в простое — нормальная экономия, восстанавливается под нагрузкой;\n  чтобы оставаться на Gen2, отключите: powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 0\n  (затем то же с -setdcvalueindex, затем -setactive SCHEME_CURRENT для применения)", "· PCIe 链路省电(ASPM)开启: 空闲时降到 Gen1 属正常省电, 负载自动回升;\n  想常驻 Gen2 可关闭: powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 0\n  (再加 -setdcvalueindex 同参数, 然后 -setactive SCHEME_CURRENT 生效)"))
+		tips = append(tips, "\u00b7 PCIe ASPM is enabled. Its setting does not establish whether Gen2 has been reached; inspect the actual CMP link speed under sustained load.")
 	}
 	if !taskOK {
 		tips = append(tips, tr("· The Gen2 scheduled task is not registered: Gen2 will not unlock automatically after logon —\n  double-click 40HXInstaller.exe → ② click [Run Gen2 and install autostart] to do it in one step (unlock now + register autostart); or ① check [Gen2 logon autostart] and click [Install selected components]", "· Задача планировщика Gen2 не зарегистрирована: Gen2 не разблокируется автоматически после входа —\n  дважды щелкните 40HXInstaller.exe → ② нажмите [Выполнить Gen2 и установить автозапуск] за один шаг (разблокировать сейчас + зарегистрировать автозапуск); или ① отметьте [Автозапуск Gen2 при входе] и нажмите [Установить выбранные компоненты]", "· Gen2 计划任务未注册: 登录后不会自动解锁 Gen2 —\n  双击 40HXInstaller.exe → ② 点[执行 Gen2 并安装自启]一步到位（本次解锁+注册自启）; 或 ① 勾[Gen2 登录自启]点[安装所选组件]"))
 	}
 	if st.SS0OK && st.TLS < 2 && st.TLS >= 1 && st.Unlocked {
-		tips = append(tips, tr("· Gen2 target rate (TLS) is still Gen1: the unlock write did not take — if the log shows all four PL0 registers OK but LNKCTL2 reads back as Gen1,\n  the driver usually rewrites the link policy within milliseconds; the logon task (if registered) tries automatically after logon and runs the Stage2 fallback; if it still fails, first retry [Run Gen2 now] in GUI ② (the Stage2 fallback is included automatically by default) — only use the command line `40HXInstaller.exe -gen2 -hard` when auto-fallback is turned off in ② or you want to force it. Confirmed not to be firmware write protection, **do NOT flash the VBIOS** — if it still fails, send diagnostics and installer.log for feedback (see README §5.2)", "· Целевая скорость Gen2 (TLS) все еще Gen1: запись разблокировки не применилась — если лог показывает все четыре регистра PL0 OK, но LNKCTL2 читается как Gen1,\n  драйвер обычно переписывает политику канала в течение миллисекунд; задача входа (если зарегистрирована) автоматически пробует после входа и запускает откат Stage2; если по-прежнему не удаётся, сначала повторите [Выполнить Gen2 сейчас] в GUI ② (откат Stage2 включён автоматически по умолчанию) — командную строку `40HXInstaller.exe -gen2 -hard` используйте только если авто-откат в ② выключен или нужно принудительно. Подтверждено, что это не защита прошивки от записи, **НЕ прошивайте VBIOS** — если всё равно не удаётся, пришлите диагностику и installer.log (см. README §5.2)", "· Gen2 目标速率(TLS)仍是 Gen1: 解锁写入未生效 — 若日志显示 PL0 四寄存器全 OK 而回读 LNKCTL2 仍 Gen1,\n  多为驱动持链路策略毫秒内回写; 登录任务(前提: 已注册)在登录后会自动尝试并跑 Stage2 回退; 仍失败先在 GUI ② 点[立即执行 Gen2]（默认自动含 Stage2 回退）重试 — 仅当 ② 里关掉了自动回退或想强制触发时才用命令行 `40HXInstaller.exe -gen2 -hard`。已确认不是固件写保护, **不要刷 VBIOS** — 仍不行发诊断与 installer.log 反馈(见 README §5.2)"))
+		tips = append(tips, "\u00b7 The GPU target remains Gen1. Collect the installer log and upstream PCIe diagnostics; the target value alone does not identify a firmware or driver restriction.")
 	}
-	if st.SS0OK && st.Unlocked && st.Speed < 2 && st.TLS >= 2 {
-		tips = append(tips, tr("· Gen2 target is configured (TLS=Gen2) but the current link is Gen1: usually idle power-saving downshift (normal, recovers under load); if it stays Gen1 under sustained load, retrain directly via [Run Gen2 now] in GUI ② (Gen2AutoHard is on by default and runs the Stage2 fallback automatically); only use the command line `40HXInstaller.exe -gen2 -hard` when auto-fallback is off in ② or you want to force it (briefly drops the link, see README §3.3)", "· Цель Gen2 настроена (TLS=Gen2), но текущий канал Gen1: обычно понижение для экономии в простое (нормально, восстанавливается под нагрузкой); если под постоянной нагрузкой остаётся Gen1, переобучите напрямую через [Выполнить Gen2 сейчас] в GUI ② (Gen2AutoHard включён по умолчанию и запускает откат Stage2 автоматически); командную строку `40HXInstaller.exe -gen2 -hard` используйте только если авто-откат в ② выключен или нужно принудительно (кратковременно разрывает канал, см. README §3.3)", "· Gen2 目标已配置(TLS=Gen2)但当前链路 Gen1: 多为空闲省电降速(正常, 负载自动回升); 若持续负载仍 Gen1: 直接在 GUI ② 点[立即执行 Gen2] 重训（Gen2AutoHard 默认开会自动走 Stage2 回退）; 仅当 ② 关掉自动回退或想强制触发时, 再用命令行 `40HXInstaller.exe -gen2 -hard`(瞬断链路, 见 README §3.3)"))
+	if st.Speed < 2 && hxcore.Gen2Reached(st.TLS) {
+		tips = append(tips, "\u00b7 Target Gen2 is set, but a Gen2 link is unconfirmed. Check the CMP 40HX under sustained load and send the installer log plus immediate-upstream diagnostics if it remains Gen1. Link Disable is off by default and is unavailable for chipset downstream ports.")
 	}
-	if !taskOK && st.SS0OK && st.Unlocked && (st.Speed >= 2 || st.TLS >= 2) {
-		tips = append(tips, tr("· Note: the current Gen2 status is measured from the GPU target-rate register (TLS); if no unlock flow has run this boot (autostart task not registered), the value is most likely a leftover from the previous run — a full shutdown-then-boot / GPU reset will re-lock it. Use GUI ② [Run Gen2 and install autostart] to do it in one step (unlock now + register boot autostart)", "· Примечание: текущий статус Gen2 измерен из регистра целевой скорости GPU (TLS); если в этой загрузке не выполнялся ни один процесс разблокировки (задача автозапуска не зарегистрирована), значение, скорее всего, осталось от предыдущего запуска — полное выключение и включение / сброс видеокарты снова заблокирует. Используйте GUI ② [Выполнить Gen2 и установить автозапуск] за один шаг (разблокировать сейчас + зарегистрировать автозапуск при загрузке)", "· 注: 当前 Gen2 状态来自 GPU 目标速率寄存器(TLS)实测; 若本次开机还没有任何解锁流程执行过(自启任务未注册), 该值多半是上次运行残留 — 完全关机再开/显卡复位后会回锁。请用 GUI ② [执行 Gen2 并安装自启] 一步到位(本次解锁+注册开机自启)"))
+	if !taskOK && st.SS0OK && st.Unlocked && hxcore.Gen2Reached(st.Speed) {
+		tips = append(tips, "\u00b7 Gen2 is currently observed, but the logon task is not registered. The unlock may need to be reapplied after a full GPU reset or power cycle.")
 	}
 	if throttleStopAppRunning() && !drvOK {
 		tips = append(tips, tr("· The ThrottleStop app is running and this tool\x27s driver is not ready: the tool reuses its driver automatically; if it still fails, close ThrottleStop and re-run the installer", "· Приложение ThrottleStop запущено, а драйвер этого инструмента не готов: инструмент автоматически повторно использует его драйвер; если не помогло, закройте ThrottleStop и перезапустите установщик", "· 检测到 ThrottleStop 软件在运行且本工具驱动未就绪: 本工具自动复用其驱动; 若仍失败, 关闭 ThrottleStop 后重跑安装器"))
@@ -769,7 +788,7 @@ func check() {
 	if copied {
 		note = tr("\n\nThe full diagnostics (with troubleshooting suggestions and raw registers) were copied to the clipboard — just paste into the issue.", "\n\nПолная диагностика (с рекомендациями и сырыми регистрами) скопирована в буфер обмена — просто вставьте в issue.", "\n\n完整诊断(含排查建议与原始寄存器)已复制到剪贴板 — 直接粘贴到 issue 即可。")
 	}
-	ok := st.Unlocked && (st.Speed >= 2 || st.TLS >= 2)
+	ok := st.Unlocked && hxcore.Gen2Reached(st.Speed)
 	// 弹窗只给简洁结论 + 指向详细日志; 详细内容已在 diagnose.txt 与剪贴板。
 	msgbox(guiHead+popupTip+tr("\n\nThe full diagnostics (with troubleshooting suggestions and raw PCIe registers) were written to:\n", "\n\nПолная диагностика (с рекомендациями и сырыми регистрами PCIe) записана в:\n", "\n\n完整诊断(含排查建议与原始 PCIe 寄存器)已写入:\n")+dir+tr("\\diagnose.txt\nFor troubleshooting guidance see AI辅助安装提示词.txt (AI-assisted install prompts) inside the package", "\\diagnose.txt\nРуководство по устранению неполадок см. в AI辅助安装提示词.txt (подсказки для установки с помощью ИИ) внутри пакета", "\\diagnose.txt\n排查引导见包内 AI辅助安装提示词.txt")+note,
 		map[bool]uint{true: 0x40, false: 0x30}[ok])

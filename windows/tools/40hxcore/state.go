@@ -31,12 +31,11 @@ type UnlockState struct {
 	TSOK      bool   // \\.\ThrottleStop 可打开 (v2.5 BYOVD 通道)
 	Speed     uint32 // PCIe gen (0=未知)
 	Width     uint32 // 协商链路宽度 lanes (0=未知; ×1/×2/×4/×8/×16/×32)
-	TLS       uint32 // GPU LNKCTL2 目标速率 (0=未知); v2.5.1: Speed<2 而 TLS>=2
-	//               // = 空闲省电降速(已配置, 负载自动回升), 不是解锁失败
-	SS0      uint32 // 算力标志寄存器
-	SS1      uint32
-	SS0OK    bool // 成功读到 SS0
-	Unlocked bool // SS0 == 0x88888888
+	TLS       uint32 // Target only; it does not establish successful retraining.
+	SS0       uint32 // 算力标志寄存器
+	SS1       uint32
+	SS0OK     bool // 成功读到 SS0
+	Unlocked  bool // SS0 == 0x88888888
 	// ReBAR (Resizable BAR / BAR1 显存映射窗口) 实测。NVIDIA APP / 控制面板
 	// 完全不显示 ReBAR 状态 — 这里像 GPU-Z 一样读 XVE 标准 Resizable BAR
 	// Control 的 size 字段直接判定当前 BAR1 大小与是否已放大。
@@ -203,11 +202,7 @@ func ReadUnlockStateV2(retries int, delayMs int) *UnlockState {
 	}
 	st.Speed = LinkSpeed(wh, bdf)
 	st.Width = LinkWidth(wh, bdf)
-	if cap := PcieCap(wh, bdf); cap != 0 {
-		if v, err := PciRd(wh, bdf, cap+0x30); err == nil {
-			st.TLS = v & 0xF
-		}
-	}
+	st.TLS = TargetLinkSpeed(wh, bdf)
 	bar0raw, err := PciRd(wh, bdf, 0x10)
 	if err != nil {
 		return st

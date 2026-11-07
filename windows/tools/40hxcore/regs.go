@@ -175,7 +175,8 @@ func LinkSpeed(wh syscall.Handle, bdf uint32) uint32 {
 	if err != nil {
 		return 0
 	}
-	return v & 0xF
+	speed, _ := DecodeLinkStatus(v)
+	return speed
 }
 
 // LinkWidth: 读当前协商链路宽度(lanes, 0=未知)。同样来自 LNKSTA:
@@ -190,7 +191,8 @@ func LinkWidth(wh syscall.Handle, bdf uint32) uint32 {
 	if err != nil {
 		return 0
 	}
-	return (v >> 4) & 0x3F
+	_, width := DecodeLinkStatus(v)
+	return width
 }
 
 // FindRootPort: 在 bus0 找 secondary bus == gpuBus 的 PCIe 根端口 BDF

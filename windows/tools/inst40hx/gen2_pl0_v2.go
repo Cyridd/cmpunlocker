@@ -136,7 +136,7 @@ func gen2WritePL0V2(th syscall.Handle, bar0Phys uint64) bool {
 // ReopenDrivers -> FindGPUPCI -> BAR0 -> PL0 -> SetTLS x2 -> retrain-цикл ->
 // RestoreGPULnkctl -> RestartNVDisplay). Тело — НЕ побайтовая копия, а сборка из
 // существующих функций. Возвращает итоговую скорость.
-func gen2PnpFallbackV2(th, wh *syscall.Handle, gpuBDF *uint32, root uint32) uint32 {
+func gen2PnpFallbackV2(th, wh *syscall.Handle, gpuBDF *uint32) uint32 {
 	fmt.Println("[Gen2] Stage1 failed -> PnP fallback: disable/enable 40HX, reload nvlddmkm, redo PL0+TLS+retrain")
 	if !gen2PnpRecover40HX() {
 		fmt.Println("[Gen2][!] PnP recovery failed")
@@ -160,19 +160,17 @@ func gen2PnpFallbackV2(th, wh *syscall.Handle, gpuBDF *uint32, root uint32) uint
 		fmt.Println("[Gen2][!] BAR0 invalid after PnP reload; no MMIO writes")
 		return 0
 	}
-	root = hxcore.FindGPUExclusiveRoot(*wh, *gpuBDF)
-	gen2SetTLS(*wh, root, 2)
-	gen2SetTLS(*wh, *gpuBDF, 2)
-	cur := hxcore.LinkSpeed(*wh, *gpuBDF)
-	for i := 0; i < 6 && cur < 2; i++ {
-		bdf := *gpuBDF
-		if root != 0xFFFFFFFF && i%2 == 0 {
-			bdf = root
-		}
-		gen2RetrainPulse(*wh, bdf)
-		time.Sleep(2200 * time.Millisecond)
-		cur = hxcore.LinkSpeed(*wh, *gpuBDF)
+	port, err := hxcore.FindGPUExclusivePort(*wh, *gpuBDF)
+	if err != nil {
+		fmt.Println("[Gen2] Upstream discovery after PnP failed:", err)
+		return 0
 	}
+	_, err = gen2TrainUpstream(*wh, *gpuBDF, port)
+	if err != nil {
+		fmt.Println("[Gen2] Retrain after PnP stopped:", err)
+		return 0
+	}
+
 	gen2RestoreGPULnkctl(*wh, *gpuBDF)
 	gen2RestartNVDisplay()
 	return hxcore.LinkSpeed(*wh, *gpuBDF)
@@ -255,15 +253,24 @@ func gen2DryRunMain() {
 		v, e1 := hxcore.TSRead(th, bar0+x.off)
 		fmt.Printf("[dry] %-26s 0x%05X  0x%08X err=%v\n", x.name, x.off, v, e1)
 	}
-	root := hxcore.FindRootPort(wh, (bdf>>8)&0xFF)
-	fmt.Printf("[dry] root port bdf=0x%04X (0xFFFFFFFF = not on bus 0)\n", root)
-	if root != 0xFFFFFFFF {
-		if c := hxcore.PcieCap(wh, root); c != 0 {
-			a, _ := hxcore.PciRd(wh, root, c+0x0C)
-			b, _ := hxcore.PciRd(wh, root, c+0x10)
-			d, _ := hxcore.PciRd(wh, root, c+0x30)
-			fmt.Printf("[dry] root LNKCAP=0x%08X LNKCTL/STA=0x%08X LNKCTL2/STA2=0x%08X\n", a, b, d)
+	port, portErr := hxcore.FindGPUExclusivePort(wh, bdf)
+	if portErr != nil {
+		fmt.Println("[dry] immediate upstream unavailable:", portErr)
+		return
+	}
+	fmt.Printf("[dry] immediate upstream: %s ID=%08x\n", port, port.VendorDevice)
+	for _, r := range []struct {
+		offset uint32
+		name   string
+	}{
+		{0x0C, "LNKCAP"}, {0x10, "LNKCTL/STA"}, {0x2C, "LNKCAP2"}, {0x30, "LNKCTL2/STA2"},
+	} {
+		v, err := hxcore.PciRd(wh, port.BDF, port.Capability+r.offset)
+		if err != nil || v == 0xFFFFFFFF {
+			fmt.Printf("[dry] upstream %s unavailable (%v)\n", r.name, err)
+		} else {
+			fmt.Printf("[dry] upstream %s=0x%08X\n", r.name, v)
 		}
 	}
-	fmt.Println("[dry] done. Nothing was written.")
+	fmt.Println("[dry] done. No PCI/MMIO writes were issued.")
 }

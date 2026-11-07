@@ -259,7 +259,7 @@ After Windows login, run `40HXCheck.exe` as Administrator. A healthy result
 shows:
 
 - compute selectors `SS0=0x88888888` and `SS1=0x00000008`;
-- a Gen2 target/link result when the platform completed retraining;
+- an observed Gen2 link when the platform completed retraining;
 - GSP and ReBAR status without Code 43;
 - an `Unlock EFI:` line reporting whether the image deployed on the ESP is
   signed, and by which certificate. With Secure Boot on and an unsigned image,
@@ -273,6 +273,37 @@ failure.
 An idle GPU can temporarily report Gen1 because of link power management. The
 target link speed and a sustained-load measurement are more useful than one
 idle snapshot.
+
+`TLS=Gen2` means the target is set. It does not prove that the link reached
+Gen2 or that a Gen1 reading is an idle downshift. Text diagnostics and JSON
+keep these states separate: `gen2_target_set` is unconfirmed, while
+`gen2_reached` requires a valid negotiated-speed reading. With compute
+unlocked but only the Gen2 target set, JSON reports `compute_only`, not
+`unlock_ok`.
+
+Ordinary Gen2 retraining discovers the immediate root or downstream port
+across all enumerated buses. A GPU at `10:00.0` can connect directly to a
+bus-0 CPU root port; the GPU's bus number alone does not describe the
+topology. A chipset slot may instead have a downstream port on another bus.
+The selected port must serve only the GPU and its own non-storage NVIDIA
+functions. Shared subtrees, ambiguous bridges and failed reads stop the
+operation. A chipset uplink is never substituted for the GPU's leaf port.
+
+The ordinary path checks Gen2 capability on both ends, preserves the initial
+link width (including x4), requests retraining on the upstream port and
+compares both link-status readings. Failed attempts restore the saved target
+fields when topology and configuration reads still permit it. Link Disable
+retains its separate restriction to an exclusive direct bus-0 root port;
+chipset downstream ports do not qualify for that fallback.
+
+For a chipset-slot report, run `40HXInstaller.exe -gen2dry` as Administrator
+first and retain its log. It reads the GPU/port registers without issuing
+unlock or retrain writes, while temporarily using the helper drivers. The
+checker also includes the immediate port's raw registers or the reason it
+could not establish a suitable port. Stop GPU workloads before a subsequent
+`-gen2` attempt, then check the CMP specifically under sustained load. The
+chipset path has offline topology and retrain tests; issue #24 still needs
+validation on the reported Windows system.
 
 ## Recovery
 

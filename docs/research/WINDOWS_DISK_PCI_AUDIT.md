@@ -38,13 +38,29 @@ ESP mount does not select a data volume as a substitute.
 
 ## Gen2 PCI boundaries
 
-Verified: mutating root-port operations require the present Windows PCI
-inventory, matching live identities, a direct secondary/subordinate bus and
-PCIe Root Port type. Shared storage, PCIe switches, ambiguous addresses,
-incomplete inventory or failed reads prevent root-port writes. Only the
-target GPU's non-storage, non-bridge NVIDIA functions may share that direct
-bus. GPU preparation remains available when an exclusive root cannot be
-established.
+Verified by source inspection: ordinary Gen2 retraining requires the present
+Windows PCI inventory, matching live identities and an immediate PCIe Root
+Port or Downstream Port with secondary and subordinate bus numbers both
+equal to the GPU bus. Discovery covers all enumerated buses. Only the target
+GPU's non-storage, non-bridge NVIDIA functions may share that leaf bus.
+Storage on another chipset branch is outside the selected link. An ancestor
+uplink, shared subtree, ambiguous address, incomplete inventory or failed
+read prevents port writes. GPU preparation remains separate from this port
+check.
+
+The ordinary retrain changes only the GPU/port target fields and the port's
+Retrain Link control using WORD writes. Both ends must advertise Gen2 and
+agree on a valid negotiated speed and unchanged width before success is
+reported. Failed attempts revalidate topology before restoring the original
+targets; inaccessible configuration or an externally changed target can
+prevent restoration. Extra reads do not lock out concurrent PnP or driver
+activity. Offline tests cover the port
+selection and write boundaries, but the issue #24 chipset topology has not
+been tested on hardware.
+
+Link Disable still requires an exclusive direct bus-0 Root Port. Selecting
+a chipset Downstream Port for ordinary retraining does not grant permission
+to disable it or the chipset uplink.
 
 BAR0 must be read and validated; the code does not substitute a fixed address
 or truncate an unexpected 64-bit BAR. PCI control updates require successful

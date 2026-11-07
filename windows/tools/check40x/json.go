@@ -99,14 +99,18 @@ const (
 // statusEnum 把文本模式那个大 switch 的判定结果映射到固定枚举。
 // 单独抽出来是为了让文本与 JSON 两条路径永远给出同一结论 —— 判定逻辑只有这一份。
 func statusEnum(st hxcore.UnlockState, drvOK, gpuOK, sbOn, efiSigned bool, efiDeployed bool) string {
+	return statusEnumForBoot(st, drvOK, gpuOK, sbOn, efiSigned, efiDeployed, hxcore.FirmwareIsLegacy())
+}
+
+func statusEnumForBoot(st hxcore.UnlockState, drvOK, gpuOK, sbOn, efiSigned, efiDeployed, legacy bool) string {
 	switch {
-	case hxcore.FirmwareIsLegacy():
+	case legacy:
 		return verdictLegacyBoot
 	// Secure Boot 开着 + 部署的 EFI 未签名 ⇒ 固件根本不会执行它, 此时报"未解锁"
 	// 会掩盖真正原因, 所以单列一类。
 	case sbOn && (!efiDeployed || !efiSigned):
 		return verdictSecureBootBlock
-	case st.Unlocked && st.SS0OK && (st.Speed >= 2 || st.TLS >= 2):
+	case st.Unlocked && st.SS0OK && hxcore.Gen2Reached(st.Speed):
 		return verdictUnlockOK
 	case st.Unlocked && st.SS0OK:
 		return verdictComputeOnly
@@ -229,16 +233,7 @@ func writeJSONReport(st hxcore.UnlockState, drvOK bool, efi efiFacts, aspm strin
 		Status:  status,
 		Compute: map[bool]string{true: "unlocked", false: "locked"}[st.Unlocked && st.SS0OK],
 	}
-	switch {
-	case st.Speed >= 2:
-		rep.Verdict.PCIe = "gen2_reached"
-	case st.TLS >= 2:
-		rep.Verdict.PCIe = "gen2_target_set"
-	case st.Speed == 1:
-		rep.Verdict.PCIe = "gen1"
-	default:
-		rep.Verdict.PCIe = "unknown"
-	}
+	rep.Verdict.PCIe = hxcore.Gen2Status(st.Speed, st.TLS)
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

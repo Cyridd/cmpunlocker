@@ -1372,81 +1372,47 @@ func gen2Main() {
 		return
 	}
 
-	// 2. LNKCTL2 TLS=2 (GPU + root)
-	root := hxcore.FindGPUExclusiveRoot(wh, gpuBDF)
-	if root == 0xFFFFFFFF {
-		fmt.Println(tr("[Gen2] Root port not found; using GPU retrain fallback", "[Gen2] Корневой порт не найден; используется откат через переобучение GPU", "[Gen2] 未找到 root port, 用 GPU retrain fallback"))
+	port, portErr := hxcore.FindGPUExclusivePort(wh, gpuBDF)
+	if portErr != nil {
+		gen2StatusFail("Gen2 not confirmed; upstream port unavailable: " + portErr.Error())
+		fmt.Println("[Gen2] Upstream port unavailable:", portErr)
+		return
 	}
-	fmt.Printf("[Gen2] root port = 00:%02x.%x\n", (root>>3)&0x1F, root&7)
-	for _, b := range []struct {
-		bdf uint32
-		tag string
-	}{{gpuBDF, "GPU"}, {root, "ROOT"}} {
-		if b.bdf == 0xFFFFFFFF {
-			continue
-		}
-		cap := hxcore.PcieCap(wh, b.bdf)
-		if cap == 0 {
-			continue
-		}
-		// v2.6.0: 读改写 — 只改 TLS(bit3:0), 保留其余位(对齐 python 版)。
-		// 此前直接写 {2,0} 清掉高 12 位, 个别 VBIOS 依赖这些位时链路异常。
-		gen2SetTLS(wh, b.bdf, 2)
-	}
-
-	// 3. UPGRADE retrain: 清位→置位脉冲 (只置位在 40HX 上不生效)
-	retrain := func(bdf uint32) { gen2RetrainPulse(wh, bdf) }
-	// v2.6.0: 单次 root 重训 → 最多 6 轮 root/GPU 交替(对齐 python 版, 比初版 4 轮更稳)。
-	// 寨板/双卡下根端口一次脉冲常训不上(issue #8 "需反复禁用/启用"),
-	// 交替多轮显著提高成功率; 达成 Gen2 即提前退出(上限约 13s, 登录后 30s 才跑)。
-	for attempt := 0; attempt < 6; attempt++ {
-		bdf, tag := gpuBDF, "GPU"
-		if attempt%2 == 0 && root != 0xFFFFFFFF {
-			bdf, tag = root, "ROOT"
-		}
-		fmt.Printf(tr("[Gen2] Link retrain #%d (%s side)...\n", "[Gen2] Переобучение канала #%d (сторона %s)...\n", "[Gen2] 链路重训 #%d (%s端)...\n"), attempt+1, tag)
-		retrain(bdf)
-		time.Sleep(2200 * time.Millisecond)
-		cur = hxcore.LinkSpeed(wh, gpuBDF)
-		if cur >= 2 {
-			break
-		}
+	fmt.Printf("[Gen2] Immediate upstream: %s; ID=%08x\n", port, port.VendorDevice)
+	cur, trainErr := gen2TrainUpstream(wh, gpuBDF, port)
+	if trainErr != nil {
+		gen2StatusFail("Gen2 not confirmed: " + trainErr.Error())
+		fmt.Println("[Gen2] Retrain stopped:", trainErr)
+		return
 	}
 
 	// v3.2.0 parity: Stage1 failed -> PnP fallback (disable/enable 40HX, reload nvlddmkm,
 	// redo PL0+TLS+retrain) BEFORE Stage2. Disable with: Gen2PnpFallback=0 (default 1).
 	if cur < 2 && hxcore.ConfigInt("Gen2PnpFallback", 1) != 0 {
-		cur = gen2PnpFallbackV2(&th, &wh, &gpuBDF, root)
+		cur = gen2PnpFallbackV2(&th, &wh, &gpuBDF)
 		if cur == 0 {
 			gen2StatusFail(tr("GPU unavailable after PnP recovery; further Gen2 writes skipped. See the installer log.", "GPU недоступна после восстановления PnP; дальнейшие записи Gen2 пропущены. См. журнал установщика.", "PnP 恢复后 GPU 不可用；已跳过后续 Gen2 写入。请查看安装器日志。"))
 			return
 		}
 	}
 
-	// v2.6.0: 判据修正 — 驱动/ASPM 会在空闲时把链路降到 Gen1 省电, 只看当前
-	// 速率会把成功误报成失败(社区"Gen1"误报来源之一, v2.4.5 时代已实证:
-	// "待机省电时为 Gen1, 负载下自动跑满 Gen2")。以 GPU LNKCTL2 的
-	// TLS(目标速率)区分: TLS>=2 且当前 Gen1 = 配置成功, 空闲降速属正常。
-	tls := uint32(0)
-	if gcap := hxcore.PcieCap(wh, gpuBDF); gcap != 0 {
-		if v, rerr := hxcore.PciRd(wh, gpuBDF, gcap+0x30); rerr == nil {
-			tls = v & 0xF
-		}
+	// PnP may have changed the BDF or the immediate port.
+	port, portErr = hxcore.FindGPUExclusivePort(wh, gpuBDF)
+	if portErr != nil {
+		gen2StatusFail("Upstream port unavailable after retrain/recovery: " + portErr.Error())
+		return
 	}
-	// v2.5.2: Stage2 自动化(社区 #11/#20/#8 + 贴吧多平台复现的实证解法) —
-	// 寨板/多卡/X99 平台 retrain-only 开机训不上, 需要 Root Link Disable(+
-	// PnP 恢复)才能上 Gen2, 且每次开机都得重来一次(#20 实证); 手动 -hard
-	// 用户根本不会做, 贴吧/B站大量"每开机手动禁用启用显卡"的变通皆源于此。
-	// 现在登录任务在 Stage1 未达成(cur<2)时自动执行一次 Stage2(静默, 上限约1分钟):
-	//   · 无论 TLS: TLS 已配而链路仍 Gen1 → LD 会立即训上并消除"空闲降速"歧义;
-	//     TLS 没配上 → LD 后重写常能粘住(贴吧 .06 批次用户 LD 后同样成功,
-	//     说明"写保护批次"与"retrain-only 不够"此前被混为一谈)。
-	//   · 退出开关: reg add HKLM\SOFTWARE\40HXUnlock /v Gen2AutoHard /t REG_DWORD /d 0 /f
-	//     (40HX 是唯一显示卡的机器若不想要登录后数秒黑屏, 可关)
-	//   · 手动 -hard 保留: cur<2 即强制走该路径(不再要求 tls>=2)。
-	// Link Disable 期间 nvidia-smi 短暂报 "GPU is lost", 结束后自动 PnP 恢复。
+	tls := hxcore.TargetLinkSpeed(wh, gpuBDF)
+
+	// Link Disable keeps its separate, direct-root restriction. Finding a
+	// chipset downstream port for ordinary retraining does not permit LD.
 	if cur < 2 && (hasArg("-hard") || gen2AutoHardEnabled()) {
-		root = hxcore.FindGPUExclusiveRoot(wh, gpuBDF)
+		root := hxcore.FindGPUExclusiveRoot(wh, gpuBDF)
+		if root == 0xFFFFFFFF {
+			gen2StatusFail("Gen2 not reached; Link Disable is unavailable on this topology. Keep the installer log and the read-only upstream diagnostics.")
+			fmt.Println("[Gen2] Link Disable requires an exclusive direct bus-0 root port; skipped.")
+			return
+		}
 		if hasArg("-hard") {
 			fmt.Println(tr("[Gen2] retrain did not succeed → -hard explicitly triggers the Link Disable fallback", "[Gen2] переобучение не удалось → -hard явно запускает откат Link Disable", "[Gen2] retrain 未成 → -hard 显式触发 Link Disable 回退"))
 		} else {
@@ -1455,21 +1421,20 @@ func gen2Main() {
 		gen2HardFallback(&th, &wh, gpuBDF, bar0Phys, root)
 		return
 	}
-	gen2Verdict := ""
-	unlocked := false
-	switch {
-	case cur >= 2:
-		unlocked = true
+	// A target value alone cannot distinguish idle downshift from failed training.
+	unlocked := hxcore.Gen2Reached(cur)
+	gen2Verdict := fmt.Sprintf("Gen2 not confirmed: current Gen%d, target Gen%d", cur, tls)
+	switch hxcore.Gen2Status(cur, tls) {
+	case "gen2_reached":
 		fmt.Printf("[Gen2] *** GEN2 ACHIEVED (Gen%d) ***\n", cur)
-		gen2Verdict = fmt.Sprintf(tr("✅ Gen2 succeeded: current link Gen%d", "✅ Gen2 успешно: текущий канал Gen%d", "✅ Gen2 成功: 当前链路 Gen%d"), cur)
-	case tls >= 2:
-		unlocked = true
-		fmt.Printf(tr("[Gen2] TLS=Gen%d but currently Gen%d — idle power-saving downshift (returns to Gen2 under load)\n", "[Gen2] TLS=Gen%d, но сейчас Gen%d — понижение для экономии в простое (возвращается к Gen2 под нагрузкой)\n", "[Gen2] TLS=Gen%d 但当前 Gen%d — 空闲省电降速(负载下自动回 Gen2)\n"), tls, cur)
-		gen2Verdict = fmt.Sprintf(tr("🟢 Gen2 configured (TLS=Gen%d): current Gen%d is an idle power-saving downshift; returns to Gen2 under load", "🟢 Gen2 настроен (TLS=Gen%d): текущий Gen%d — понижение для экономии в простое; возвращается к Gen2 под нагрузкой", "🟢 Gen2 已配置(TLS=Gen%d): 当前 Gen%d 为空闲省电降速, 负载下自动回 Gen2"), tls, cur)
-	default:
-		fmt.Printf(tr("[Gen2] Still at Gen%d (TLS=Gen%d); unlock failed. Please send the logs.\n", "[Gen2] По-прежнему Gen%d (TLS=Gen%d); разблокировка не удалась. Пришлите журналы.\n", "[Gen2] 仍在 Gen%d (TLS=Gen%d), 解锁失败。请发日志。\n"), cur, tls)
-		gen2Verdict = fmt.Sprintf(tr("❌ Gen2 failed: still at Gen%d (TLS=Gen%d; all PL0 registers OK but TLS did not stick, usually the driver/GSP holding the link policy — the logon task (if registered) automatically runs the Stage2 fallback; if the task is not registered it will not run automatically, so register it first and retry; see README §5.2)", "❌ Gen2 не удалось: по-прежнему Gen%d (TLS=Gen%d; все регистры PL0 OK, но TLS не закрепился, обычно драйвер/GSP удерживает политику канала — задача входа (если зарегистрирована) автоматически запускает откат Stage2; если задача не зарегистрирована, автоматически не запустится, сначала зарегистрируйте и повторите; см. README §5.2)", "❌ Gen2 失败: 仍在 Gen%d (TLS=Gen%d; PL0 全 OK 而 TLS 未粘住, 多为驱动/GSP 持有链路策略 — 登录任务(已注册)会自动执行 Stage2 回退; 任务未注册则不会自动跑, 先注册再重试; 详见 README §5.2)"), cur, tls)
+		gen2Verdict = fmt.Sprintf("Gen2 reached: current link Gen%d", cur)
+	case "gen2_target_set":
+		gen2Verdict += "; target set, but no Gen2 link was observed at completion"
+	case "unknown":
+		gen2Verdict = "Gen2 not confirmed: current link speed is unavailable"
 	}
+	fmt.Println("[Gen2]", gen2Verdict)
+
 	// v2.6.0: 成功清掉遗留重试任务; 失败按策略安排自动重试(次数/间隔见 hxcore config)。
 	// v3.0.1: 常驻守护模式不排一次性重试任务 — 守护进程每分钟自行重试。
 	if unlocked {
@@ -1477,13 +1442,10 @@ func gen2Main() {
 	} else if hxcore.DriverStrategy() != hxcore.DriverStrategyResident {
 		scheduleGen2Retry(retryDepth())
 	}
-	st := fmt.Sprintf(tr("Verdict: %s\nRunning as: %s\n40HX location: %02x:%02x.%x\nRoot Port: %02x:%02x.%x\n", "Заключение: %s\nЗапуск от: %s\n40HX расположение: %02x:%02x.%x\nRoot Port: %02x:%02x.%x\n", "结论: %s\n运行身份: %s\n40HX 位置: %02x:%02x.%x\nRoot Port: %02x:%02x.%x\n")+
-		tr("Link: current Gen%d / target TLS=Gen%d\nDrivers: ThrottleStop=✓ WinRing0=✓ (BYOVD, unloaded when done)\n", "Канал: текущий Gen%d / цель TLS=Gen%d\nДрайверы: ThrottleStop=✓ WinRing0=✓ (BYOVD, выгружаются по завершении)\n", "链路: 当前 Gen%d / 目标 TLS=Gen%d\n驱动: ThrottleStop=✓ WinRing0=✓ (BYOVD, 用完即卸)\n"),
-		gen2Verdict,
-		map[bool]string{true: tr("administrator/SYSTEM", "администратор/SYSTEM", "管理员/SYSTEM"), false: tr("normal user (restricted)", "обычный пользователь (ограничено)", "普通用户(受限)")}[isAdmin()],
-		gpuBus, (gpuBDF>>3)&0x1F, gpuBDF&7,
-		(root>>8)&0xFF, (root>>3)&0x1F, root&7,
-		cur, tls)
+	st := fmt.Sprintf("Verdict: %s\nRunning as: %s\n40HX location: %02x:%02x.%x\nImmediate upstream: %s\nLink: current Gen%d / target TLS=Gen%d\nDrivers: ThrottleStop and WinRing0 available during this run\n",
+		gen2Verdict, map[bool]string{true: "administrator/SYSTEM", false: "normal user (restricted)"}[isAdmin()],
+		(gpuBDF>>8)&255, (gpuBDF>>3)&31, gpuBDF&7, port, cur, tls)
+
 	if wErr := hxcore.WriteGen2Status(st); wErr != nil {
 		fmt.Printf(tr("[Gen2] Failed to write the status file (does not affect the unlock): %v\n", "[Gen2] Не удалось записать файл состояния (не влияет на разблокировку): %v\n", "[Gen2] 状态文件写入失败(不影响解锁): %v\n"), wErr)
 	}
@@ -1491,20 +1453,18 @@ func gen2Main() {
 		icon := uint(mbIconInfo)
 		txt := fmt.Sprintf(tr("PCIe link: current Gen%d (target TLS=Gen%d)\n", "Канал PCIe: текущий Gen%d (цель TLS=Gen%d)\n", "PCIe 链路: 当前 Gen%d (目标 TLS=Gen%d)\n"), cur, tls)
 		if unlocked {
-			txt += tr("=== GEN2 UNLOCK SUCCEEDED ===", "=== РАЗБЛОКИРОВКА GEN2 УСПЕШНА ===", "=== GEN2 解锁成功 ===")
-			if cur < 2 {
-				txt += tr("\n(currently an idle power-saving downshift; returns to Gen2 under load)", "\n(сейчас понижение для экономии в простое; возвращается к Gen2 под нагрузкой)", "\n(当前为空闲省电降速, 负载下自动回 Gen2)")
-			}
+			txt += "Gen2 link reached."
 		} else {
-			txt += tr("Still at Gen1; unlock failed (see the log for details).", "По-прежнему Gen1; разблокировка не удалась (подробности в журнале).", "仍在 Gen1, 解锁失败(详见日志)。")
+			txt += "Gen2 was not confirmed. A Gen2 target does not prove successful retraining; see the installer log."
 			icon = mbIconError
 		}
+
 		msgbox("40HX Gen2", txt, icon)
 	}
 }
 
 // ---------- v3.0.1: 常驻守护 (驱动策略=常驻时, 由登录任务 -guard 启动) ----------
-// 每 1 分钟读 GPU 目标速率 TLS: TLS>=2 就不动(空闲降 Gen1 属正常省电);
+// The resident guard monitors target configuration, not negotiated speed.
 // TLS 掉回 <2 = 解锁配置丢失(如显卡复位/驱动重载) → 自动重跑一次完整解锁。
 // 进程随登录任务常驻; 注销/任务结束/卸载即停止。守护重试不排一次性重试任务。
 const gen2GuardInterval = 1 * time.Minute
@@ -1528,7 +1488,7 @@ func residentGuard() {
 			continue
 		}
 		if st.TLS >= 2 {
-			continue // 目标仍在: 空闲降速属正常, 不动
+			continue // Do not reset a GPU solely because a snapshot could be idle.
 		}
 		fmt.Println(tr("[Guard] Detected TLS<2 — the Gen2 unlock configuration was lost; unlocking again automatically...", "[Страж] Обнаружено TLS<2 — конфигурация разблокировки Gen2 потеряна; повторная автоматическая разблокировка...", "[守护] 检测到 TLS<2 — Gen2 解锁配置丢失, 自动重新解锁..."))
 		gen2Main()
