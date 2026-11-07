@@ -282,12 +282,15 @@ unlocked but only the Gen2 target set, JSON reports `compute_only`, not
 `unlock_ok`.
 
 Ordinary Gen2 retraining discovers the immediate root or downstream port
-across all enumerated buses. A GPU at `10:00.0` can connect directly to a
-bus-0 CPU root port; the GPU's bus number alone does not describe the
+on enumerated buses below the GPU bus. A GPU at `10:00.0` can connect directly
+to a bus-0 CPU root port; the GPU's bus number alone does not describe the
 topology. A chipset slot may instead have a downstream port on another bus.
 The selected port must serve only the GPU and its own non-storage NVIDIA
-functions. Shared subtrees, ambiguous bridges and failed reads stop the
-operation. A chipset uplink is never substituted for the GPU's leaf port.
+functions. Devices on later buses cannot be candidates under the required
+bridge bus ordering, so their configuration is not read. Failed reads of
+the GPU, its sibling functions or devices on possible parent buses still
+stop discovery, as do shared subtrees and ambiguous bridges. A chipset
+uplink is never substituted for the GPU's leaf port.
 
 The ordinary path checks Gen2 capability on both ends, preserves the initial
 link width (including x4), requests retraining on the upstream port and

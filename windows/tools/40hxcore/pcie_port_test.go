@@ -93,6 +93,86 @@ func chipsetPortFixture(m map[[2]uint32]uint32) {
 	m[[2]uint32{0x0F08, 0x40}] = 0x00620010
 }
 
+func TestImmediatePortUnreadableDevices(t *testing.T) {
+	for _, topology := range []struct {
+		name      string
+		port, typ uint32
+	}{
+		{"CPU root", 8, 4},
+		{"chipset downstream", 0x1008, 6},
+	} {
+		t.Run(topology.name, func(t *testing.T) {
+			const gpu = uint32(0x1100)
+			for _, tc := range []struct {
+				name string
+				bdf  uint32
+				fail bool
+			}{
+				{"later bus 1b:00.0", 0x1B00, false},
+				{"possible parent bus", 0x0800, true},
+				{"selected port", topology.port, true},
+				{"GPU", gpu, true},
+				{"GPU sibling function", gpu + 1, true},
+				{"shared GPU bus", gpu + 8, true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					for _, mode := range []string{"IOCTL error", "all ones", "zero vendor"} {
+						t.Run(mode, func(t *testing.T) {
+							m := map[[2]uint32]uint32{
+								{gpu, 0}: 0x1F0B10DE, {gpu, 12}: 0,
+								{topology.port, 0}: 0x43F41022,
+								{topology.port, 8}: 0x06040000, {topology.port, 12}: 0x00010000,
+								{topology.port, 0x18}: 0x00111100 | topology.port>>8,
+								{topology.port, 0x34}: 0x40,
+								{topology.port, 0x40}: topology.typ<<20 | 0x00020010,
+							}
+							inventory := []uint32{gpu, topology.port}
+							if tc.bdf != gpu && tc.bdf != topology.port {
+								// Place the unrelated device first so finding the port early
+								// cannot hide an overly broad scan.
+								inventory = append([]uint32{tc.bdf}, inventory...)
+							}
+							faultReads := 0
+							read := func(b, r uint32) (uint32, error) {
+								if b == tc.bdf {
+									faultReads++
+									switch mode {
+									case "IOCTL error":
+										return 0, errors.New("config read failed")
+									case "all ones":
+										return 0xFFFFFFFF, nil
+									default:
+										return 0, nil
+									}
+								}
+								if v, ok := m[[2]uint32{b, r}]; ok {
+									return v, nil
+								}
+								return 0, errors.New("unexpected config read")
+							}
+							port, err := findGPUExclusivePort(read, gpu, inventory)
+							if (err != nil) != tc.fail || (!tc.fail && port.BDF != topology.port) {
+								t.Fatalf("port=%+v error=%v", port, err)
+							}
+							if !tc.fail && faultReads != 0 {
+								t.Fatal("read configuration on a bus beyond the GPU leaf")
+							}
+							root := findGPUExclusiveRoot(read, gpu, inventory)
+							wantRoot := uint32(0xFFFFFFFF)
+							if !tc.fail && topology.typ == 4 {
+								wantRoot = topology.port
+							}
+							if root != wantRoot {
+								t.Fatalf("Link Disable port=%04x, want %04x", root, wantRoot)
+							}
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestGen2StatusDoesNotTreatTargetAsSuccess(t *testing.T) {
 	for _, tc := range []struct {
 		speed, target uint32

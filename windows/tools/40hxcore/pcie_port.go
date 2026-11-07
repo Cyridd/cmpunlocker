@@ -79,12 +79,15 @@ func findGPUExclusivePort(read pciReadFunc, gpuBDF uint32, present []uint32) (PC
 	var result PCIePort
 	found := false
 	for _, bdf := range present {
-		if bdf>>8 == bus {
+		// Accepted ports have primary < secondary == subordinate == GPU bus.
+		// Later buses cannot contain a candidate. The GPU bus was checked
+		// above; do not depend on reading unrelated devices beyond it.
+		if bdf>>8 >= bus {
 			continue
 		}
 		id, err := read(bdf, 0)
 		if err != nil || id&0xFFFF == 0 || id&0xFFFF == 0xFFFF {
-			return PCIePort{}, fmt.Errorf("present PCI device %04x is unreadable", bdf)
+			return PCIePort{}, fmt.Errorf("present PCI device %04x is unreadable (ID=%08x, error=%v)", bdf, id, err)
 		}
 		cls, err := read(bdf, 8)
 		if err != nil || cls == 0xFFFFFFFF {

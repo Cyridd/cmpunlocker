@@ -41,12 +41,16 @@ ESP mount does not select a data volume as a substitute.
 Verified by source inspection: ordinary Gen2 retraining requires the present
 Windows PCI inventory, matching live identities and an immediate PCIe Root
 Port or Downstream Port with secondary and subordinate bus numbers both
-equal to the GPU bus. Discovery covers all enumerated buses. Only the target
-GPU's non-storage, non-bridge NVIDIA functions may share that leaf bus.
+equal to the GPU bus. The primary bus must match the port's bus and be below
+the GPU bus. Discovery checks the full address inventory and the GPU leaf
+bus, then reads candidate devices only on lower buses. Unreadable devices
+on later buses do not block discovery. Failed reads on possible parent
+buses still prevent port writes. Only the target GPU's non-storage,
+non-bridge NVIDIA functions may share its leaf bus.
 Storage on another chipset branch is outside the selected link. An ancestor
 uplink, shared subtree, ambiguous address, incomplete inventory or failed
-read prevents port writes. GPU preparation remains separate from this port
-check.
+required read prevents port writes. GPU preparation remains separate from
+this port check.
 
 The ordinary retrain changes only the GPU/port target fields and the port's
 Retrain Link control using WORD writes. Both ends must advertise Gen2 and
