@@ -19,9 +19,14 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def inputs(manifest: dict) -> list[dict]:
-    """The NVIDIA source archive and the nvidia-utils package the build uses."""
+def inputs(manifest: dict, cache: Path | None = None) -> list[dict]:
+    """Use official downloads or the hash-pinned legacy firmware cache."""
     source, package = manifest["source_artifacts"]
+    legacy = manifest.get("legacy_firmware_package")
+    if (cache is not None and legacy is not None
+            and not (cache / package["filename"]).exists()
+            and (cache / legacy["filename"]).exists()):
+        package = legacy
     return [source, package]
 
 
@@ -68,7 +73,7 @@ def main() -> None:
     parser.add_argument("--offline", action="store_true", help="verify cached inputs without network")
     args = parser.parse_args()
     try:
-        for entry in inputs(json.loads(MANIFEST.read_text())):
+        for entry in inputs(json.loads(MANIFEST.read_text()), args.output):
             print(fetch(entry, args.output, args.offline))
     except (OSError, ValueError) as error:
         parser.exit(1, f"fetch failed: {error}\n")

@@ -12,22 +12,23 @@
       "filename": "NVIDIA-kernel-module-source-610.43.03.tar.xz"
     },
     {
-      "name": "nvidia-utils binary package used for exact firmware extraction",
-      "version": "610.43.03-1",
-      "architecture": "x86_64_v3",
-      "license": "custom (package metadata)",
-      "sha256": "e17e7c92eeffa178b0fe1f40eb17a47095f8fc3ce4a77bf115cf5bd5a4df86e9",
+      "name": "Official NVIDIA Linux driver archive used for firmware extraction",
+      "version": "610.43.03",
+      "architecture": "x86_64",
+      "license": "custom (included NVIDIA license)",
+      "sha256": "45e2d4c134a23c35e50f253a4aa63e7e5e8d17e3d185d4a07c8a58e9612ed392",
+      "checksum_url": "https://download.nvidia.com/XFree86/Linux-x86_64/610.43.03/NVIDIA-Linux-x86_64-610.43.03.run.sha256sum",
       "firmware": [
         {
-          "path": "usr/lib/firmware/nvidia/610.43.03/gsp_tu10x.bin",
+          "path": "firmware/gsp_tu10x.bin",
           "size": 29352832,
           "sha256": "73065619db9ec921d19fc4e519dd04d91a9199b525eaca9b257b89fb8c5ec52c"
         }
       ],
-      "filename": "nvidia-utils-610.43.03-1-x86_64_v3.pkg.tar.zst",
-      "url": "https://archive.cachyos.org/archive/cachyos-v3/nvidia-utils-610.43.03-1-x86_64_v3.pkg.tar.zst",
+      "filename": "NVIDIA-Linux-x86_64-610.43.03.run",
+      "url": "https://download.nvidia.com/XFree86/Linux-x86_64/610.43.03/NVIDIA-Linux-x86_64-610.43.03.run",
       "notice": {
-        "path": "usr/share/licenses/nvidia-utils/LICENSE",
+        "path": "LICENSE",
         "sha256": "c692fb14ad4f499c6aee1b9e144e6905148c420e6225b17cb2937366c1e507ad"
       }
     }
@@ -68,5 +69,25 @@
   "cmp40hx_payloads": {
     "v67-tu106-stock-handoff-610.43.03.bin": "de7288bcfb80c2d4b259a59e823c926ba0a9adcab594219cc6802c94257ce271",
     "v67-tu106-locked-control-610.43.03.bin": "6e1f97567bc75b7389782226c73d52c07ae51d04c00fc7df975e5ec325463262"
+  },
+  "legacy_firmware_package": {
+    "name": "nvidia-utils binary package used for exact firmware extraction",
+    "version": "610.43.03-1",
+    "architecture": "x86_64_v3",
+    "license": "custom (package metadata)",
+    "sha256": "e17e7c92eeffa178b0fe1f40eb17a47095f8fc3ce4a77bf115cf5bd5a4df86e9",
+    "firmware": [
+      {
+        "path": "usr/lib/firmware/nvidia/610.43.03/gsp_tu10x.bin",
+        "size": 29352832,
+        "sha256": "73065619db9ec921d19fc4e519dd04d91a9199b525eaca9b257b89fb8c5ec52c"
+      }
+    ],
+    "filename": "nvidia-utils-610.43.03-1-x86_64_v3.pkg.tar.zst",
+    "url": "https://archive.cachyos.org/archive/cachyos-v3/nvidia-utils-610.43.03-1-x86_64_v3.pkg.tar.zst",
+    "notice": {
+      "path": "usr/share/licenses/nvidia-utils/LICENSE",
+      "sha256": "c692fb14ad4f499c6aee1b9e144e6905148c420e6225b17cb2937366c1e507ad"
+    }
   }
 }

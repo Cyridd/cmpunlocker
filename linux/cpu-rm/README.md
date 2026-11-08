@@ -48,9 +48,11 @@ For a kernel built with Clang/LTO, such as CachyOS, use
 `KDIR=/lib/modules/<kernel-version>/build`.
 
 Firmware preparation downloads the pinned NVIDIA 610.43.03 source archive and
-a pinned firmware package into `build/inputs`, checks their SHA-256 values,
-then extracts only the required firmware into `build/assets`. Nothing from
-the package is installed or executed. The helper uses the same published MIT
+a pinned official `NVIDIA-Linux-x86_64-610.43.03.run` into `build/inputs`, checks
+their SHA-256 values, then extracts only the required firmware into
+`build/assets`. The helper reads the zstd-compressed tar payload inside the
+`.run`; its shell header, embedded decompressor and installer are never
+executed. A system `zstd` is required. The helper uses the same published MIT
 selector payload as the Windows EFI; a ZERO control changes only its two
 selector operands. NVIDIA firmware keeps its own terms; the extracted license
 is included alongside the assets. The 610 Booter is an unlock input even when
@@ -60,6 +62,13 @@ firmware or userspace with these assets.
 An existing cache can be used with
 `--cache /path/to/inputs --offline`; `--output /path/to/assets` selects the
 output folder. Downloads and generated files are ignored by Git.
+
+The official `.run` contains the same GSP firmware and license bytes as the
+previously pinned CachyOS package. If a cache contains that exact
+`nvidia-utils-610.43.03-1-x86_64_v3.pkg.tar.zst` and no official `.run`, the
+helper uses it after checking its original SHA-256. Its CachyOS archive URL
+returns 404, so new caches download from NVIDIA. Prepared firmware and
+selector payload hashes are unchanged.
 
 Install only the pre-driver module and its firmware:
 

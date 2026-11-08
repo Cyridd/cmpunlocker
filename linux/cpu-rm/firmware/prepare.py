@@ -69,7 +69,7 @@ def source_files(archive: Path, output: Path) -> None:
 
 def prepare(cache: Path, output: Path, offline: bool) -> None:
     manifest = json.loads(MANIFEST.read_text())
-    source, package = inputs(manifest)
+    source, package = inputs(manifest, cache)
     source_path = fetch(source, cache, offline)
     package_path = fetch(package, cache, offline)
     # All inputs and outputs are validated in staging before publishing assets.

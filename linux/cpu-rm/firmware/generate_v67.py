@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import re
 import subprocess
 import tarfile
 from pathlib import Path
@@ -27,9 +28,38 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def run_payload_offset(package: Path) -> int:
+    """Locate the zstd tar payload without executing the self-extractor."""
+    with package.open("rb") as source:
+        match = re.search(rb"(?m)^skip=([0-9]+)$", source.read(1024))
+        if match is None or not 2 <= int(match[1]) <= 16384:
+            raise ValueError("invalid NVIDIA run archive header")
+        source.seek(0)
+        for _ in range(int(match[1]) - 1):
+            line = source.readline(1024 * 1024 + 1)
+            if not line.endswith(b"\n") or source.tell() > 1024 * 1024:
+                raise ValueError("truncated or oversized NVIDIA run archive header")
+        offset = source.tell()
+        if source.read(4) != b"\x28\xb5\x2f\xfd":
+            raise ValueError("NVIDIA run archive must contain a zstd payload")
+        return offset
+
+
 def extract_member(package: Path, name: str) -> bytes:
-    if package.name.endswith(".zst"):
-        process = subprocess.Popen(["zstd", "-dc", str(package)], stdout=subprocess.PIPE)
+    if package.name.endswith((".zst", ".run")):
+        source = None
+        command = ["zstd", "-dc", str(package)]
+        if package.name.endswith(".run"):
+            offset = run_payload_offset(package)
+            source = package.open("rb", buffering=0)
+            source.seek(offset)
+            command = ["zstd", "-dc"]
+        try:
+            process = subprocess.Popen(command, stdin=source, stdout=subprocess.PIPE)
+        except OSError:
+            if source is not None:
+                source.close()
+            raise
         try:
             with tarfile.open(fileobj=process.stdout, mode="r|") as archive:
                 result = read_member(archive, name)
@@ -42,6 +72,8 @@ def extract_member(package: Path, name: str) -> bytes:
             if process.poll() is None:
                 process.kill()
                 process.wait()
+            if source is not None:
+                source.close()
     with tarfile.open(package, mode="r:*") as archive:
         return read_member(archive, name)
 
@@ -152,7 +184,7 @@ def main() -> int:
     if sha256(payload) != PAYLOAD_SHA256:
         raise SystemExit("generated V67 image differs from its pinned SHA-256")
     manifest = json.loads(MANIFEST.read_text())
-    notice = manifest["source_artifacts"][1]["notice"]
+    notice = manifest["legacy_firmware_package"]["notice"]
     license_text = extract_member(args.package, notice["path"])
     if sha256(license_text) != notice["sha256"]:
         raise SystemExit("NVIDIA license notice differs from pinned package")
