@@ -3,8 +3,17 @@
 This path unlocks compute on an **8 GiB CMP 40HX / TU106 (`10de:1f0b`)**
 before the proprietary NVIDIA driver loads, with **GSP disabled**. It does not
 modify or install NVIDIA's proprietary driver. Native initialization and CUDA
-throughput were validated with **610.43.03 and 615.78.08**; see
+throughput were validated with **610.43.03, 615.78.08 and 620.70.06**; see
 [the research report](../../docs/research/CPU_RM_SMALL_WPR.md).
+
+For NVIDIA **620.70.06**, the module builds on `7.3.3-1-cachyos` with
+Clang/LLD `23.1.4`; firmware preparation and offline checks passed. Hardware
+tests on 2026-11-08 confirmed the stock-handoff unlock, native GSP-OFF
+initialization, numerical WMMA and runtime Gen2 x16. NVIDIA and persistenced
+had already run after power-on; these tests followed driver unload and do not
+validate the initramfs hook before the first NVIDIA initialization. The firmware
+inputs remain pinned to 610.43.03 because the unlock precedes the next native
+driver initialization.
 
 The existing [open-module installer](../../docs/linux-install.md) remains a
 separate choice. Its PCIe/ReBAR/profiling patches are not applied by this tool.
@@ -22,7 +31,7 @@ Requirements: x86-64 Linux, matching kernel headers and compiler, Make,
 Python **3.11+**, `zstd`, and a separately installed matching proprietary NVIDIA
 driver/userspace stack. Secure Boot requires signing `cmp40_preboot.ko` using
 your distribution's trusted module-signing process, or disabling Secure Boot.
-The module has been built on kernel `7.2.9-2-cachyos`; CI also builds against
+The module has been built on kernels `7.2.9-2-cachyos` and `7.3.3-1-cachyos`; CI also builds against
 Ubuntu's distribution headers. Rebuild and reinstall after kernel updates.
 
 From the repository root, as a normal user:
@@ -45,7 +54,7 @@ the package is installed or executed. The helper uses the same published MIT
 selector payload as the Windows EFI; a ZERO control changes only its two
 selector operands. NVIDIA firmware keeps its own terms; the extracted license
 is included alongside the assets. The 610 Booter is an unlock input even when
-the separately installed driver is 615; do not replace the driver's own
+the separately installed driver is 615 or 620; do not replace the driver's own
 firmware or userspace with these assets.
 
 An existing cache can be used with
@@ -223,10 +232,11 @@ regenerate the initramfs. Keep GSP OFF if you still use the manual CPU-RM path.
 
 ## PCIe Gen2 with CPU-RM
 
-Gen2 can be applied entirely **after native NVIDIA initialization**. A cold-boot
-control with no preliminary Gen2 writes reached Gen2 x16 using the CPU-RM helper.
-This was measured on CMP40HX VBIOS `90.06.67.00.06`, MSI B550 and proprietary
-NVIDIA 615.78.08; see [the hardware report](../../docs/research/CPU_RM_PCIE_GEN2.md).
+Gen2 can be applied entirely **after native NVIDIA initialization**. An isolated
+615.78.08 cold-boot control with no preliminary Gen2 writes reached Gen2 x16
+using the CPU-RM helper. The helper also passed the manual 620.70.06 tests
+after driver unload. Both used CMP40HX VBIOS `90.06.67.00.06` and MSI B550; see
+[the hardware report](../../docs/research/CPU_RM_PCIE_GEN2.md).
 
 After installing the rebuilt module and firmware, start from an unbound cold
 boot and run this order, replacing the example PCI address:

@@ -135,7 +135,8 @@ BAR1 Memory Usage
 The CMP 40HX also has a separate **userspace** performance restriction affecting
 classic Vulkan pipeline binding. Unlike the compute, PCIe and ReBAR patches, this
 unlock does **not** modify the open kernel module: the restriction lives in the
-proprietary `libnvidia-glcore.so` (runtime-confirmed on 610.57.04 and 615.78.08).
+proprietary `libnvidia-glcore.so` (runtime-confirmed on 610.57.04, 615.78.08 and
+620.70.06).
 
 The reproduced trigger is the classic pipeline path. The shader-object binding
 diagnostic did not reproduce the same delay, so this project does not claim a
@@ -188,7 +189,7 @@ evidence see [`CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md`](research/CMP40_GSP_PIPE
 
 ### Limitations
 
-- Runtime performance is confirmed on **610.57.04 and 615.78.08**;
+- Runtime performance is confirmed on **610.57.04, 615.78.08 and 620.70.06**;
   **580.173.02** passes offline validation with the slot-51 signature.
 - The validated patch signatures cover the 64-bit library only.
 - The helper selects the library version automatically. Releases with unknown

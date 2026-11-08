@@ -3,8 +3,8 @@
 This is an optional 64-bit userspace patch for the classic Vulkan pipeline-bind throttle. It is independent of the compute, PCIe and ReBAR kernel-module patches installed by the repository's `install.sh`.
 
 This directory contains a narrow binary patcher for the two command
-emitters in x86-64 `libnvidia-glcore.so.<version>`. Versions 610.57.04 and
-615.78.08 write:
+emitters in x86-64 `libnvidia-glcore.so.<version>`. Versions 610.57.04,
+615.78.08 and 620.70.06 write:
 
 ```text
 NVC597_CALL_MME_MACRO(52), 0xf0
@@ -25,11 +25,11 @@ signature occurs exactly twice. It always writes a separate library and does not
 
 ```bash
 ./build_patched_lib.sh                       # loaded driver version, argument 0
-./build_patched_lib.sh --driver-version=615.78.08
+./build_patched_lib.sh --driver-version=620.70.06
 ./build_patched_lib.sh --driver-version=610.57.04 1
 ./build_patched_lib.sh 0 /path/to/libnvidia-glcore.so.580.173.02
-GLCORE_SRC=/path/to/libnvidia-glcore.so.615.78.08 ./build_patched_lib.sh
-NVIDIA_VERSION=615.78.08 ./build_patched_lib.sh
+GLCORE_SRC=/path/to/libnvidia-glcore.so.620.70.06 ./build_patched_lib.sh
+NVIDIA_VERSION=620.70.06 ./build_patched_lib.sh
 ```
 
 The helper determines the loaded driver's version from
@@ -42,7 +42,7 @@ silently choose the newest leftover library.
 An explicit source determines its release from the resolved filename, or the
 ELF SONAME if the file was renamed (`readelf` is needed for that case). The
 output always has the source release's full name, for example
-`libnvidia-glcore.so.615.78.08`, in this directory. A requested version that
+`libnvidia-glcore.so.620.70.06`, in this directory. A requested version that
 conflicts with the source is rejected. The CLI version takes precedence over
 `NVIDIA_VERSION`; a positional source takes precedence over `GLCORE_SRC`.
 
@@ -69,8 +69,8 @@ Use the installed NVIDIA userspace library as the input and write the patched
 copy into this directory:
 
 ```bash
-./patch_glcore /usr/lib/libnvidia-glcore.so.615.78.08 \
-  ./libnvidia-glcore.so.615.78.08 0
+./patch_glcore /usr/lib/libnvidia-glcore.so.620.70.06 \
+  ./libnvidia-glcore.so.620.70.06 0
 ```
 
 The final `0` reduces the MME loop from 240 iterations to zero without removing the macro or changing its program. Other DWORD values are accepted for controlled experiments; `1` retains one iteration.
@@ -133,7 +133,7 @@ If the application immediately crashes after adding the launch option:
 2. Test the patched library with a small native Vulkan application.
 3. Confirm that the patched library matches the installed NVIDIA driver version.
 4. Verify that the patched directory contains the complete matching filename,
-   for example `libnvidia-glcore.so.615.78.08`.
+   for example `libnvidia-glcore.so.620.70.06`.
 5. Check whether the application is using Vulkan. This unlock does not target
    every graphics API or every NVIDIA userspace component.
 6. For Proton titles, test the same GPU workload with a native Vulkan program
@@ -180,11 +180,12 @@ The recognized emitter signatures and observed offsets are:
 | 580.173.02 | 51 | `66 0e 01 20 f0 00 00 00` | `0xb51c8d`, `0xde8560` |
 | 610.57.04 | 52 | `68 0e 01 20 f0 00 00 00` | `0xb20c2d`, `0xdcbf60` |
 | 615.78.08 | 52 | `68 0e 01 20 f0 00 00 00` | `0xb227ad`, `0xdae680` |
+| 620.70.06 | 52 | `68 0e 01 20 f0 00 00 00` | `0xb27cfd`, `0xdbf780` |
 
 Offsets are recorded evidence; the patcher searches by signature. Original
-local libraries for all three releases pass offline checks, with only the
+local libraries for all four releases pass offline checks, with only the
 argument DWORDs changing and the system originals left intact. Runtime
-performance is confirmed on 610 and 615. The 580 variant is verified offline
+performance is confirmed on 610, 615 and 620. The 580 variant is verified offline
 and still needs a benchmark with a matching 580 driver stack.
 
 Other releases can work unchanged when they retain one of these emitter
@@ -260,6 +261,61 @@ The pipeline cases reproduce removal of the delay. The shader-object cases
 were already fast; these single-run figures do not establish a performance
 change for those cases. The new patcher's 615 output matches the runtime-tested
 copy byte for byte.
+
+### 620.70.06 follow-up
+
+Verified on 2026-11-08 with CMP 40HX, kernel `7.3.3-1-cachyos`, patched
+nvidia-open 620.70.06 and `GSP Firmware Version: 620.70.06`. The kernel stack
+used the compute, normal Gen2 and ReBAR patches without the optional profiling
+patch; BAR1 was 256 MiB for this comparison. Vulkan reported API `1.4.357`
+and a timestamp period of 1 ns/tick.
+The power limit was checked at 150 W during the comparison and restored to
+184 W afterward.
+
+Three rounds alternated the original system glcore library and the local
+argument-0 copy. Each process ran seven GPU timestamp submissions with
+`vk_shader_bind_matrix --device='CMP 40HX' --case=CASE --binds=1000 --repeats=7`.
+The figures are medians of the three process medians:
+
+| Case | Binds | Original GPU ms | Patched GPU ms (argument 0) |
+| --- | --- | --- | --- |
+| `compute_pipeline_bind_only_same` | 1000 | 138.757888 | 0.004640 |
+| `compute_pipeline_bind_only_alt2` | 1000 | 138.766816 | 0.004384 |
+| `compute_shader_bind_only_same` | 1000 | 0.000032 | 0.000032 |
+| `compute_shader_bind_only_alt2` | 1000 | 0.000032 | 0.000032 |
+| `graphics_one_bind_shader_draw` | 1 | 0.003552 | 0.003584 |
+
+The pipeline cases show removal of the throttle, approximately 29,900x and
+31,700x in this timestamp test. Binding-only cases do not dispatch shaders;
+the 32 ns shader-object timestamps do not measure shader execution. The
+graphics control gives no evidence of an application performance improvement.
+No command-buffer patch options were used. `LD_DEBUG=libs` confirmed the
+selected library in every process, and both library hashes stayed unchanged
+through the comparison.
+
+The 620 library is 35,770,664 bytes. Its SHA-256 hashes are:
+
+```text
+original:   94b6c6191348c3095469162f643a58d6b9b85feb9c990b3097c6e8ebd3110afc
+argument 0: 72ae1ccea97a276e8ca42d1440f36ddacac57662db77a2b687a1f202381f2755
+```
+
+The generated copy differs only at `0xb27d01` and `0xdbf784`, where `f0`
+becomes `00`. The existing signature checks accept the 620 emitters and known
+48-byte MME program without an algorithm change. Explicit version selection
+and automatic selection both generated the same library.
+
+`python3 cmp_glcore_patch/test_patch_glcore.py` passed all nine patching and
+rejection-path tests. Focused disassembly used:
+
+```bash
+objdump -d --start-address=0xb27cfb --stop-address=0xb27d10 /usr/lib/libnvidia-glcore.so.620.70.06
+objdump -d --start-address=0xdbf77e --stop-address=0xdbf793 /usr/lib/libnvidia-glcore.so.620.70.06
+```
+
+The first emitter loads the constant into RDI, the second into RSI, then
+each stores it through RAX. Full Ghidra analysis exceeded its 330-second
+startup deadline; no decompiler result is used for this validation.
 
 ## Application observations
 

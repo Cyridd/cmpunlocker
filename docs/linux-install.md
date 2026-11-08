@@ -1,15 +1,24 @@
 # Linux installation guide
 
 This guide covers the Linux half of the project: open-kernel-module patch
-sets for NVIDIA `580.173.02`, `610.57.04` and `615.78.08` (default), installed
+sets for NVIDIA `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default), installed
 by [`install.sh`](../install.sh), plus the optional userspace pipeline patch in
 [`cmp_glcore_patch/`](../cmp_glcore_patch/README.md).
+
+The 620.70.06 patch series passes build/offline checks and manual runtime
+tests for compute, Gen2 x16, 8 GiB BAR1 and a CUPTI hardware counter.
+The first normal Gen2 pass failed in that session; subsequent initializations
+passed. Automatic cold-boot startup remains unverified. See
+[the Booter report](research/615_BOOTER_COMPATIBILITY.md).
 
 For the Windows/UEFI procedure, see [`windows/README.md`](../windows/README.md) instead.
 
 For the **proprietary Linux driver with GSP disabled**, use the separate
 [`linux/cpu-rm/README.md`](../linux/cpu-rm/README.md). That pre-driver module
-is validated with 610.43.03 and 615.78.08 and does not patch NVIDIA's driver.
+is validated with 610.43.03, 615.78.08 and 620.70.06 and does not patch NVIDIA's
+driver. The 620 tests confirmed native initialization, compute and runtime
+Gen2 after driver unload. Its hook before the first NVIDIA initialization
+after power-on remains untested. Keep the pinned 610.43.03 pre-driver assets.
 `install.sh` below continues to target the open kernel modules.
 
 ## 1. Prepare the environment
@@ -21,9 +30,15 @@ You need a matching kernel headers/devel package, a C toolchain, `make`, GNU
 `patch`, `tar`, `sha256sum`, `pciutils`, `kmod`/`depmod`, and `curl` or `wget`
 if the NVIDIA source is downloaded automatically. The installed NVIDIA
 userspace and firmware must match the selected driver version: `580.173.02`,
-`610.57.04` or `615.78.08`.
+`610.57.04`, `615.78.08` or `620.70.06`.
 The distribution's NVIDIA installation must provide a compatible open kernel
 module stack; this project does not install the NVIDIA driver or firmware.
+
+The open modules require GSP ON. When switching from the CPU-RM path, remove
+the `NVreg_EnableGpuFirmware=0` override from modprobe configuration or the
+kernel command line and disable the `cmp40-unlock` initramfs hook before
+installation. `install.sh` rebuilds the initramfs but does not change those
+settings. Confirm GSP firmware 620.70.06 after boot when selecting that release.
 
 ### Arch Linux / CachyOS
 
@@ -85,7 +100,7 @@ lspci -nn | grep -i nvidia   # expected: 10de:1f0b
 **Option A — automatic download (recommended):**
 
 `install.sh` downloads `open-gpu-kernel-modules` for the selected driver version
-(`615.78.08` by default) from GitHub and verifies its SHA256.
+(`620.70.06` by default) from GitHub and verifies its SHA256.
 
 Select another supported version with `--driver-version=VER` or the
 `NVIDIA_VERSION` environment variable:
@@ -97,12 +112,12 @@ sudo env NVIDIA_VERSION=580.173.02 ./install.sh
 
 **Option B — place a local archive:**
 
-If you do not want the script to download the source automatically, place one of the following archives next to `install.sh` (replace `615.78.08` with the selected version):
+If you do not want the script to download the source automatically, place one of the following archives next to `install.sh` (replace `620.70.06` with the selected version):
 
-- `open-gpu-kernel-modules-615.78.08.tar.gz`
-- `NVIDIA-615.78.08.tar.xz`
-- `NVIDIA-kernel-module-source-615.78.08.tar.xz`
-- `NVIDIA-kernel-module-source-615.78.08.tar.bz2`
+- `open-gpu-kernel-modules-620.70.06.tar.gz`
+- `NVIDIA-620.70.06.tar.xz`
+- `NVIDIA-kernel-module-source-620.70.06.tar.xz`
+- `NVIDIA-kernel-module-source-620.70.06.tar.bz2`
 
 The official GitHub `.tar.gz` archives are verified automatically:
 
@@ -111,6 +126,7 @@ The official GitHub `.tar.gz` archives are verified automatically:
 | `580.173.02` | `a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f` |
 | `610.57.04` | `619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681` |
 | `615.78.08` | `eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf` |
+| `620.70.06` | `bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d` |
 
 For a differently named or compressed local archive, provide its own digest
 explicitly; the installer will not silently accept an unverified archive:
@@ -145,9 +161,10 @@ The installer applies the patch set for the selected version from
 - `0002-cmp40hx-pcie2-unlock.patch` (or `0002-cmp40hx-pcie2-diagnostic.patch` with `--pcie-diagnostic`)
 - `0003-cmp40hx-rebar-unlock.patch`
 - Optional `0004-cmp40hx-profiling-unlock.patch` with `--profiling` (615.78.08
-  only; CUPTI support gate confirmed, counter collection still unverified).
+  and 620.70.06; CUPTI support was confirmed on both, and a range-profiling
+  hardware counter was verified on 620).
 
-The diagnostic PCIe patch is available for `610.57.04` and `615.78.08`; the
+The diagnostic PCIe patch is available for `610.57.04`, `615.78.08` and `620.70.06`; the
 `580.173.02` set has no diagnostic variant.
 
 This installs only the kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.
@@ -159,10 +176,10 @@ install a matching NVIDIA stack through your distribution first.
 Useful options and environment overrides:
 
 ```bash
-sudo ./install.sh --driver-version=615.78.08
+sudo ./install.sh --driver-version=620.70.06
 sudo ./install.sh --pcie-diagnostic
 sudo ./install.sh --profiling
-sudo ./install.sh --source-dir=/absolute/path/to/open-gpu-kernel-modules-615.78.08
+sudo ./install.sh --source-dir=/absolute/path/to/open-gpu-kernel-modules-620.70.06
 sudo ./install.sh --no-download
 sudo env KERNEL_UNAME=6.12.1-custom KERNEL_HDRS=/path/to/kernel/build ./install.sh
 sudo env JOBS=4 INITRAMFS_TOOL=dracut ./install.sh
@@ -238,6 +255,12 @@ unit is installed by `install.sh`. Review the warnings and full procedure in
 stack are slow, generate the local patched `libnvidia-glcore.so` as described in
 [`cmp_glcore_patch/README.md`](../cmp_glcore_patch/README.md); it is loaded per
 application through `LD_LIBRARY_PATH` and never replaces the system library.
+The 620.70.06 comparison confirmed removal of the pipeline-bind delay on
+nvidia-open with GSP ON. Build the matching local copy with:
+
+```bash
+bash cmp_glcore_patch/build_patched_lib.sh --driver-version=620.70.06
+```
 
 ## Removing the patched modules
 

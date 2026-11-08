@@ -140,6 +140,45 @@ reported 5 GT/s x16. This control validates using ordinary pre-driver compute
 unlock, then native CPU-RM initialization, then a single runtime Gen2 policy
 application; preliminary PCIe preparation is not needed on the tested setup.
 
+## NVIDIA 620.70.06 follow-up
+
+Verified on 2026-11-08: the public runtime helper also worked with proprietary
+NVIDIA 620.70.06 and GSP OFF on `7.3.3-1-cachyos`, using the same GPU and
+physical upstream port. The compute unlock used `gen2=off`; no pre-driver
+Gen2 writes preceded native initialization. NVIDIA DRM and modeset were
+unloaded and `fuser` found no clients before running:
+
+```bash
+sudo bash linux/cpu-rm/gen2.sh --gpu 0000:10:00.0 \
+  --module linux/cpu-rm/kernel/cmp40_preboot.ko
+```
+
+The helper exited 0 with `GEN2_RUNTIME_RESULT error=0 device_ok=1
+status=1102`, then unloaded the diagnostic module and stopped its temporary
+NVML monitor. The endpoint changed from `CAP2=00000002`, `STA=1101` to
+`CAP2=00000006`, `STA=1102`; the upstream status changed from `3101` to
+`3102`. OVR was 6, CFG was `80085800`, PL was `00240036`, MISC was
+`e0b42d00`, and CYA was `068731b3` after training.
+
+| 620.70.06 verification at 150 W | Before helper | After helper |
+|---|---:|---:|
+| Pinned H2D, GB/s | 3.40 | 6.80 |
+| Pinned D2H, GB/s | 3.35 | 6.70 |
+| FP16 WMMA, TFLOPS | 66.77 | 66.80 |
+| INT8 WMMA, TOPS | 132.08 | 132.04 |
+
+All 427 endpoint/upstream samples, taken at 100 ms intervals across the
+combined compute, DMA and numerical workload, reported `1102` / `3102`.
+Numerical WMMA matched 163,840 outputs with maximum absolute error 0.
+Post-workload inspection retained full selectors; no new Xid, AER or
+RmInitAdapter errors were found. The original 184 W limit was restored.
+The known clpeak `int8_k32` compile/load failure remained present.
+
+These tests followed driver unload after a cold power-on. NVIDIA and
+persistenced had already run earlier in that boot, so the 620 result does
+not establish operation before the first NVIDIA initialization. The isolated
+615 cold-boot controls above remain separate evidence.
+
 ## Integration
 
 The opt-in pre-driver modes are `gen2=prepare` and `gen2=retrain`. Gen2 runs

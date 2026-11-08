@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 usage() { echo "Usage: sudo $0 --gpu 0000:01:00.0 [--module /path/cmp40_preboot.ko]"; }
 die() { printf 'cmp40 CPU-RM Gen2: %s\n' "$*" >&2; exit 1; }
-gpu= module=
+gpu='' module=''
 while (($#)); do
     case "$1" in
         --gpu) (($# >= 2)) || die "--gpu needs a PCI address"; gpu=$2; shift 2 ;;
@@ -47,7 +47,7 @@ done
 [[ ${#nodes[@]} -gt 0 ]] || die "NVIDIA device nodes are missing"
 holders=$(fuser "${nodes[@]}" 2>/dev/null || true)
 [[ -z ${holders//[[:space:]]/} ]] || die "GPU clients are active (PIDs: $holders)"
-monitor_pid= loaded=0
+monitor_pid='' loaded=0
 monitor_log=$(mktemp)
 cleanup() {
     if ((loaded)); then rmmod cmp40_preboot || printf 'Could not unload the diagnostic module.\n' >&2; fi
@@ -61,7 +61,7 @@ trap cleanup EXIT
 # A temporary NVML client keeps RM initialized across the policy change.
 nvidia-smi -i "$gpu" --query-gpu=pci.bus_id --format=csv,noheader -lms 500 > "$monitor_log" 2>&1 &
 monitor_pid=$!
-for attempt in {1..40}; do
+for _ in {1..40}; do
     kill -0 "$monitor_pid" || die "NVML monitor stopped"
     [[ ! -s $monitor_log ]] || break
     sleep 0.1

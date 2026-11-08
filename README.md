@@ -2,7 +2,7 @@
 
 Hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`), covering both Linux and Windows.
 
-- **Linux** — open-kernel-module patches for NVIDIA `580.173.02`, `610.57.04` and `615.78.08` (default), installed by `install.sh`; a separate [proprietary CPU-RM unlock](linux/cpu-rm/README.md) validated on `610.43.03` and `615.78.08` with GSP OFF; and an optional proprietary-userspace pipeline patch.
+- **Linux** — open-kernel-module patches for NVIDIA `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default), installed by `install.sh`; a separate [proprietary CPU-RM unlock](linux/cpu-rm/README.md) validated on `610.43.03`, `615.78.08` and `620.70.06` with GSP OFF; and an optional proprietary-userspace pipeline patch. The 620 runtime tests cover manual driver switching; startup before the first NVIDIA initialization still needs validation.
 - **Windows / UEFI** ([`windows/`](windows/)) — a UEFI unlock application and Go installer/checker/uninstaller tools. See [`windows/README.md`](windows/README.md).
 
 Choose the path matching your driver and OS. The proprietary Linux and Windows
@@ -17,8 +17,9 @@ CPU-RM paths share the published CMP40HX selector payload and small-WPR strategy
 
 None of these modifications flashes the VBIOS. Compute can be unlocked by
 patched open modules, the Linux pre-driver CPU-RM module, or the Windows EFI.
-The proprietary Linux path currently covers compute; PCIe/ReBAR/profiling
-remain features of the other paths. The pipeline unlock patches a local copy
+The proprietary Linux path covers compute and an optional runtime Gen2
+helper. ReBAR and the profiling patch require the open-module path on Linux.
+The pipeline unlock patches a local copy
 of a proprietary userspace library. Hardware unlocks are volatile and must be
 reapplied after a full GPU reset or power cycle.
 
@@ -63,10 +64,10 @@ The full tables (including OpenCL and Vulkan), PCIe Gen2, ReBAR and pipeline mea
 For the **proprietary driver with GSP OFF**, follow
 [`linux/cpu-rm/README.md`](linux/cpu-rm/README.md). Compute unlock runs before
 NVIDIA loads; the optional [CPU-RM Gen2 helper](linux/cpu-rm/gen2.sh) runs after
-native initialization and was validated with 615.78.08. The commands below are
+native initialization and was validated with 615.78.08 and 620.70.06. The commands below are
 for the **open kernel modules**.
 
-Requires the NVIDIA open kernel module stack and matching userspace/firmware for one of the supported versions (`580.173.02`, `610.57.04`, `615.78.08` default), a matching kernel headers package, and a C toolchain. Select the version with `--driver-version=VER`; per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).
+Requires the NVIDIA open kernel module stack and matching userspace/firmware for one of the supported patch versions (`580.173.02`, `610.57.04`, `615.78.08`, `620.70.06` default), a matching kernel headers package, and a C toolchain. Select the version with `--driver-version=VER`; per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).
 
 ```bash
 lspci -nn | grep -i nvidia   # expected: 10de:1f0b
@@ -76,13 +77,13 @@ sudo dmesg | grep CMP40      # expect SS0=0x88888888 SS1=0x00000008 FECS_PLM=0xf
 ```
 
 The optional pipeline unlock is separate, selects the library version automatically,
-and has runtime confirmation on 610.57.04 and 615.78.08. See
+and has runtime confirmation on 610.57.04, 615.78.08 and 620.70.06. See
 [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md).
 
-An optional profiling unlock for 615.78.08 is available with
-`sudo ./install.sh --profiling`. It ports CMP170HX's CMP SKU query mask;
-the CUPTI support gate is hardware-confirmed on 40HX; counter collection
-still needs a separate test. See
+An optional profiling unlock for 615.78.08 and 620.70.06 is available with
+`sudo ./install.sh --profiling`. It ports CMP170HX's CMP SKU query mask.
+CUPTI support and a range-profiling hardware counter were confirmed on 620;
+other metrics and Nsight Compute still need validation. See
 [`CMP40_PROFILING.md`](docs/research/CMP40_PROFILING.md).
 
 ### Windows
@@ -91,8 +92,8 @@ Download the Windows ZIP from the [Releases page](https://github.com/Cyridd/cmpu
 
 ## Compatibility at a glance
 
-- **Linux:** open-gpu-kernel-modules `580.173.02`, `610.57.04` and `615.78.08` (default); other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
-- **Proprietary Linux CPU-RM:** `610.43.03` and `615.78.08`, GSP OFF, 8 GiB TU106; GRID/vGPU is not independently validated.
+- **Linux:** open-gpu-kernel-modules `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default); 620 compute, ReBAR and CUPTI counters passed runtime tests. Other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
+- **Proprietary Linux CPU-RM:** `610.43.03`, `615.78.08` and `620.70.06`, GSP OFF, 8 GiB TU106. The 620 tests confirmed compute, numerical WMMA and runtime Gen2 after driver unload.
 - **Windows:** UEFI/GPT, Above 4G Decoding on, Secure Boot and CSM off.
 - **Windows GSP OFF:** the installer now recommends `EnableGpuFirmware=0`; upgrade both the EFI and installer. Gen2 no longer changes GSP.
 - **PCIe Gen2 x16 is verified; Gen3 and RT-core unlocks are not implemented.**

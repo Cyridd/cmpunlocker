@@ -8,7 +8,7 @@ usage() {
     echo "The target must be an unbound 10de:1f0b; firmware/module must be installed."
 }
 die() { echo "cmp40 CPU-RM: $*" >&2; exit 1; }
-gpu= load_nvidia=0 gen2=off gen2_policy=rmw
+gpu='' load_nvidia=0 gen2=off gen2_policy=rmw
 while (($#)); do
     case "$1" in
         --gpu) (($# >= 2)) || die "--gpu needs a PCI address"; gpu=$2; shift 2 ;;

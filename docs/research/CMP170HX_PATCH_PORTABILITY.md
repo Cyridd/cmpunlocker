@@ -3,8 +3,9 @@
 Source review on 2026-10-18: local `cmpunlocker-170hx-amoghmunikote`, upstream
 [`amoghmunikote/cmpunlocker`](https://github.com/amoghmunikote/cmpunlocker),
 commit `2d10f891a58824f0591c3332c4eccf37ff36b086`.
-The profiling query mask is an optional 615 patch with a hardware-confirmed CUPTI
-support gate. See [`CMP40_PROFILING.md`](CMP40_PROFILING.md) for upstream
+The profiling query mask is available for 615 and 620, with a hardware-confirmed
+CUPTI support gate and a working counter test on 620. See
+[`CMP40_PROFILING.md`](CMP40_PROFILING.md) for upstream
 history, installation and hardware checks.
 
 The 170HX patches target GA100 devices `10de:20c2` and `10de:2082`. The 40HX
@@ -15,7 +16,7 @@ such as `kernel_gsp_tu102.c` do not establish register or firmware compatibility
 
 | Patch or feature | Assessment for 40HX |
 | --- | --- |
-| `cmp-sku-mask.patch` | Upstream's profiling unlock (`300127f`), ported as optional patch 0004 for 615. It returns `CMP_SKU_NO` for 40HX; CUPTI gate support is confirmed; counter collection awaits hardware validation. |
+| `cmp-sku-mask.patch` | Upstream's profiling unlock (`300127f`), ported as optional patch 0004 for 615 and 620. It returns `CMP_SKU_NO` for 40HX; CUPTI support is confirmed, and a range-profiling counter passed on 620. |
 | `persistent-sw-state.patch` | The flag exists in 615, so the idea is portable. It forces legacy persistence after initialization. Prefer `nvidia-persistenced` for keeping the GPU initialized between clients; the 615 teardown code explicitly deprecates legacy persistence. No new compute throughput is implied. |
 | VFIO helpers and `cmp_no_bus_reset.c` | The no-reset handoff idea is useful for a VM project, but needs a separate TU106 implementation and host/guest lifecycle tests. Existing helpers reject 40HX, check GA100, expect at least 30,000 MiB of unlocked memory and restore GA100 GSP registers. Replacing PCI IDs alone is insufficient. |
 | `name-string.patch` | Easily adapted in principle, but only changes the reported name. It does not unlock a feature. |
@@ -40,8 +41,9 @@ does not establish that this removes the measured MME throttle.
 Git history identifies `cmp-sku-mask` as the profiling patch: commit `300127f`
 is titled "GPU profiling". CUPTI exposes a separate CMP rejection flag,
 even though the open 615 RM `GPU_PROFILING_CAPABILITY` query returns enabled
-on bare metal. The port still needs CUPTI/Nsight counter collection testing
-on 40HX; profiling permissions and architecture requirements remain separate.
+on bare metal. The 620 follow-up verified a CUPTI range-profiling counter on
+40HX; Nsight Compute and other metrics remain untested. Profiling permissions
+and architecture requirements remain separate.
 
 ## Existing equivalents and memory-specific workarounds
 
@@ -62,3 +64,5 @@ Benchmarks on 2026-10-18 confirmed the optional glcore pipeline patch on
 `610.57.04` and `615.78.08`. Both releases
 use the same emitter signature at different offsets; the helper now selects
 the library release automatically. The 580 slot-51 variant is verified offline.
+The 2026-11-08 nvidia-open/GSP-ON comparison also confirmed the pipeline
+patch on 620.70.06; see [the glcore guide](../../cmp_glcore_patch/README.md).

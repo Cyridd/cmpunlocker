@@ -20,7 +20,7 @@ the generic RM profiling-capability query, which reports enabled on bare metal.
 SKU query for `10de:1f0b`: the answer becomes `CMP_SKU_NO`. Other GPUs retain
 the stock answer. GSP branding, PCI ID, memory layout, secure compute payload,
 PCIe and ReBAR code are unchanged. This ports the current upstream profiling
-idea; actual counter collection on TU106 remains to be validated.
+idea. Counter collection on TU106 was subsequently verified with 620.70.06.
 
 Profiling is opt-in:
 
@@ -29,7 +29,9 @@ sudo ./install.sh --profiling
 sudo poweroff
 ```
 
-615.78.08 is the installer default; the profiling option is not provided for
+620.70.06 is the installer default. Its profiling patch applies at fuzz 0,
+builds in both PCIe modes and passes the support query and counter test below.
+The profiling option is also available for 615.78.08; it is not provided for
 580/610 yet. The manifest records the flag and patch hash. To return to the
 usual series, reinstall from fresh sources without `--profiling` and power
 off/on. A reused source tree can still contain the optional patch.
@@ -69,3 +71,41 @@ The subsequent hardware test on `0000:10:00.0`, recorded in
 before the patch and `cmp=SUPPORTED range_profiling=SUPPORTED` afterwards.
 The other support reasons remained supported. This confirms the CUPTI support
 gate; the log does not demonstrate counter collection.
+
+## NVIDIA 620.70.06 counter validation
+
+Verified on 2026-11-08, on CMP40HX `0000:10:00.0`, `7.3.3-1-cachyos` and
+matching 620.70.06 userspace/GSP: the normal open series without profiling
+reported `cmp=UNSUPPORTED range_profiling=UNSUPPORTED`. Both PCIe variants
+with profiling reported `cmp=SUPPORTED range_profiling=SUPPORTED`; all other
+support reasons were supported. The proprietary GSP-OFF baseline also
+reported CMP unsupported. The repository helper built with `-Werror`.
+
+The installed CUPTI range-profiling sample was compiled for sm_75:
+
+```bash
+/opt/cuda/bin/nvcc -allow-unsupported-compiler \
+  -gencode arch=compute_75,code=sm_75 -lineinfo \
+  -I/opt/cuda/include -I/opt/cuda/extras/CUPTI/samples/common \
+  /opt/cuda/extras/CUPTI/samples/range_profiling/range_profiling.cu \
+  -L/opt/cuda/lib64 -lcuda -lcupti \
+  -Xlinker -rpath -Xlinker /opt/cuda/lib64 \
+  -o artifacts/620.70.06/runtime-2026-11-08/cupti-range-profiling
+sudo artifacts/620.70.06/runtime-2026-11-08/cupti-range-profiling \
+  --device 0 --range auto --replay user --metrics sm__ctas_launched.sum
+```
+
+NVCC was 13.4.92 and the installed CUPTI library was 2026.3.1. The local host
+compiler required `-allow-unsupported-compiler`; these commands are the tested
+environment, not a general compiler requirement.
+
+The sample exited 0 on both profiling-enabled PCIe variants. One pass
+collected three automatic ranges, each with `sm__ctas_launched.sum=196`.
+Its kernel adds two 50,000-element vectors with 256 threads per block, so
+196 is the expected block count. The sample copied the output back and
+checked every element, reporting `Result verification passed.`
+
+This establishes one working hardware counter and numerical workload on
+TU106. Nsight Compute, other metrics, replay modes and non-root profiling
+permissions were not tested. The modules were switched manually after driver
+unload/FLR; automatic cold-boot installation was not part of this counter test.

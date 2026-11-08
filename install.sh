@@ -5,13 +5,13 @@
 # The installer itself does not install packages or require a specific package manager.
 #
 # Features:
-#   - Downloads NVIDIA open-gpu-kernel-modules 615.78.08 by default
+#   - Downloads NVIDIA open-gpu-kernel-modules 620.70.06 by default
 #   - Verifies the source archive SHA256
 #   - Applies the CMP 40HX unlock patches with GNU patch
 #   - Builds the open NVIDIA kernel modules
 #   - Installs them into /lib/modules/<kernel>/updates/cmpunlocker
 #   - Supports the optional PCIe diagnostic patch
-#   - Supports optional CMP SKU profiling on 615.78.08
+#   - Supports optional CMP SKU profiling on 615.78.08 and 620.70.06
 #
 # Usage:
 #   sudo ./install.sh
@@ -36,18 +36,19 @@ set -euo pipefail
 # ---------- Configuration ----------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DRIVER_VERSION="${NVIDIA_VERSION:-615.78.08}"
+DRIVER_VERSION="${NVIDIA_VERSION:-620.70.06}"
 # DOWNLOAD_URL is derived from the final version after the argument loop.
 
 # Supported open-gpu-kernel-modules releases, each with its own patch
 # directory (patches/<version>/) and official source-archive SHA256.
-SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.78.08)
+SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.78.08 620.70.06)
 
 sha256_for() {
     case "$1" in
         580.173.02) echo "a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f" ;;
         610.57.04) echo "619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681" ;;
         615.78.08) echo "eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf" ;;
+        620.70.06) echo "bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d" ;;
         *) echo "" ;;
     esac
 }
@@ -175,14 +176,15 @@ Actions:
 
 Options:
   --driver-version=VER   NVIDIA open-gpu-kernel-modules version to build.
-                         Supported: 580.173.02, 610.57.04, 615.78.08 (default)
+                         Supported: 580.173.02, 610.57.04, 615.78.08, 620.70.06 (default)
   --source-dir=PATH      Use an existing NVIDIA source tree
   --no-download          Do not download; use an existing source tree or
                          local source archive
   --pcie-diagnostic      Use the diagnostic PCIe Gen2 patch instead of the
                          normal one (not available for 580.173.02)
-  --profiling            Apply the CMP SKU profiling unlock (615.78.08 only;
-                         CUPTI support gate confirmed on CMP 40HX)
+  --profiling            Apply the CMP SKU profiling unlock (615.78.08/620.70.06;
+                         CUPTI support gate confirmed; a range-profiling
+                         hardware counter verified on 620.70.06)
   -y, --yes              Do not ask questions; use the default answer. Also
                          implied when stdin is not a terminal. Questions
                          default to "no", so --yes alone never removes files
@@ -193,7 +195,7 @@ Options:
   -h, --help             Show this help
 
 Environment:
-  NVIDIA_VERSION=VER    Select driver version (default: 615.78.08);
+  NVIDIA_VERSION=VER    Select driver version (default: 620.70.06);
                          --driver-version takes precedence
   KERNEL_UNAME=...       Override the kernel version (default: uname -r)
   KERNEL_HDRS=PATH       Override the kernel build/header directory

@@ -15,6 +15,56 @@ features. I also tested the integrated installer and reproduced an upgrade:
 after I deliberately set `EnableGpuFirmware=1`, **Disable GSP** changed it
 to `0`, and the Gen2 task left it at `0`.
 
+## NVIDIA 620.70.06 follow-up
+
+Verified on 2026-11-08: the same 610.43.03 firmware and 1 MiB heap worked with
+proprietary NVIDIA 620.70.06, GSP OFF, on `7.3.3-1-cachyos`. The module was
+built with `make -C linux/cpu-rm/kernel LLVM=1 W=1 -j8` using Clang/LLD
+`23.1.4`. Firmware preparation with `--offline`, the firmware unit tests and
+`make -C linux/cpu-rm offline-test ROM=/home/cyrid/project2/cmp40hx_original_current.rom`
+passed. The offline run included 24 Gen2 fault cases and six helper cases.
+
+The hardware sequence was stock native initialization and a locked benchmark,
+driver unload, then:
+
+```bash
+sudo insmod linux/cpu-rm/kernel/cmp40_preboot.ko \
+  target=0000:10:00.0 mode=unlock cpu_rm_handoff=1 stock_handoff=1 \
+  small_wpr_heap=1 gen2=off
+```
+
+The result was `unlock_error=0`, `resources_retained=N` and
+`PRE_DRIVER_UNLOCK_PASS`. No FLR was needed. Selectors were
+`SS0=88888888`, `SS1=00000008`; FECS protection, empty DMEM, WPR teardown and
+firmware/DMA cleanup passed before loading the native driver. After unloading
+the helper, the official NVIDIA module and UVM were loaded with GSP disabled;
+`nvidia-smi -q` confirmed version 620.70.06 and GSP Firmware `N/A`.
+
+clpeak 2.0.19 used CUDA toolkit 13.2 and reported driver API 13.5. Both runs
+held an NVML client open, verified 150 W before and after the workload, and
+restored the previous 184 W limit:
+
+| Measurement | Stock | CPU-RM unlock |
+|---|---:|---:|
+| FP16 WMMA, TFLOPS | 1.05 | 66.77 |
+| INT8 WMMA, TOPS | 2.08 | 132.08 |
+| cuBLASLt FP16, TFLOPS | 1.04 | 52.59 |
+| cuBLASLt INT8, TOPS | 2.07 | 85.08 |
+| Pinned H2D / D2H, GB/s | 3.40 / 3.35 | 3.40 / 3.35 |
+
+The numerical WMMA test passed in both states: 20 launches, 32 tiles per
+launch, 163,840 outputs and maximum absolute error 0. clpeak's `int8_k32`
+compile/load failed in both states; architectures unsupported by sm_75 were
+skipped. The workload processes exited 0, but that does not mean every clpeak
+kernel succeeded. No new Xid, AER or RmInitAdapter errors were found during
+the CPU-RM tests. Runtime Gen2 results are in
+[the PCIe report](CPU_RM_PCIE_GEN2.md).
+
+The machine had been fully powered off, but NVIDIA and persistenced had
+already run before testing. This validates manual unlock after driver unload
+and subsequent native initialization. It does not validate the 620 initramfs
+hook before the first NVIDIA initialization after power-on.
+
 ## What changed
 
 The signed 610.43.03 TU102 Booter and published CMP40HX stock-relock payload

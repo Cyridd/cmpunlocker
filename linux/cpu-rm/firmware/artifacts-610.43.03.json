@@ -64,7 +64,7 @@
     "gsp_boot_desc_tu102.bin": "9e7cca2cfdc5ce601b0adba39967850046108df6c2d23fff95578ca3f0ccbe01",
     "sec2_bl_tu102.bin": "f21f1cfbb8fffa8067685314367fc4c50f3f84dd99eda7c19db4292d9269b9d9"
   },
-  "limitation": "Pinned 610 firmware is used only by the pre-driver transaction. Native proprietary CPU-RM 610.43.03 and 615.78.08 validated on one 8-GiB CMP40HX; GRID/vGPU and GSP-RM with small heap unvalidated.",
+  "limitation": "Pinned 610 firmware is used only by the pre-driver transaction. Native proprietary CPU-RM 610.43.03, 615.78.08 and 620.70.06 validated on one 8-GiB CMP40HX. The 620.70.06 tests on kernel 7.3.3 confirmed compute, numerical WMMA and runtime Gen2 after driver unload following power-on; the initramfs hook before the first NVIDIA initialization was not tested. GRID/vGPU and GSP-RM with small heap unvalidated.",
   "cmp40hx_payloads": {
     "v67-tu106-stock-handoff-610.43.03.bin": "de7288bcfb80c2d4b259a59e823c926ba0a9adcab594219cc6802c94257ce271",
     "v67-tu106-locked-control-610.43.03.bin": "6e1f97567bc75b7389782226c73d52c07ae51d04c00fc7df975e5ec325463262"

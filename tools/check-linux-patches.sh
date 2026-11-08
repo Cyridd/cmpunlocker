@@ -30,13 +30,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Keep in sync with install.sh: the script fails when they disagree, because
 # CI would otherwise validate a different set than users install.
-SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.78.08)
+SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.78.08 620.70.06)
 
 sha256_for() {
     case "$1" in
         580.173.02) echo "a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f" ;;
         610.57.04) echo "619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681" ;;
         615.78.08) echo "eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf" ;;
+        620.70.06) echo "bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d" ;;
         *) echo "" ;;
     esac
 }
@@ -178,7 +179,7 @@ apply_and_check() { # <version> <source> <label> <pcie patch> <marker>
         # helper. The original 615 port silently omitted this entire hunk;
         # the host marker alone passed while every retrain was skipped.
         case "${version}" in
-            610.57.04|615.78.08)
+            610.57.04|615.78.08|620.70.06)
                 grep -Fqs 'LNKCFG=0x%08x(bits[19:18]=%u)' \
                     src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c \
                     || die "GSP-ready Gen2 policy setup missing after ${version}/${label}"

@@ -6,10 +6,11 @@
 |---|---|
 | `patches/580.173.02/` | Patch set for NVIDIA `580.173.02`: compute unlock, PCIe Gen2, ReBAR (no diagnostic PCIe variant) |
 | `patches/610.57.04/` | Patch set for NVIDIA `610.57.04`: `0001` compute / SM unlock, `0002` PCIe Gen2 unlock, `0002-cmp40hx-pcie2-diagnostic.patch` verbose replacement, `0003` 8 GiB ReBAR unlock |
-| `patches/615.78.08/` | Default patch set: the same four patches, with signed 610 TU102 Booter compatibility for compute unlock and restored GSP-ready PCIe policy setup |
+| `patches/615.78.08/` | Patch set with signed 610 TU102 Booter compatibility for compute unlock and restored GSP-ready PCIe policy setup |
+| `patches/620.70.06/` | Default patch set: native KernelVbios FWSEC/FRTS commands, normal/diagnostic Gen2, ReBAR and optional profiling; manual runtime checks passed, with first-boot Gen2 validation pending |
 | `docs/research/PCIE_GEN2_DIAGNOSTIC.md` | Diagnostic installation, collection and interpretation guide |
-| `patches/615.78.08/0004-cmp40hx-profiling-unlock.patch` | Optional CMP SKU profiling query mask, selected by `--profiling` |
-| `tools/check-cmp40-booters.py` | Verifies the signed 610 Booter archive embedded by the 615 compute patch, header reproducibility and preservation of the native 615 Booter; used by CI |
+| `patches/{615.78.08,620.70.06}/0004-cmp40hx-profiling-unlock.patch` | Optional CMP SKU profiling query mask, selected by `--profiling` |
+| `tools/check-cmp40-booters.py` | Verifies the signed 610 Booter embedded by the 615/620 compute patches, header reproducibility, native Booter preservation and stock signature cleanup; used by CI |
 | `tools/cmp40-profiling-support.cpp` | CUPTI range-profiling support query for before/after hardware validation |
 | `docs/research/CMP40_PROFILING.md` | Profiling patch, CUPTI support validation and counter-collection checks |
 | `docs/research/PCIE_GEN3_CMP40HX_RESEARCH.md` | Gen3 capability/policy investigation and negative results |
@@ -18,7 +19,7 @@
 | `tools/check-linux-patches.sh` | Verifies that each version's patch set still applies to its pinned NVIDIA source, in both PCIe modes where available; used by CI and runnable locally |
 | `tools/cmp40hx-driver-reprobe-gen2.sh` | Optional driver unbind/bind recovery for cold-boot Gen1 capability state |
 | `tools/cmp40hx-driver-reprobe-gen2.service` | Disabled-by-default experimental systemd boot unit for the reprobe helper |
-| `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock: version-selecting build helper, signature-checked x86-64 patcher, rejection-path tests and usage guide (610/615 runtime-confirmed, 580 offline-checked) |
+| `cmp_glcore_patch/` | Userspace Vulkan pipeline/MME throttle unlock: version-selecting build helper, signature-checked x86-64 patcher, rejection-path tests and usage guide (610/615/620 runtime-confirmed, 580 offline-checked) |
 | `docs/research/CMP40_GSP_PIPELINE_THROTTLE_FINDINGS.md` | Reproducible evidence and reverse-engineering notes for the pipeline throttle |
 | `install.sh` | Build and installation script |
 | `README.md` | Project overview |

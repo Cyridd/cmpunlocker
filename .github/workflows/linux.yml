@@ -1,7 +1,7 @@
 # CI for the Linux half of the project (repository root).
 #
 # The patches under patches/<version>/ are pinned to one exact release of
-# open-gpu-kernel-modules each (580.173.02, 610.57.04, 615.78.08). They are
+# open-gpu-kernel-modules each (580.173.02, 610.57.04, 615.78.08, 620.70.06). They are
 # applied to a local source tree during installation. An edited patch, retagged
 # upstream archive or changed SHA256 can therefore cause installation failures.
 # This workflow reproduces patch application without kernel headers, a compiler
@@ -60,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [580.173.02, 610.57.04, 615.78.08]
+        version: [580.173.02, 610.57.04, 615.78.08, 620.70.06]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -95,13 +95,14 @@ jobs:
         run: ./tools/check-linux-patches.sh --version "$VERSION" --source "$ARCHIVE"
 
       - name: Verify the signed CMP40 compatibility Booter
-        if: matrix.version == '615.78.08'
+        if: matrix.version == '615.78.08' || matrix.version == '620.70.06'
         env:
           CACHE_DIR: ${{ runner.temp }}/nvidia-source
+          VERSION: ${{ matrix.version }}
         run: |
           set -euo pipefail
           legacy="$CACHE_DIR/open-gpu-kernel-modules-610.57.04.tar.gz"
-          native="$CACHE_DIR/open-gpu-kernel-modules-615.78.08.tar.gz"
+          native="$CACHE_DIR/open-gpu-kernel-modules-$VERSION.tar.gz"
           if [ ! -s "$legacy" ]; then
             curl -fL --retry 3 --silent --show-error \
               "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/610.57.04.tar.gz" \
@@ -110,9 +111,9 @@ jobs:
           tree="$RUNNER_TEMP/cmp40-booter-check"
           mkdir -p "$tree"
           tar -xzf "$native" --strip-components=1 -C "$tree"
-          patch -d "$tree" -p1 -F0 -i "$GITHUB_WORKSPACE/patches/615.78.08/0001-cmp40hx-unlock.patch"
+          patch -d "$tree" -p1 -F0 -i "$GITHUB_WORKSPACE/patches/$VERSION/0001-cmp40hx-unlock.patch"
           python3 tools/check-cmp40-booters.py \
-            --legacy-source "$legacy" --native-source "$native" --tree "$tree"
+            --legacy-source "$legacy" --native-source "$native" --native-version "$VERSION" --tree "$tree"
 
   lint:
     name: shellcheck

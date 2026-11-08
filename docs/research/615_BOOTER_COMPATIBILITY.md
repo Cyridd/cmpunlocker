@@ -5,9 +5,107 @@ initialization and `nvidia-smi` after the signed-Booter correction. The boot
 log confirms the protected selectors survive the native 615 GSP launch.
 The subsequent PCIe Gen2 failure was traced to missing policy writes in patch
 0002. After restoration, the log records `RETRAIN_PASS` on the first attempt
-and `LnkSta: Speed 5GT/s, Width x16`. Driver 615.78.08 is now the default;
-610.57.04 and 580.173.02 remain selectable. This follow-up did not include
-a separate ReBAR measurement or a test of the diagnostic PCIe variant.
+and `LnkSta: Speed 5GT/s, Width x16`. Driver 615.78.08 became the default
+after that validation; the current default is 620.70.06. The 620 manual
+runtime tests are recorded below; its first cold-boot pass remains unverified.
+Earlier versions remain selectable. The 615 follow-up did not include a
+separate ReBAR measurement or a test of the diagnostic PCIe variant.
+
+## NVIDIA 620.70.06 follow-up
+
+Verified on 2026-11-08: the port applies at fuzz 0 and both PCIe variants with
+profiling build all five modules on `7.3.3-1-cachyos` with Clang/LLD `23.1.4`:
+
+```bash
+./tools/check-linux-patches.sh --version 620.70.06 \
+  --source open-gpu-kernel-modules-620.70.06.tar.gz --keep
+make -C /tmp/cmp40-patchcheck.hGiO2PRD/620.70.06-normal/open-gpu-kernel-modules-620.70.06 \
+  -j4 modules CC=clang LD=ld.lld LLVM=1
+make -C /tmp/cmp40-patchcheck.hGiO2PRD/620.70.06-diagnostic/open-gpu-kernel-modules-620.70.06 \
+  -j4 modules CC=clang LD=ld.lld LLVM=1
+```
+
+The `/tmp` work directory above is the path printed by this check's `--keep`
+option; use the directory printed by a new run when reproducing the build.
+
+Installer preflight also passed with `CC=clang` in both configurations:
+
+```bash
+sudo env CC=clang bash install.sh --driver-version=620.70.06 \
+  --dry-run --no-download --yes
+sudo env CC=clang bash install.sh --driver-version=620.70.06 \
+  --dry-run --no-download --yes --pcie-diagnostic --profiling
+```
+
+Both commands exited 0 after checking the local archive hash, matching
+userspace and patch application. No modules were installed by these checks.
+
+The normal series also built without profiling. The Booter verifier passed
+for both 615 and 620, including the embedded 610 archive, untouched native
+Booter, native-version log label and stock-signature lifetime checks.
+
+620 removes the prepared-FWSEC command field used by the previous port. The
+new patch calls `kvbiosExecuteFwsecFrtsCmd_HAL` for the initial FRTS operation
+and both retry paths, and frees the stock-signature copy in
+`kgspFreeBootArgsCommon`. The signed 610.57.04 unlock image and payload remain
+unchanged; the native 620 Booter launches GSP. Its DBG/PROD images have the
+same hashes as the native 615 images in the table below.
+
+The hardware tests used an ASUS CMP40HX `10de:1f0b`, VBIOS
+`90.06.67.00.06`, at `0000:10:00.0` behind AMD port `0000:00:01.1`, with
+matching 620.70.06 userspace and firmware. Proprietary CPU-RM tests preceded
+the open-module tests. Before each open load, FLR reset `SS0` and `SS1` to
+zero; read-only inspection confirmed this, excluding an inherited compute
+unlock. PCIe override state survived FLR, so these were controlled manual
+loads rather than untouched cold-start tests.
+
+The first normal profiling-enabled load followed a manual Gen1 retrain. Its
+GSP-ready policy checks passed, but the host retrain returned
+`RETRAIN_FAIL status=1101`. The link stayed Gen1 throughout all 437 workload
+samples, with pinned H2D/D2H of 3.40/3.35 GB/s. Compute, numerical WMMA,
+8 GiB BAR1 and CUPTI counter collection still worked. After unload/FLR, the
+diagnostic variant reached `RETRAIN_PASS status=1102 attempt=1`; the endpoint
+already advertised `CAP2=00000006` in its `before_ovr` snapshot.
+
+The rebuilt diagnostic variant passed again. A subsequent normal load without
+profiling also reached Gen2 on its first retrain attempt. Both used the
+corrected `UNLOCK_BOOTER=610.57.04 GSP_BOOTER=620.70.06` label and native
+GSP firmware 620.70.06. The measured workloads at a verified 150 W were:
+
+| Measurement | Diagnostic + profiling | Normal, without profiling |
+|---|---:|---:|
+| FP16 WMMA, TFLOPS | 66.58 | 66.99 |
+| INT8 WMMA, TOPS | 132.16 | 132.17 |
+| Pinned H2D / D2H, GB/s | 6.80 / 6.70 | 6.80 / 6.70 |
+| Live Gen2 x16 samples | 421/421 | 427/427 |
+| Numerical WMMA outputs | 163,840 | 163,840 |
+| Maximum numerical error | 0 | 0 |
+| BAR1, MiB | 256 | 256 |
+
+The table's diagnostic workload used the earlier build with the stale 615
+log label; the rebuilt variant was checked with a native query and the CUPTI
+counter workload. The label correction did not change firmware or the retrain
+code. The early normal profiling-enabled pass reported BAR1 at 8192 MiB;
+later loads after FLR reported 256 MiB, including both table entries and the
+glcore comparison. This matches the board's previously observed BAR1
+reduction after FLR. These manual-switch results do not establish the BAR1
+size after an untouched cold start. Workload monitors stopped and the previous
+184 W limit was restored.
+clpeak's `int8_k32` compile/load failed in all states, including the stock
+proprietary baseline; unsupported sm_75 architectures were skipped.
+
+Local `insmod` tests also caused automatic attempts to load the installed
+proprietary DRM/modeset/UVM companions. Those attempts reported unknown
+symbols against the open core. The matching locally built UVM loaded and
+CUDA worked; this test did not replace the installed module set. No new Xid,
+AER or RmInitAdapter errors were found. The open DRM/modeset display stack
+was built but not runtime-tested.
+
+The first Gen2 failure is unresolved. Subsequent passes establish usable
+Gen2 after reinitialization on this board; they do not establish success on
+the first open-driver initialization after a full power-off. An untouched
+cold-start test of the installed 620 stack is still required for that claim.
+Profiling counter details are in [the profiling report](CMP40_PROFILING.md).
 
 ## Why the previous port failed
 

@@ -16,7 +16,7 @@ systems, but can detach GSP/RM after driver initialization; see
 
 ## Install
 
-Use a clean NVIDIA 615.78.08 source tree or let `install.sh` download one:
+Use a clean NVIDIA 620.70.06 source tree or let `install.sh` download one:
 
 ```bash
 sudo ./install.sh --pcie-diagnostic

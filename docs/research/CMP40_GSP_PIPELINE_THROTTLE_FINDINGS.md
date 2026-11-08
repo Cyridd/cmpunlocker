@@ -145,4 +145,26 @@ That is offline validation; a runtime benchmark needs the matching 580 stack.
 The helper no longer pins a driver release. Binary signatures and instruction
 layout still determine compatibility; unknown releases/layouts are rejected.
 See [`cmp_glcore_patch/README.md`](../../cmp_glcore_patch/README.md) for the
-complete 615 comparison and automatic version-selection rules.
+615 and 620 comparisons and automatic version-selection rules.
+
+## 620.70.06 validation
+
+Verified on 2026-11-08 with nvidia-open 620.70.06, GSP ON, kernel
+`7.3.3-1-cachyos` and CMP 40HX. The original userspace library retains slot
+52 at file offsets `0xb27cfd` and `0xdbf780`, with the known 48-byte MME
+program and matching `movabs`/store emitters. The signature-based patcher
+accepts it unchanged. Argument 0 changes only bytes `0xb27d01` and `0xdbf784`
+from `f0` to `00`.
+
+At a verified 150 W, 1000 same pipeline binds measured 138.757888 ms with
+the original glcore and 0.004640 ms with the local patched copy. Alternating
+two pipelines measured 138.766816 ms and 0.004384 ms. Each result is the
+median of three process medians from seven timestamp submissions per process.
+The rounds alternated original and patched libraries, with no command-buffer
+patch options. `LD_DEBUG=libs` confirmed the selected file for every process;
+both hashes were unchanged afterward. The power limit was restored to 184 W.
+
+These binding-only measurements confirm removal of the pipeline delay on
+620. They do not measure shader execution or predict game performance. The
+shader-object and graphics controls, library hashes and reproduction command
+are recorded in the [glcore guide](../../cmp_glcore_patch/README.md#6207006-follow-up).

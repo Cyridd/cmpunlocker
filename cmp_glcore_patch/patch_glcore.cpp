@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error(
                 "INPUT and OUTPUT are the same file; refusing to overwrite the original library");
         }
-        // Same LOOP/PIPE_NOP/WAIT_FOR_IDLE program in 580, 610 and 615.
+        // Same LOOP/PIPE_NOP/WAIT_FOR_IDLE program in 580, 610, 615 and 620.
         const std::array<uint8_t, 48> mmeProgram = {
             0x03,0x00,0x00,0x00, 0x00,0x00,0xc0,0x1c, 0x00,0x5f,0xcc,0xb1,
             0x13,0x01,0x14,0x9d, 0xa2,0x01,0xc0,0x18, 0x00,0x03,0x8c,0xf1,
@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
         if (findAll(data, mmeProgram).empty())
             throw std::runtime_error("known MME delay program not found; unsupported library");
 
-        // 580 calls slot 51; 610/615 call slot 52. Select by bytes, not release.
+        // 580 calls slot 51; 610/615/620 call slot 52. Select by bytes, not release.
         std::array<uint8_t, 8> original = {
             0x68, 0x0e, 0x01, 0x20, 0xf0, 0x00, 0x00, 0x00,
         };

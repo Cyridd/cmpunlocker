@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the signed Booter archive used by the 615.78.08 CMP40 patch.
+"""Verify the signed Booter archive used by the 615/620 CMP40 patches.
 
 Reads official NVIDIA source archives; never accesses a GPU. Optionally
 regenerates the embedded 610.57.04 archive header while preserving firmware data.
@@ -15,6 +15,7 @@ import zlib
 ARCHIVES = {
     "610.57.04": "619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681",
     "615.78.08": "eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf",
+    "620.70.06": "bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d",
 }
 LABELS = ["IMAGE_DBG", "HEADER_DBG", "IMAGE_PROD", "HEADER_PROD", "SIG_DBG",
           "SIG_PROD", "PATCH_LOC", "PATCH_SIG", "PATCH_META", "NUM_SIGS"]
@@ -97,12 +98,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--legacy-source", type=Path, required=True)
     parser.add_argument("--native-source", type=Path, required=True)
-    parser.add_argument("--tree", type=Path, help="Patched 615.78.08 source tree to verify")
+    parser.add_argument("--native-version", choices=["615.78.08", "620.70.06"], default="615.78.08")
+    parser.add_argument("--tree", type=Path, help="Patched native-version source tree to verify")
     parser.add_argument("--generate-header", type=Path, help="Write the generated header here")
     args = parser.parse_args()
     legacy = read_archive(args.legacy_source, "610.57.04")
-    native = read_archive(args.native_source, "615.78.08")
-    for version, entries, code_size in [("610.57.04", legacy, 0x8400), ("615.78.08", native, 0x8600)]:
+    native = read_archive(args.native_source, args.native_version)
+    for version, entries, code_size in [("610.57.04", legacy, 0x8400), (args.native_version, native, 0x8600)]:
         for variant in ["DBG", "PROD"]:
             header = struct.unpack("<9I", entries["HEADER_" + variant][1])
             assert header == (0, 0x100, code_size + 0x100, 0x6200, 1, 0x100, code_size, 0x100, 0)
@@ -121,8 +123,9 @@ def main():
         assert (args.tree / HEADER).read_text() == generated, "Embedded legacy archive differs from official source"
         native_c = (args.tree / SOURCE).read_bytes()
         with tarfile.open(args.native_source) as tar:
-            assert native_c == tar.extractfile(f"open-gpu-kernel-modules-615.78.08/{SOURCE}").read(), "Native Booter was modified"
+            assert native_c == tar.extractfile(f"open-gpu-kernel-modules-{args.native_version}/{SOURCE}").read(), "Native Booter was modified"
         booter = (args.tree / "src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_booter_tu102.c").read_text()
+        assert f"GSP_BOOTER={args.native_version}" in booter, "Native Booter log version is incorrect"
         assert "kgspCmp40AllocateUnlockBooter(pGpu, pKernelGsp, &pUnlockBooter)" in booter
         assert "pGpu, pKernelGsp, pUnlockBooter," in booter
         assert "kgspFreeFlcnUcode(pUnlockBooter);" in booter
@@ -130,9 +133,17 @@ def main():
         tu102 = (args.tree / "src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c").read_text()
         free_args = tu102[tu102.index("kgspFreeBootArgs_TU102"):tu102.index("#define INTERRUPT_PROCESSOR_SUSPENDED_VALUE")]
         prepare = tu102[tu102.index("kgspPrepareForBootstrap_TU102"):tu102.index("_kgspGetBooterLoadArgs")]
-        assert "portMemFree(pKernelGsp->pStockSignatureData)" in free_args
-        assert "portMemFree(pKernelGsp->pStockSignatureData)" not in prepare
         gsp = (args.tree / "src/nvidia/src/kernel/gpu/gsp/kernel_gsp.c").read_text()
+        if args.native_version == "620.70.06":
+            start = gsp.index("kgspFreeBootArgsCommon\n")
+            free_common = gsp[start:gsp.index("\n}\n", start)]
+            assert "portMemFree(pKernelGsp->pStockSignatureData)" in free_common
+            bootstrap = tu102[tu102.index("kgspBootstrap_TU102"):tu102.index("_kgspGetBooterUnloadArgs")]
+            assert bootstrap.count("kvbiosExecuteFwsecFrtsCmd_HAL") == 3, "Initial and retry FRTS replay must use native KernelVbios"
+            assert "pPreparedFwsecCmd" not in tu102
+        else:
+            assert "portMemFree(pKernelGsp->pStockSignatureData)" in free_args
+        assert "portMemFree(pKernelGsp->pStockSignatureData)" not in prepare
         assert "BOUNDED_INIT_TIMEOUT_CONTINUE" not in gsp, "GMCAPI timeout must stop initialization"
         print("PASS: legacy archive and signatures match; native Booter unchanged; unlock allocation freed; stock signature lifetime correct")
 
