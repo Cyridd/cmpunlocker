@@ -20,13 +20,17 @@ struct pci_driver { const char *name; };
 struct pci_dev {
 	struct pci_driver *driver;
 	u16 vendor, device;
-	int current_state, type;
+	int current_state, type, cap_pos;
+	u16 cached_flags;
 	bool pcie;
 	u8 config[64];
 	struct pci_dev *parent;
 };
 struct pci_dev *pci_upstream_bridge(struct pci_dev *d);
 bool pci_is_pcie(struct pci_dev *d);
+int pci_pcie_cap(struct pci_dev *d);
+u16 pcie_caps_reg(struct pci_dev *d);
+int pci_read_config_dword(struct pci_dev *d, int offset, u32 *v);
 int pci_pcie_type(struct pci_dev *d);
 const char *pci_name(struct pci_dev *d);
 int pcie_capability_read_word(struct pci_dev *d, int offset, u16 *v);
@@ -44,6 +48,7 @@ void iounmap(void *p);
 u32 readl(const void *p);
 void writel(u32 v, void *p);
 void msleep(unsigned int ms);
+void udelay(unsigned long us);
 /* Retain format checking while keeping test output compact. */
 void mock_log(struct pci_dev *dev, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 #define pci_info mock_log

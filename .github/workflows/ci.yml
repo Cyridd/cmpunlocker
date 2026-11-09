@@ -26,11 +26,13 @@ on:
     paths:
       - 'windows/**'
       - 'linux/cpu-rm/**'
+      - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'windows/**'
       - 'linux/cpu-rm/**'
+      - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 

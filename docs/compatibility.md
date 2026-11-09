@@ -2,16 +2,25 @@
 
 ## Linux
 
+The Gen2 engine updated on 2026-11-08 is shared by CPU-RM 0.17.0 and all four
+open patch sets. Hardware validation passed. The Gen2 measurements below
+were taken with the earlier implementation. See
+[the Gen2 report](research/CPU_RM_PCIE_GEN2.md#shared-gen2-engine-0170).
+
 - **Proprietary CPU-RM compute unlock:** native initialization and CUDA
   throughput validated on `610.43.03`, `615.78.08` and `620.70.06` with GSP OFF, on an
   8 GiB CMP40HX/TU106. Use [the separate guide](../linux/cpu-rm/README.md).
   For `620.70.06`, the module build/offline checks and manual native
   initialization, numerical WMMA and runtime Gen2 tests passed on
-  `7.3.3-1-cachyos`. NVIDIA and persistenced had already run after power-on;
-  the initramfs hook before the first NVIDIA initialization remains untested.
+  `7.3.3-1-cachyos`. A separate
+  [cold-boot control](research/CPU_RM_PCIE_GEN2.md#cold-boot-with-the-mkinitcpio-hook)
+  verified the mkinitcpio hook before the first NVIDIA module load, followed
+  by runtime Gen2 x16, pinned DMA and numerical WMMA on the native driver.
   Keep the pinned 610.43.03 pre-driver assets with this release.
-  Other releases, GRID/vGPU, suspend/resume and other models have not been
-  independently validated.
+  A local GRID `580.178.05` control also passed unlock completion, native
+  NVIDIA-SMI initialization and runtime Gen2 x16 on `6.12.69-2-cachyos-lts-lto`,
+  using an experimental LTS module copy with the previous 0.16.0 Gen2 code.
+  Validation covers the driver releases and configurations listed here.
   This path does not apply the open-module PCIe/ReBAR/profiling patches.
   A [community GRID 19.6 / 580.178.05 report](research/GRID_CPU_RM_REPORT.md)
   documents compute unlock and healthy host initialization on one Proxmox
@@ -29,7 +38,8 @@ passes with fuzz 0 in normal and diagnostic PCIe modes. Manual runtime tests
 confirmed compute, Gen2 x16, 8 GiB BAR1 and CUPTI counter collection. See the 620 follow-up in
 [the Booter report](research/615_BOOTER_COMPATIBILITY.md).
 
-Both PCIe variants with optional profiling built all five open modules on
+Before the Gen2 refresh, both PCIe variants with optional profiling built
+all five open modules on
 `7.3.3-1-cachyos` with Clang/LLD `23.1.4`. NVIDIA's compiler check printed a
 version-mismatch warning despite matching Clang versions: its probe compares
 `__GNUC__` and `__GNUC_MINOR__` with the kernel compiler version. The builds

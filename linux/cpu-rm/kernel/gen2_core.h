@@ -1,0 +1,352 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+/* Shared by CPU-RM and the generated open-driver patches. No ownership changes.
+ * Policy reference: xrip/cmp50hx-unlock b630a493b7877fbd4472113dcb960a93749c0a78.
+ * The caller serializes access and supplies a decoded, unlocked TU106 BAR0.
+ */
+#ifndef CMP40_GEN2_CORE_H
+#define CMP40_GEN2_CORE_H
+#include <linux/delay.h>
+#include <linux/io.h>
+#include <linux/pci.h>
+
+#ifndef CMP40_GEN2_LOG
+#define CMP40_GEN2_LOG "cmp40_preboot: GEN2"
+#endif
+#define GEN2_BAR_SIZE 0x90000
+#define REG_OVR      0x8872c
+#define REG_CFG      0x8c040
+#define REG_PL       0x8c1c0
+#define REG_MISC     0x8841c
+#define REG_CYA      0x8c2c0
+#define REG_XP_PLM   0x8e1b0
+#define REG_XP_VAL   0x8e120
+#define REG_XP_OVR   0x8e110
+#define REG_SS0      0x409664
+#define REG_SS1      0x40966c
+#define CHECK_SIZE   (REG_SS1 + 4)
+
+/* prepare: policy only; targets: also latch TLS; retrain: normal upstream RL. */
+enum cmp40_g2_action { CMP40_G2_PREPARE, CMP40_G2_TARGETS, CMP40_G2_RETRAIN };
+struct cmp40_g2_link {
+	u32 cap, cap2;
+	u16 flags, ctl, ctl2, status;
+};
+struct cmp40_g2_result {
+	bool device_ok;
+	u16 link_status;
+};
+
+/* Capability v1 can be cached at enumeration, before the unlock. Use the
+ * discovered capability offset with raw config access; never edit pci_dev.
+ */
+static int cmp40_g2_read16(struct pci_dev *dev, int reg, u16 *value)
+{
+	int pos = pci_pcie_cap(dev), ret;
+	if (!pos) return -EOPNOTSUPP;
+	ret = pci_read_config_word(dev, pos + reg, value);
+	return ret ? -EIO : (*value == 0xffff ? -ENODEV : 0);
+}
+static int cmp40_g2_read32(struct pci_dev *dev, int reg, u32 *value)
+{
+	int pos = pci_pcie_cap(dev), ret;
+	if (!pos) return -EOPNOTSUPP;
+	ret = pci_read_config_dword(dev, pos + reg, value);
+	return ret ? -EIO : (*value == ~0u ? -ENODEV : 0);
+}
+static int cmp40_g2_write16(struct pci_dev *dev, int reg, u16 value)
+{
+	int pos = pci_pcie_cap(dev);
+	if (!pos) return -EOPNOTSUPP;
+	return pci_write_config_word(dev, pos + reg, value) ? -EIO : 0;
+}
+static int cmp40_g2_link_read(struct pci_dev *dev, struct cmp40_g2_link *s)
+{
+	int ret;
+	ret = cmp40_g2_read16(dev, PCI_EXP_FLAGS, &s->flags);
+	if (ret) return ret;
+	if (!(s->flags & PCI_EXP_FLAGS_VERS)) return -EOPNOTSUPP;
+	ret = cmp40_g2_read32(dev, PCI_EXP_LNKCAP, &s->cap);
+	if (ret) return ret;
+	if (!(s->cap & PCI_EXP_LNKCAP_SLS) ||
+	    (s->cap & PCI_EXP_LNKCAP_SLS) > 7 ||
+	    !(s->cap & PCI_EXP_LNKCAP_MLW) ||
+	    (s->cap & PCI_EXP_LNKCAP_MLW) > (32u << 4)) return -EIO;
+	ret = cmp40_g2_read16(dev, PCI_EXP_LNKCTL, &s->ctl);
+	if (ret) return ret;
+	ret = cmp40_g2_read16(dev, PCI_EXP_LNKSTA, &s->status);
+	if (ret) return ret;
+	s->cap2 = 0; s->ctl2 = 0;
+	/* Do not access the v2-only registers until the live version permits it. */
+	if ((s->flags & PCI_EXP_FLAGS_VERS) < 2) return 0;
+	ret = cmp40_g2_read32(dev, PCI_EXP_LNKCAP2, &s->cap2);
+	if (ret) return ret;
+	return cmp40_g2_read16(dev, PCI_EXP_LNKCTL2, &s->ctl2);
+}
+static bool cmp40_g2_capable(const struct cmp40_g2_link *s)
+{
+	return (s->flags & PCI_EXP_FLAGS_VERS) >= 2 &&
+		(s->cap & PCI_EXP_LNKCAP_SLS) >= 2 &&
+		(s->cap2 & PCI_EXP_LNKCAP2_SLS_5_0GB);
+}
+static bool cmp40_g2_link_up(u16 status)
+{
+	return status != 0xffff && (status & PCI_EXP_LNKSTA_CLS) &&
+		(status & PCI_EXP_LNKSTA_CLS) <= 7 &&
+		(status & PCI_EXP_LNKSTA_NLW) &&
+		(status & PCI_EXP_LNKSTA_NLW) <= (32u << 4) && !(status & PCI_EXP_LNKSTA_LT);
+}
+static bool cmp40_g2_pair_ok(const struct cmp40_g2_link *g,
+			    const struct cmp40_g2_link *p, u16 width)
+{
+	u16 mask = PCI_EXP_LNKSTA_CLS | PCI_EXP_LNKSTA_NLW;
+	return cmp40_g2_link_up(g->status) && cmp40_g2_link_up(p->status) &&
+		(g->status & mask) == (p->status & mask) &&
+		(g->status & PCI_EXP_LNKSTA_NLW) == width &&
+		width <= (g->cap & PCI_EXP_LNKCAP_MLW) && width <= (p->cap & PCI_EXP_LNKCAP_MLW) &&
+		!(g->ctl & PCI_EXP_LNKCTL_LD) && !(p->ctl & PCI_EXP_LNKCTL_LD);
+}
+static void cmp40_g2_link_note(struct pci_dev *gpu, struct pci_dev *dev,
+			       const char *phase)
+{
+	struct cmp40_g2_link s;
+	int ret = cmp40_g2_link_read(dev, &s);
+	if (ret)
+		pci_info(gpu, CMP40_GEN2_LOG " phase=%s pci=%s read_error=%d\n",
+			 phase, pci_name(dev), ret);
+	else
+		pci_info(gpu, CMP40_GEN2_LOG " phase=%s pci=%s cached_ver=%u FLAGS=%04x CAP=%08x CAP2=%08x CTL=%04x CTL2=%04x STA=%04x\n",
+			 phase, pci_name(dev), pcie_caps_reg(dev) & PCI_EXP_FLAGS_VERS,
+			 s.flags, s.cap, s.cap2, s.ctl, s.ctl2, s.status);
+}
+static void cmp40_g2_bar_note(struct pci_dev *dev, void __iomem *bar, const char *phase)
+{
+	pci_info(dev, CMP40_GEN2_LOG " phase=%s OVR=%08x CFG=%08x PL=%08x MISC=%08x CYA=%08x XP_PLM=%08x XP_VAL=%08x XP_OVR=%08x\n",
+		 phase, readl(bar + REG_OVR), readl(bar + REG_CFG), readl(bar + REG_PL),
+		 readl(bar + REG_MISC), readl(bar + REG_CYA), readl(bar + REG_XP_PLM),
+		 readl(bar + REG_XP_VAL), readl(bar + REG_XP_OVR));
+}
+static bool cmp40_g2_bad_reg(u32 value)
+{
+	return value == ~0u || (value & 0xffff0000u) == 0xbadf0000u;
+}
+static bool cmp40_g2_device_ok(void __iomem *bar)
+{
+	return (readl(bar) & 0xffff0000u) == 0x16600000u &&
+		readl(bar + REG_SS0) == 0x88888888 && readl(bar + REG_SS1) == 8;
+}
+static int cmp40_g2_policy_write(struct pci_dev *dev, void __iomem *bar,
+				u32 offset, u32 value, u32 mask)
+{
+	u32 before = readl(bar + offset), after;
+	if (cmp40_g2_bad_reg(before)) return -EIO;
+	value = (before & ~mask) | (value & mask);
+	writel(value, bar + offset);
+	after = readl(bar + offset);
+	pci_info(dev, CMP40_GEN2_LOG " write=%05x before=%08x want=%08x readback=%08x mask=%08x\n",
+		 offset, before, value, after, mask);
+	return cmp40_g2_bad_reg(after) || ((after ^ value) & mask) ? -EIO : 0;
+}
+static int cmp40_g2_policy(struct pci_dev *dev, void __iomem *bar, bool windows,
+			   bool adopt)
+{
+	const u32 offsets[] = { REG_MISC, REG_CYA, REG_CFG, REG_PL, REG_OVR };
+	u32 i, plm = readl(bar + REG_XP_PLM);
+	bool xp = plm == ~0u;
+	int ret;
+	/* All-ones is the known unlocked XP3G PLM, not a general MMIO validity
+	 * test. BOOT0/selectors and each writable register must also be valid.
+	 * Other PLM states retain the established CMP40 policy without XP3G.
+	 */
+	if (!cmp40_g2_device_ok(bar)) return -ENODEV;
+	for (i = 0; i < ARRAY_SIZE(offsets); i++)
+		if (cmp40_g2_bad_reg(readl(bar + offsets[i]))) return -EIO;
+	if (xp && (cmp40_g2_bad_reg(readl(bar + REG_XP_VAL)) ||
+		   cmp40_g2_bad_reg(readl(bar + REG_XP_OVR)))) return -EIO;
+	pci_info(dev, CMP40_GEN2_LOG " policy=%s xp3g=%u adopt=%u\n",
+		 windows ? "windows" : "rmw", xp, adopt);
+	ret = cmp40_g2_policy_write(dev, bar, REG_MISC,
+		windows ? 0xe0b42d00 : BIT(11) | BIT(13),
+		windows ? ~0u : BIT(11) | BIT(12) | BIT(13) | BIT(14));
+	if (ret) return ret;
+	if (xp) {
+		ret = cmp40_g2_policy_write(dev, bar, REG_XP_VAL, 0, ~0u);
+		if (ret) return ret;
+		ret = cmp40_g2_policy_write(dev, bar, REG_XP_OVR, 1, ~0u);
+		if (ret) return ret;
+	}
+	ret = cmp40_g2_policy_write(dev, bar, REG_CYA,
+		windows ? 0x068731b3 : 0, windows ? ~0u : BIT(2));
+	if (ret) return ret;
+	ret = cmp40_g2_policy_write(dev, bar, REG_CFG, 0x80000, 0xc0000);
+	if (ret) return ret;
+	ret = cmp40_g2_policy_write(dev, bar, REG_PL, 0x40000, 0x60000);
+	if (ret) return ret;
+	/* Restore policy even when CAP is already Gen2. Issue #68 succeeded
+	 * without another 0x8872c write in that case. Adoption is always last.
+	 */
+	return adopt ? cmp40_g2_policy_write(dev, bar, REG_OVR, 6, ~0u) : 0;
+}
+static void cmp40_g2_delay(unsigned int ms, bool early)
+{
+	if (early) {
+		/* RM callbacks may hold locks. Keep busy waits individually short. */
+		while (ms--) udelay(1000);
+	} else msleep(ms);
+}
+static int cmp40_g2_target(struct pci_dev *dev, u16 target)
+{
+	u16 before, after, flags;
+	int ret = cmp40_g2_read16(dev, PCI_EXP_FLAGS, &flags);
+	if (ret) return ret;
+	if ((flags & PCI_EXP_FLAGS_VERS) < 2) return -EOPNOTSUPP;
+	ret = cmp40_g2_read16(dev, PCI_EXP_LNKCTL2, &before);
+	if (ret) return ret;
+	if ((before & PCI_EXP_LNKCTL2_TLS) == (target & PCI_EXP_LNKCTL2_TLS)) return 0;
+	ret = cmp40_g2_write16(dev, PCI_EXP_LNKCTL2,
+		(before & ~PCI_EXP_LNKCTL2_TLS) | (target & PCI_EXP_LNKCTL2_TLS));
+	if (ret) return ret;
+	ret = cmp40_g2_read16(dev, PCI_EXP_LNKCTL2, &after);
+	if (ret) return ret;
+	return (after & PCI_EXP_LNKCTL2_TLS) == (target & PCI_EXP_LNKCTL2_TLS) ? 0 : -EIO;
+}
+static int cmp40_g2_run(struct pci_dev *gpu, void __iomem *bar,
+		       enum cmp40_g2_action action, bool windows, bool early,
+		       struct cmp40_g2_result *result)
+{
+	struct pci_dev *port = pci_upstream_bridge(gpu);
+	struct cmp40_g2_link g, p, initial_g, initial_p;
+	u16 width = 0, ctl;
+	bool targets_changed = false, keep_early_targets = false;
+	int ret, cleanup, attempt, poll;
+	unsigned int interval = early ? 10 : 100;
+
+	result->device_ok = false; result->link_status = 0;
+	if (action > CMP40_G2_RETRAIN) return -EINVAL;
+	if (gpu->vendor != PCI_VENDOR_ID_NVIDIA || gpu->device != 0x1f0b ||
+	    !port || !pci_is_pcie(gpu) || !pci_is_pcie(port) ||
+	    (pci_pcie_type(port) != PCI_EXP_TYPE_ROOT_PORT &&
+	     pci_pcie_type(port) != PCI_EXP_TYPE_DOWNSTREAM)) return -EOPNOTSUPP;
+	ret = cmp40_g2_link_read(gpu, &g);
+	if (ret) return ret;
+	ret = cmp40_g2_link_read(port, &p);
+	if (ret) return ret;
+	width = g.status & PCI_EXP_LNKSTA_NLW;
+	if (!cmp40_g2_capable(&p) || !cmp40_g2_pair_ok(&g, &p, width))
+		return -EOPNOTSUPP;
+	if (!cmp40_g2_device_ok(bar)) return -ENODEV;
+	cmp40_g2_link_note(gpu, gpu, "before_policy");
+	cmp40_g2_link_note(gpu, port, "before_policy");
+	cmp40_g2_bar_note(gpu, bar, "before_policy");
+	ret = cmp40_g2_policy(gpu, bar, windows, !cmp40_g2_capable(&g));
+	if (ret) goto final;
+	cmp40_g2_delay(50, early);
+	ret = cmp40_g2_link_read(gpu, &g);
+	if (ret) goto final;
+	ret = cmp40_g2_link_read(port, &p);
+	if (ret) goto final;
+	/* CAP and CAP2 are required even for prepare-only success. */
+	if (!cmp40_g2_capable(&g) || !cmp40_g2_capable(&p)) {
+		ret = -EOPNOTSUPP; goto final;
+	}
+	if (!cmp40_g2_pair_ok(&g, &p, width) || !cmp40_g2_device_ok(bar)) {
+		ret = -ENODEV; goto final;
+	}
+	if (action == CMP40_G2_PREPARE) goto final;
+	/* Already at the requested rate: restore policy, but do not downgrade
+	 * a faster link or retrain a healthy Gen2 link on every adapter open.
+	 */
+	if ((g.status & PCI_EXP_LNKSTA_CLS) > 2) goto final;
+	initial_g = g; initial_p = p;
+	targets_changed = true; /* A failed readback can follow a successful write. */
+	ret = cmp40_g2_target(gpu, PCI_EXP_LNKCTL2_TLS_5_0GT);
+	if (ret) goto restore;
+	ret = cmp40_g2_target(port, PCI_EXP_LNKCTL2_TLS_5_0GT);
+	if (ret) goto restore;
+	if (action == CMP40_G2_TARGETS || (g.status & PCI_EXP_LNKSTA_CLS) == 2) goto final;
+	for (attempt = 0; attempt < (early ? 1 : 2); attempt++) {
+		/* A second attempt is only allowed for a healthy, unchanged-width
+		 * Gen1 link. Reassert policy, but never issue another adoption kick.
+		 */
+		if (attempt) {
+			if (!cmp40_g2_pair_ok(&g, &p, width) ||
+			    (g.status & PCI_EXP_LNKSTA_CLS) != 1 ||
+			    !cmp40_g2_capable(&g) || !cmp40_g2_capable(&p) ||
+			    !cmp40_g2_device_ok(bar)) break;
+			ret = cmp40_g2_policy(gpu, bar, windows, false);
+			if (ret) goto restore;
+			cmp40_g2_delay(50, early);
+		}
+		ret = cmp40_g2_link_read(gpu, &g);
+		if (ret) goto restore;
+		ret = cmp40_g2_link_read(port, &p);
+		if (ret) goto restore;
+		if (!cmp40_g2_pair_ok(&g, &p, width) || !cmp40_g2_capable(&g) ||
+		    !cmp40_g2_capable(&p) || !cmp40_g2_device_ok(bar)) {
+			ret = -EIO; goto restore;
+		}
+		/* Initialization may have changed TLS during the first observation
+		 * window. Recheck/reassert both targets before each request.
+		 */
+		ret = cmp40_g2_target(gpu, PCI_EXP_LNKCTL2_TLS_5_0GT);
+		if (ret) goto restore;
+		ret = cmp40_g2_target(port, PCI_EXP_LNKCTL2_TLS_5_0GT);
+		if (ret) goto restore;
+		ret = cmp40_g2_read16(port, PCI_EXP_LNKCTL, &ctl);
+		if (ret) goto restore;
+		if (ctl & PCI_EXP_LNKCTL_LD) { ret = -EIO; goto restore; }
+		ret = cmp40_g2_write16(port, PCI_EXP_LNKCTL, ctl | PCI_EXP_LNKCTL_RL);
+		if (ret) goto restore;
+		pci_info(gpu, CMP40_GEN2_LOG " retrain=%d early=%u\n", attempt + 1, early);
+		for (poll = 0; poll < 20; poll++) {
+			cmp40_g2_delay(interval, early);
+			ret = cmp40_g2_link_read(gpu, &g);
+			if (ret) goto restore;
+			ret = cmp40_g2_link_read(port, &p);
+			if (ret) goto restore;
+			if (cmp40_g2_pair_ok(&g, &p, width) &&
+			    (g.status & PCI_EXP_LNKSTA_CLS) == 2) goto final;
+		}
+		ret = -ETIMEDOUT;
+	}
+restore:
+	/* An early healthy Gen1 timeout still leaves the requested TLS seed for
+	 * GSP initialization (#68). Other failures and all late failures restore.
+	 */
+	if (early && ret == -ETIMEDOUT && cmp40_g2_pair_ok(&g, &p, width) &&
+	    cmp40_g2_capable(&g) && cmp40_g2_capable(&p) && cmp40_g2_device_ok(bar))
+		keep_early_targets = true;
+	if (targets_changed && !keep_early_targets) {
+		cleanup = cmp40_g2_target(gpu, initial_g.ctl2);
+		poll = cmp40_g2_target(port, initial_p.ctl2);
+		if (!cleanup) cleanup = poll;
+		targets_changed = false;
+		if (cleanup) {
+			pci_err(gpu, CMP40_GEN2_LOG " target_restore_error=%d\n", cleanup);
+			ret = cleanup;
+		}
+	}
+final:
+	cleanup = cmp40_g2_link_read(gpu, &g);
+	if (!cleanup) result->link_status = g.status;
+	if (!cleanup) cleanup = cmp40_g2_link_read(port, &p);
+	result->device_ok = !cleanup && cmp40_g2_pair_ok(&g, &p, width) &&
+		cmp40_g2_device_ok(bar);
+	if (!result->device_ok) {
+		ret = -ENODEV;
+		/* A final selector/config failure can occur after the link reached
+		 * Gen2. Restore both targets even on this late failure path.
+		 */
+		if (targets_changed) {
+			cleanup = cmp40_g2_target(gpu, initial_g.ctl2);
+			poll = cmp40_g2_target(port, initial_p.ctl2);
+			if (!cleanup) cleanup = poll;
+			if (cleanup)
+				pci_err(gpu, CMP40_GEN2_LOG " final_target_restore_error=%d\n", cleanup);
+		}
+	}
+	cmp40_g2_bar_note(gpu, bar, "final");
+	cmp40_g2_link_note(gpu, gpu, "final");
+	cmp40_g2_link_note(gpu, port, "final");
+	return ret;
+}
+#endif

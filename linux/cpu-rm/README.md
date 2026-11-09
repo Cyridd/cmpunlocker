@@ -9,16 +9,20 @@ throughput were validated with **610.43.03, 615.78.08 and 620.70.06**; see
 For NVIDIA **620.70.06**, the module builds on `7.3.3-1-cachyos` with
 Clang/LLD `23.1.4`; firmware preparation and offline checks passed. Hardware
 tests on 2026-11-08 confirmed the stock-handoff unlock, native GSP-OFF
-initialization, numerical WMMA and runtime Gen2 x16. NVIDIA and persistenced
-had already run after power-on; these tests followed driver unload and do not
-validate the initramfs hook before the first NVIDIA initialization. The firmware
-inputs remain pinned to 610.43.03 because the unlock precedes the next native
-driver initialization.
+initialization, numerical WMMA and runtime Gen2 x16. A separate
+[cold-boot control](../../docs/research/CPU_RM_PCIE_GEN2.md#cold-boot-with-the-mkinitcpio-hook)
+confirmed the installed mkinitcpio hook completing before the first NVIDIA
+module load, followed by a single successful runtime Gen2 test, pinned DMA
+and numerical WMMA. The core NVIDIA driver stayed loaded during that control.
+The firmware inputs remain pinned to 610.43.03 because the unlock precedes
+the next native driver initialization.
 
 The existing [open-module installer](../../docs/linux-install.md) remains a
 separate choice. Its PCIe/ReBAR/profiling patches are not applied by this tool.
-GRID/vGPU, other CMP models, suspend/resume and other driver releases have not
-been independently validated for this CPU-RM path.
+Validation covers the driver releases and configurations listed here.
+An experimental LTS build passed unlock completion, native NVIDIA-SMI
+initialization and one runtime Gen2 x16 test with GRID 580.178.05 on B550.
+That test used the previous 0.16.0 Gen2 implementation.
 The [GRID 19.6 community report](../../docs/research/GRID_CPU_RM_REPORT.md)
 documents compute unlock on one 580.178.05 host, Linux guest CUDA/Tensor Core
 benchmarks and Windows guest OpenCL benchmarks without additional guest-driver
@@ -241,6 +245,12 @@ regenerate the initramfs. Keep GSP OFF if you still use the manual CPU-RM path.
 
 ## PCIe Gen2 with CPU-RM
 
+Module **0.17.0** updates the Gen2 policy and training logic from the current
+CMP50HX approach. It shares its C implementation with the open-driver patches.
+The hardware results below used the previous implementation. The new engine
+passed hardware validation; see
+[the implementation and validation results](../../docs/research/CPU_RM_PCIE_GEN2.md#shared-gen2-engine-0170).
+
 Gen2 can be applied entirely **after native NVIDIA initialization**. An isolated
 615.78.08 cold-boot control with no preliminary Gen2 writes reached Gen2 x16
 using the CPU-RM helper. The helper also passed the manual 620.70.06 tests
@@ -264,8 +274,10 @@ The first helper verifies compute unlock and firmware/DMA cleanup. Unload its
 completed one-shot module before using it again for runtime Gen2. The Gen2
 helper verifies proprietary GSP OFF, native health and absence of open NVIDIA
 clients, then holds a temporary NVML client while the module sets the GPU-side
-policy and requests ordinary upstream retraining. It additionally requires
-full compute selectors, halted GSP and an active PCIe link. Its runtime mode
+policy and requests ordinary upstream retraining. It allows one further
+attempt only if the link remains healthy at Gen1 with its original width;
+before that attempt it restores policy without another adoption write.
+It requires full compute selectors, halted GSP and an active PCIe link. Its runtime mode
 uses existing PCI decoding and leaves the native driver's PCI enable count
 unchanged.
 
@@ -283,11 +295,22 @@ Gen2 after the first native NVIDIA initialization, before GPU clients start.
 
 ### Pre-driver research controls
 
-`--gen2 prepare` and `--gen2 retrain` on `unlock.sh` remain available for
-controlled cold-boot comparisons. Their default policy changes only the known
-rate, MISC and `DIS_G2` fields and sets XVE override `6`; the explicit
-`--gen2-policy windows` variant writes the Windows full MISC/CYA values.
-Pre-driver training reached Gen2, but native CPU-RM reset the policy to Gen1.
+`unlock.sh` accepts three optional cold-boot controls:
+
+- `--gen2 prepare`: apply policy and verify live Gen2 capability.
+- `--gen2 targets`: also set TLS=2 on the GPU and its upstream port.
+- `--gen2 retrain`: also request ordinary upstream retraining.
+
+The default remains `gen2=off`, including in the mkinitcpio hook. The masked
+policy updates MISC, CYA, CFG and PL. When XP3G PLM is `ffffffff` and the
+registers are readable, it also sets VAL0 `0x8e120=0` and OVR0 `0x8e110=1`.
+Other PLM states use the established CMP40 subset. Adoption (`0x8872c=6`)
+comes last and is skipped when live capability already supports Gen2, while
+policy restoration still runs. The explicit `--gen2-policy windows` variant
+retains the Windows full MISC/CYA values.
+
+With the earlier implementation, pre-driver training reached Gen2, but native
+CPU-RM reset the policy to Gen1.
 The subsequent cold control established that late Gen2 works from the stock
 Gen1 capability state without preliminary PCIe preparation.
 
@@ -305,8 +328,12 @@ Gen2 outcomes are recorded separately in `gen2_error`, `gen2_device_ok` and
 `gen2_link_status`; compute unlock has its own `unlock_error`. A Gen2 timeout
 never enters the Booter FLR error path. Failed training restores the original
 TLS fields on both ends; GPU-side policy remains available for diagnosis.
-All Gen2 modes use the actual upstream port and ordinary Retrain Link, without
-Link Disable or driver reprobe. The existing
+Both link ends must report the same speed and the original width. Raw PCI
+access uses the discovered capability offset, so a cached v1 flag does not
+hide a live v2 capability. TLS writes still require live v2 and Gen2 support;
+the code never changes Linux's PCI cache. CCC, ASPM, HASD/HAWD and `0x88610`
+are preserved. All Gen2 modes use the actual upstream port and ordinary
+Retrain Link, without Link Disable or driver reprobe. The existing
 `tools/cmp40hx-driver-reprobe-gen2.sh` depends on the patched open driver's
 Gen2 setup running again at probe time, so use the CPU-RM helper for this path.
 

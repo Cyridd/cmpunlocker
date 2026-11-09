@@ -14,10 +14,12 @@ with tempfile.TemporaryDirectory(prefix="cmp40-gen2-test-") as directory:
     include.mkdir()
     for name in ("pci.h", "io.h", "delay.h", "types.h", "string.h"):
         (include / name).write_text('#include "gen2_shim.h"\n')
-    binary = work / "test_gen2"
-    subprocess.run([
-        *shlex.split(os.environ.get("CC", "cc")), "-std=gnu11", "-O2",
-        "-Wall", "-Wextra", "-Werror", "-I", str(work), "-I", str(root),
-        str(root / "test_gen2.c"), "-o", str(binary),
-    ], check=True)
-    subprocess.run([str(binary)], check=True)
+    for variant, flags in (("cpu", []), ("open", ["-DTEST_OPEN_ADAPTER"]),
+                           ("open-diagnostic", ["-DTEST_OPEN_ADAPTER", "-DCMP40_GEN2_DIAGNOSTIC"])):
+        binary = work / ("test_gen2_" + variant)
+        subprocess.run([
+            *shlex.split(os.environ.get("CC", "cc")), "-std=gnu11", "-O2",
+            "-Wall", "-Wextra", "-Werror", *flags, "-I", str(work), "-I", str(root),
+            "-I", str(root.parent / "kernel"), str(root / "test_gen2.c"), "-o", str(binary),
+        ], check=True)
+        subprocess.run([str(binary)], check=True)

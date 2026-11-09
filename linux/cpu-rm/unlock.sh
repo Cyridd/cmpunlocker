@@ -4,7 +4,7 @@
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 usage() {
-    echo "Usage: sudo $0 --gpu 0000:01:00.0 [--load-nvidia] [--gen2 prepare|retrain] [--gen2-policy rmw|windows]"
+    echo "Usage: sudo $0 --gpu 0000:01:00.0 [--load-nvidia] [--gen2 prepare|targets|retrain] [--gen2-policy rmw|windows]"
     echo "The target must be an unbound 10de:1f0b; firmware/module must be installed."
 }
 die() { echo "cmp40 CPU-RM: $*" >&2; exit 1; }
@@ -13,14 +13,14 @@ while (($#)); do
     case "$1" in
         --gpu) (($# >= 2)) || die "--gpu needs a PCI address"; gpu=$2; shift 2 ;;
         --load-nvidia) load_nvidia=1; shift ;;
-        --gen2) (($# >= 2)) || die "--gen2 needs prepare or retrain"; gen2=$2; shift 2 ;;
+        --gen2) (($# >= 2)) || die "--gen2 needs prepare, targets or retrain"; gen2=$2; shift 2 ;;
         --gen2-policy) (($# >= 2)) || die "--gen2-policy needs rmw or windows"; gen2_policy=$2; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) usage; die "unknown argument: $1" ;;
     esac
 done
 [[ $gpu =~ ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$ ]] || die "specify the full lowercase PCI address with --gpu"
-[[ $gen2 == off || $gen2 == prepare || $gen2 == retrain ]] || die "--gen2 needs prepare or retrain"
+[[ $gen2 == off || $gen2 == prepare || $gen2 == targets || $gen2 == retrain ]] || die "--gen2 needs prepare, targets or retrain"
 [[ $gen2_policy == rmw || $gen2_policy == windows ]] || die "--gen2-policy needs rmw or windows"
 [[ $gen2 != off || $gen2_policy == rmw ]] || die "--gen2-policy requires --gen2"
 ((EUID == 0)) || die "run as root"

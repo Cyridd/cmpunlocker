@@ -75,7 +75,7 @@ MODULE_PARM_DESC(mmu_invalidate, "Diagnostic: invalidate all MMU PDB/VA mappings
 
 static char *gen2 = "off";
 module_param(gen2, charp, 0444);
-MODULE_PARM_DESC(gen2, "Opt-in pre-driver Gen2 experiment: off/prepare/retrain (normal CPU-RM unlock only)");
+MODULE_PARM_DESC(gen2, "Opt-in pre-driver Gen2 experiment: off/prepare/targets/retrain (normal CPU-RM unlock only)");
 static char *gen2_policy = "rmw";
 module_param(gen2_policy, charp, 0444);
 MODULE_PARM_DESC(gen2_policy, "Gen2 register policy: rmw preserves unrelated bits; windows uses the Windows full MISC/CYA constants");
@@ -102,7 +102,7 @@ static int __init cmp40_preboot_init(void)
         return -EINVAL;
     runtime_gen2 = !strcmp(mode, "gen2_runtime");
     unlock = !strcmp(mode, "unlock") || !strcmp(mode, "direct");
-    if (!gen2 || (strcmp(gen2, "off") && strcmp(gen2, "prepare") && strcmp(gen2, "retrain")) ||
+    if (!gen2 || (strcmp(gen2, "off") && strcmp(gen2, "prepare") && strcmp(gen2, "targets") && strcmp(gen2, "retrain")) ||
         !gen2_policy || (strcmp(gen2_policy, "rmw") && strcmp(gen2_policy, "windows")))
         return -EINVAL;
     do_gen2 = strcmp(gen2, "off") != 0;
@@ -224,7 +224,8 @@ static int __init cmp40_preboot_init(void)
         if (!ret && !resources_retained && do_gen2) {
             struct cmp40_gen2_result result;
 
-            gen2_error = cmp40_gen2_prepare(pdev, !strcmp(gen2, "retrain"),
+            gen2_error = cmp40_gen2_prepare(pdev, !strcmp(gen2, "retrain") ? 2 :
+                                           !strcmp(gen2, "targets") ? 1 : 0,
                                            !strcmp(gen2_policy, "windows"), &result);
             gen2_device_ok = result.device_ok;
             gen2_link_status = result.link_status;
@@ -261,4 +262,4 @@ module_init(cmp40_preboot_init);
 module_exit(cmp40_preboot_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CMP40HX CPU-RM pre-driver unlock and inspection");
-MODULE_VERSION("0.16.0");
+MODULE_VERSION("0.17.0");

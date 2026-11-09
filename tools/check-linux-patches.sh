@@ -89,7 +89,7 @@ if [[ -n "${SRC_INPUT}" && ${#selected[@]} -ne 1 ]]; then
     die "--source can only be used with a single --version"
 fi
 
-for tool in patch tar sha256sum find mktemp grep awk; do
+for tool in patch tar sha256sum find mktemp grep awk cmp; do
     command -v "${tool}" >/dev/null 2>&1 || die "missing required tool: ${tool}"
 done
 
@@ -175,16 +175,23 @@ apply_and_check() { # <version> <source> <label> <pcie patch> <marker>
         # kernel-open (the retrain helper).
         grep -Rqs "${marker}" src/nvidia kernel-open/nvidia \
             || die "PCIe marker ${marker} missing after ${version}/${label}"
-        # 610/615 need the GSP-ready policy writes as well as the host retrain
-        # helper. The original 615 port silently omitted this entire hunk;
-        # the host marker alone passed while every retrain was skipped.
-        case "${version}" in
-            610.57.04|615.78.08|620.70.06)
-                grep -Fqs 'LNKCFG=0x%08x(bits[19:18]=%u)' \
-                    src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c \
-                    || die "GSP-ready Gen2 policy setup missing after ${version}/${label}"
-                ;;
-        esac
+        # Both paths must run the exact same engine. Check every RM/host stage
+        # as well as the ABI declaration; a host marker alone is insufficient.
+        cmp "${SCRIPT_DIR}/linux/cpu-rm/kernel/gen2_core.h" kernel-open/nvidia/gen2_core.h \
+            || die "Gen2 core differs from the CPU-RM implementation"
+        cmp "${SCRIPT_DIR}/tools/gen2/open_adapter.h" kernel-open/nvidia/nv-cmp40-gen2.h \
+            || die "Gen2 open adapter differs from its canonical source"
+        for stage in 0 1; do
+            grep -Fqs "os_cmp40_gen2(pGpu->pOsGpuInfo, ${stage});" \
+                src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_tu102.c \
+                || die "Gen2 RM stage ${stage} missing after ${version}/${label}"
+        done
+        grep -Fqs 'os_cmp40_gen2(nv, 2);' kernel-open/nvidia/nv.c \
+            || die "Gen2 post-init retrain missing after ${version}/${label}"
+        for interface in src/nvidia/arch/nvalloc/unix/include/os-interface.h kernel-open/common/inc/os-interface.h; do
+            grep -Fqs 'void        NV_API_CALL  os_cmp40_gen2(void *os_gpu, NvU32 stage);' "$interface" \
+                || die "Gen2 callback declaration missing in ${interface}"
+        done
         grep -Rqs "CMP40_REBAR" kernel-open/nvidia \
             || die "ReBAR marker missing after ${version}/${label}"
         # Check the optional profiling addition after the default series.

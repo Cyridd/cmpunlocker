@@ -23,7 +23,7 @@ device=/sys/bus/pci/devices/$gpu
 [[ -d $device && $(<"$device/vendor") == 0x10de && $(<"$device/device") == 0x1f0b ]] || die "target is not CMP40HX"
 [[ $(basename -- "$(readlink -f "$device/driver")") == nvidia ]] || die "NVIDIA does not own the target"
 [[ -r /proc/driver/nvidia/version ]] && ! grep -q 'Open Kernel Module' /proc/driver/nvidia/version || die "requires the proprietary NVIDIA module"
-[[ ! -d /sys/module/nvidia_drm && ! -d /sys/module/nvidia_modeset ]] || die "stop NVIDIA display users before the Gen2 experiment"
+[[ ! -d /sys/module/nvidia_drm && ! -d /sys/module/nvidia_modeset ]] || die "stop NVIDIA display users (nvidia_drm, nvidia_modeset) before the Gen2 experiment"
 [[ ! -d /sys/module/cmp40_preboot ]] || die "cmp40_preboot is already loaded; inspect its result before another operation"
 firmware=$(cmp40_gsp_setting) || die "cannot read NVIDIA's GSP setting from sysfs or /proc"
 [[ $firmware == 0 ]] || die "requires GSP OFF"

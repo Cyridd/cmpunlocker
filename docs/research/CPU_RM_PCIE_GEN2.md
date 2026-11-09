@@ -11,6 +11,162 @@ A second cold boot then established that the preliminary Gen2 stage is
 unnecessary on this configuration: compute unlock left stock Gen1 capability,
 and the post-driver helper alone exposed and trained Gen2 x16.
 
+## Shared Gen2 engine (0.17.0)
+
+**Verified by source inspection:** the Gen2 update on 2026-11-08 uses one implementation in
+[`gen2_core.h`](../../linux/cpu-rm/kernel/gen2_core.h) for CPU-RM and all four
+open-driver patch sets. The hardware measurements elsewhere in this report
+used the previous implementation.
+
+**Verified:** I tested 0.17.0 on hardware and confirmed successful operation.
+
+The policy follows the current
+[CMP50HX source](https://github.com/xrip/cmp50hx-unlock/tree/b630a493b7877fbd4472113dcb960a93749c0a78)
+and incorporates the policy-restoration and bounded-retry ideas from
+[issue #68](https://github.com/xrip/cmp50hx-unlock/issues/68) and
+[issue #51](https://github.com/xrip/cmp50hx-unlock/issues/51). These reports
+involve X99 and TU102; they do not establish the cause of the CMP40HX failure.
+This update combines selected changes; their individual effects on CMP40HX
+have not been isolated.
+
+The masked write sequence is now:
+
+```text
+MISC 0x8841c = (old | bit11 | bit13) & ~(bit12 | bit14)
+VAL0 0x8e120 = 0          # only with XP3G PLM == ffffffff
+OVR0 0x8e110 = 1          # only with XP3G PLM == ffffffff
+CYA  0x8c2c0 = old & ~bit2
+CFG  0x8c040 = (old & ~0x000c0000) | 0x00080000
+PL   0x8c1c0 = (old & ~0x00060000) | 0x00040000
+OVR  0x8872c = 6          # last, only if live Gen2 capability is absent
+```
+
+BOOT0, full compute selectors and every register to be written must be
+readable before the first policy write. XP3G registers are written only when
+their PLM is `ffffffff` and their values are valid. Other PLM values retain
+the previous CMP40 subset. The optional CPU-RM `windows` policy still uses
+full MISC/CYA constants. A failed write/readback stops the sequence before
+retraining; partial policy remains visible for diagnosis.
+
+Live FLAGS, LnkCap, LnkCap2 and LnkCtl2 are read through the discovered PCIe
+capability offset. Linux's cached version and speed fields are not changed.
+Initially live v1 permits policy application, but v2-only registers are not
+accessed until the live version reaches 2. Both ends must advertise Gen2
+before any TLS writes. A real v1 capability that survives adoption therefore
+still stops target programming; the cached-v1 workaround does not bypass it.
+
+A retained Gen2 capability no longer skips policy restoration. Actual speed
+is checked separately. Retraining uses only the upstream port's RL bit;
+CCC, ASPM, HASD/HAWD, CFG bit 22 and the other unmasked fields are preserved.
+The update does not write `0x88610`, XP3G VAL3/OVR3, PL bits 16/20, or the
+endpoint's RL bit. My repeated `0x88610` tests on CMP40HX, including `0x1001`,
+produced no Gen2 improvement. This register is a Gen3 control.
+
+The open adapter calls the engine after the successful stock-Booter guard,
+at GSP-ready, and after `rm_init_adapter`. It uses the existing full BAR0
+mapping and matching `void *, NvU32` callback declarations in both OS
+interface headers. `cmp40_gen2_early=1` is the default: apply policy and seed
+both TLS fields after Booter. Value `0` applies policy only; value `2` adds
+one early retrain with a 200 ms poll. RM callbacks use bounded busy waits,
+including 50 ms for policy settling, and never sleep or allocate memory.
+A healthy early Gen1 timeout preserves TLS=2 for the later stages. It does
+not mean the early retrain succeeded. GSP-ready performs policy restoration
+only; the post-init stage performs ordinary retraining.
+
+CPU-RM retains `gen2=off` by default. Its pre-driver `prepare`, `targets` and
+`retrain` controls run after compute cleanup. The explicit runtime helper
+still requires an idle native proprietary driver with GSP halted. The late
+engine allows two retrain requests, each with a two-second observation
+window. It retries only on a healthy Gen1 link with unchanged width and live
+Gen2 capability, restoring policy without another `0x8872c` write first.
+Both TLS fields are checked and reapplied before each retrain request.
+All failures after target programming restore both saved TLS fields, except
+the healthy early timeout described above. Both ends must report the same
+speed and original width, with an accessible GPU and full selectors, for a
+successful final result.
+
+The open patch files embed the canonical core and adapter. Regenerate them
+from the pinned, unmodified NVIDIA archive with:
+
+```bash
+python3 tools/gen2/generate.py --version 620.70.06 --source open-gpu-kernel-modules-620.70.06.tar.gz
+```
+
+Repeat for another supported version and its matching archive. `--check`
+compares the generated patch without writing it. The patch checker compares
+the embedded files byte for byte and checks all three callback stages and
+both declarations, along with compute, ReBAR and optional profiling patches.
+
+### Verification of the shared engine
+
+**Verified:** the final source passed the following commands on x86-64 CachyOS,
+with Python 3.14.9 and Clang/LLD 23.1.4:
+
+```bash
+make -C linux/cpu-rm offline-test
+python3 -m unittest discover -s linux/cpu-rm/firmware -p 'test_*.py'
+make -C linux/cpu-rm/kernel KDIR=/usr/lib/modules/7.3.3-1-cachyos/build LLVM=1
+bash -n linux/cpu-rm/unlock.sh tools/check-linux-patches.sh
+shellcheck -x -S warning linux/cpu-rm/unlock.sh tools/check-linux-patches.sh
+```
+
+All exited 0. The offline suite passed 44 production-code PCI/MMIO fault
+cases, the actual open adapter in normal and diagnostic modes, six helper
+cases, two mkinitcpio tests and the firmware/layout checks. The separate
+firmware unittest run passed eight tests. Fault cases include cached v1 versus
+live v2, initially live v1, failed adoption, protected XP3G, partial writes,
+policy restoration without another adoption write, TLS reset between attempts,
+width loss, disagreeing link ends, inaccessible devices and target restoration.
+
+The final open builds produced `nvidia.ko` with exit 0:
+
+| Driver | Kernel headers | PCIe variant |
+|---|---|---|
+| 580.173.02 | 6.12.69-2-cachyos-lts-lto | Normal |
+| 610.57.04 | 6.12.69-2-cachyos-lts-lto | Normal |
+| 615.78.08 | 7.3.3-1-cachyos | Normal |
+| 620.70.06 | 7.3.3-1-cachyos | Normal and diagnostic |
+
+Each source tree had compute, Gen2 and ReBAR applied. The command for each
+row used its source directory as `tree` and `/usr/lib/modules/<kernel>/build`
+as `kdir`:
+
+```bash
+make -C "$tree" -j2 modules SYSSRC="$kdir" SYSOUT="$kdir" CC=clang LD=ld.lld LLVM=1 NV_KERNEL_MODULES=nvidia
+```
+
+The LTS headers were built with Clang 21.1.6; compilation used 23.1.4 and
+printed a compiler mismatch warning. The open builds also emitted upstream
+compiler/objtool warnings. The changed Gen2 code compiled without diagnostics.
+Only `nvidia.ko` was requested; the other open kernel modules and full
+615/610 diagnostic builds were not repeated because their sources were
+unchanged or their Gen2 variant was covered by the shared-core comparison
+and the 620 diagnostic build.
+
+`tools/check-linux-patches.sh --version VER --source ARCHIVE` and
+`tools/gen2/generate.py --version VER --source ARCHIVE --check` passed for
+all four pinned archives. The checker applied all seven normal/diagnostic
+combinations at fuzz 0, including ReBAR and optional profiling, and verified
+that each embedded core and adapter matched the canonical files.
+
+The complete resolved build/patch commands, exit codes, module hashes and
+logs are saved locally in `artifacts/gen2-refresh-2026-11-08/`, including
+`build-validation.json` and `patch-validation.json`. The build record's core
+hash matches the final `gen2_core.h`. `git diff --check` also passed.
+
+**Verified limitation:** a full CPU-RM LTS build exited 2 at the existing
+`timeline.c:35` sysfs callback: these headers require `struct bin_attribute *`,
+while the current callback takes `const struct bin_attribute *`. The separate
+final `gen2.o` build passed with:
+
+```bash
+make -C /usr/lib/modules/6.12.69-2-cachyos-lts-lto/build M=/home/cyrid/Documents/cmpunlocker/artifacts/gen2-refresh-2026-11-08/cpu-lts LLVM=1 gen2.o
+```
+
+That object result does not establish a working full LTS module. The public
+timeline compatibility code and the isolated GRID boot installation were
+not changed by this Gen2 update.
+
 ## Test setup
 
 - CMP40HX / TU106, PCI ID `10de:1f0b`, GPU `0000:10:00.0`.
@@ -178,6 +334,80 @@ These tests followed driver unload after a cold power-on. NVIDIA and
 persistenced had already run earlier in that boot, so the 620 result does
 not establish operation before the first NVIDIA initialization. The isolated
 615 cold-boot controls above remain separate evidence.
+
+### Cold boot with the mkinitcpio hook
+
+Verified on 2026-11-08: a separate run after a confirmed physical PSU
+power-off reached Gen2 x16 with the installed mkinitcpio hook and proprietary
+620.70.06 on `7.3.3-1-cachyos`. The card was the same ASUS CMP40HX with
+VBIOS `90.06.67.00.06`, on MSI B550. The active NVIDIA `RegistryDwords`
+setting was empty; the experimental `RMPcieLinkSpeed=4` option was disabled
+for this boot.
+
+The boot log records `PRE_DRIVER_UNLOCK_PASS` at 3.455 seconds and hook
+completion at 3.456 seconds, before the NVIDIA module-load message at
+9.358 seconds. The resident preboot module reported `mode=unlock`,
+`unlock_error=0`, `resources_retained=N` and `gen2=off`. The initial snapshot
+had no earlier Gen2 result. The initramfs module matched the tested build,
+SHA256 `5175f5c2f5291f3e87f5f75cae4d2ea0ac88e046efa5d82b806da8889ee873c1`.
+
+The completed preboot module was removed before the runtime test.
+`nvidia_drm`, `nvidia_modeset` and `nvidia-persistenced` were stopped
+temporarily; the core `nvidia` module stayed loaded and the GPU stayed bound
+to it. The public helper ran once, with its existing client checks and NVML
+monitor, using this command from the repository root:
+
+```bash
+bash /home/cyrid/Documents/cmpunlocker/linux/cpu-rm/gen2.sh \
+  --gpu 0000:10:00.0 \
+  --module /home/cyrid/Documents/cmpunlocker/linux/cpu-rm/kernel/cmp40_preboot.ko
+```
+
+It ran as root and exited 0 with `GEN2_RUNTIME_RESULT error=0 device_ok=1
+status=1102`. The display modules and persistence service were then restored
+successfully. Readbacks before preparation and immediately before the helper
+matched; restoring the services retained Gen2.
+
+| Register | Before helper | After policy, before retrain | After retrain |
+|---|---|---|---|
+| OVR | `00000000` | `00000006` | `00000006` |
+| CFG | `800c5800` | `80085800` | `80085800` |
+| PL | `00120036` | `00140036` | `00240036` |
+| MISC | `e0b40500` | `e0b42d00` | `e0b42d00` |
+| CAP2 | `00000002` | `00000006` | `00000006` |
+| Endpoint Link Status | `1101` | `1101` | `1102` |
+| Upstream Link Status | `3101` | `3101` | `3102` |
+
+Gen2 capability was already present in the after-policy sample while the
+physical link remained Gen1. The upper PL nibble changed from 1 to 2 between
+that sample and the final retrain sample. Comparing the final `00240036`
+directly with the GRID report's failed preparation state would mix phases;
+these samples do not establish the meaning of each PL field.
+
+Verified workload commands, run as root with the existing 150 W power limit:
+
+```bash
+/home/cyrid/Загрузки/clpeak-2.0.19-linux-x86_64-cuda/bin/clpeak \
+  --cuda --cuda-device 0 --single-precision-compute --transfer-bandwidth \
+  --json-file /home/cyrid/Documents/cmpunlocker/artifacts/issue8/cold-620-2026-11-08/validation-ab30ca98/clpeak.json \
+  --csv-file /home/cyrid/Documents/cmpunlocker/artifacts/issue8/cold-620-2026-11-08/validation-ab30ca98/clpeak.csv
+/home/cyrid/Документы/artifacts_backup_20260511/tu106-preboot/verify-wmma
+```
+
+Both exited 0. With CUDA toolkit 13.2 and driver API 13.5, clpeak reported
+7737.49 GFLOPS FP32, pinned H2D 6.80 GB/s and pinned D2H 6.70 GB/s. Numerical
+WMMA verified 163,840 outputs across 20 launches with maximum absolute error
+0. All 26 link samples over about 2.6 seconds reported `1102` / `3102`.
+No new Xid, AER or RmInitAdapter errors appeared in the kernel log. The power
+limit remained 150 W; temperature changed from 36.19 C to 40.12 C.
+
+Raw logs, command records and snapshots are retained locally under
+`artifacts/issue8/cold-620-2026-11-08/`, for boot ID
+`ab30ca98-4a20-4320-9b4c-3b736281375f`. The baseline collector used PCI and
+MMIO reads without querying NVIDIA; boot services had initialized the driver.
+This verifies one cold boot and a short workload on the native 620 driver.
+GRID 580.178.05, vGPU guests and VFIO were not exercised. Builds and offline
+module tests were not repeated because the module and helper were unchanged.
 
 ## Integration
 

@@ -12,7 +12,8 @@ static u32 mmio[CHECK_SIZE / 4];
 static u16 command;
 static unsigned writes, retrains, maps, enables, slept, mode;
 static u32 reject_offset;
-static bool lose_device, fail_gpu_target, fail_gpu_restore, fail_map;
+static bool lose_device, fail_gpu_target, fail_gpu_restore, fail_map, fail_adopt, lose_selectors;
+static unsigned kicks, policy_writes, last_policy_offset, busy_us;
 static size_t bar_len;
 
 static u16 get16(struct pci_dev *d, int off) { u16 v; memcpy(&v, d->config + off, 2); return v; }
@@ -20,21 +21,23 @@ static void put16(struct pci_dev *d, int off, u16 v) { memcpy(d->config + off, &
 static void put32(struct pci_dev *d, int off, u32 v) { memcpy(d->config + off, &v, 4); }
 struct pci_dev *pci_upstream_bridge(struct pci_dev *d) { return d->parent; }
 bool pci_is_pcie(struct pci_dev *d) { return d->pcie; }
+int pci_pcie_cap(struct pci_dev *d) { return d->cap_pos; }
+u16 pcie_caps_reg(struct pci_dev *d) { return d->cached_flags; }
 int pci_pcie_type(struct pci_dev *d) { return d->type; }
 const char *pci_name(struct pci_dev *d) { return d == &gpu ? "0012:34:05.0" : "0012:33:00.0"; }
 void mock_log(struct pci_dev *dev, const char *fmt, ...) { (void)dev; (void)fmt; }
-int pcie_capability_read_word(struct pci_dev *d, int off, u16 *v)
+static int mock_config_read_word(struct pci_dev *d, int off, u16 *v)
 {
 	*v = lose_device && d == &gpu ? 0xffff : get16(d, off);
 	return 0;
 }
-int pcie_capability_read_dword(struct pci_dev *d, int off, u32 *v)
+static int mock_config_read_dword(struct pci_dev *d, int off, u32 *v)
 {
 	memcpy(v, d->config + off, 4);
 	if (lose_device && d == &gpu) *v = ~0u;
 	return 0;
 }
-int pcie_capability_write_word(struct pci_dev *d, int off, u16 v)
+static int mock_config_write_word(struct pci_dev *d, int off, u16 v)
 {
 	writes++;
 	if (lose_device && d == &gpu) return -EIO;
@@ -48,30 +51,71 @@ int pcie_capability_write_word(struct pci_dev *d, int off, u16 v)
 	if (off == PCI_EXP_LNKCTL) {
 		assert(d == &port && !(v & PCI_EXP_LNKCTL_LD));
 		if (v & PCI_EXP_LNKCTL_RL) {
+			assert((v & ~PCI_EXP_LNKCTL_RL) == 0x1043);
+			put16(d, off, v & ~PCI_EXP_LNKCTL_RL);
 			retrains++;
 			assert((get16(&gpu, PCI_EXP_LNKCTL2) & 15) == 2);
 			assert((get16(&port, PCI_EXP_LNKCTL2) & 15) == 2);
-			if (mode == 0) {
+			if (mode == 0 || ((mode == 5 || mode == 7) && retrains == 2)) {
 				put16(&gpu, PCI_EXP_LNKSTA, 0x1102);
 				put16(&port, PCI_EXP_LNKSTA, 0x1102);
 			} else if (mode == 2) lose_device = true;
 			else if (mode == 3) put16(&gpu, PCI_EXP_LNKSTA, 0x1082);
 			else if (mode == 4) put16(&gpu, PCI_EXP_LNKSTA, 0x1902);
+			else if (mode == 6) put16(&gpu, PCI_EXP_LNKSTA, 0x1102);
+			if (mode == 7 && retrains == 1) {
+				put16(&gpu, PCI_EXP_LNKCTL2, 0xa041);
+				put16(&port, PCI_EXP_LNKCTL2, 0x3021);
+			}
+			if (lose_selectors) mmio[REG_SS0 / 4] = 0;
 		}
 	}
 	return 0;
 }
+/* Model Linux's cached-v1 behavior independently of raw PCI access. */
+int pcie_capability_read_word(struct pci_dev *d, int off, u16 *v)
+{
+	if ((d->cached_flags & 15) < 2 && off >= PCI_EXP_DEVCAP2) { *v = 0; return 0; }
+	return mock_config_read_word(d, off, v);
+}
+int pcie_capability_read_dword(struct pci_dev *d, int off, u32 *v)
+{
+	if ((d->cached_flags & 15) < 2 && off >= PCI_EXP_DEVCAP2) { *v = 0; return 0; }
+	return mock_config_read_dword(d, off, v);
+}
+int pcie_capability_write_word(struct pci_dev *d, int off, u16 v)
+{
+	if ((d->cached_flags & 15) < 2 && off >= PCI_EXP_DEVCAP2) return 0;
+	return mock_config_write_word(d, off, v);
+}
 int pci_read_config_word(struct pci_dev *d, int off, u16 *v)
 {
-	assert(d == &gpu && off == PCI_COMMAND);
+	if (off != PCI_COMMAND) {
+		assert(off >= d->cap_pos && d->cap_pos);
+		if (off - d->cap_pos >= PCI_EXP_DEVCAP2)
+			assert((get16(d, PCI_EXP_FLAGS) & 15) >= 2);
+		return mock_config_read_word(d, off - d->cap_pos, v);
+	}
+	assert(d == &gpu);
 	*v = lose_device ? 0xffff : command;
 	return 0;
 }
 int pci_write_config_word(struct pci_dev *d, int off, u16 v)
 {
-	assert(d == &gpu && off == PCI_COMMAND);
+	if (off != PCI_COMMAND) {
+		assert(off >= d->cap_pos && d->cap_pos);
+		return mock_config_write_word(d, off - d->cap_pos, v);
+	}
+	assert(d == &gpu);
 	/* Count PL0/link writes separately from restoring PCI COMMAND. */
 	command = v; return 0;
+}
+int pci_read_config_dword(struct pci_dev *d, int off, u32 *v)
+{
+	assert(off >= d->cap_pos && d->cap_pos);
+	if (off - d->cap_pos >= PCI_EXP_DEVCAP2)
+		assert((get16(d, PCI_EXP_FLAGS) & 15) >= 2);
+	return mock_config_read_dword(d, off - d->cap_pos, v);
 }
 unsigned long pci_resource_flags(struct pci_dev *d, int b) { (void)d; assert(!b); return IORESOURCE_MEM; }
 size_t pci_resource_len(struct pci_dev *d, int b) { (void)d; assert(!b); return bar_len; }
@@ -90,15 +134,29 @@ void writel(u32 v, void *p)
 {
 	size_t offset = (u8 *)p - (u8 *)mmio;
 	writes++;
-	assert(!retrains); /* Every policy write must precede the retrain. */
+	assert(offset != 0x88610 && offset != 0x8e12c && offset != 0x8e11c);
+	policy_writes++;
+	if (offset == REG_OVR) {
+		assert(last_policy_offset == REG_PL && !retrains);
+		kicks++;
+		if (!fail_adopt && offset != reject_offset) {
+			put16(&gpu, PCI_EXP_FLAGS, 2);
+			put32(&gpu, PCI_EXP_LNKCAP, 0x00453d02);
+			put32(&gpu, PCI_EXP_LNKCAP2, 6);
+		}
+	}
+	last_policy_offset = offset;
 	if (offset != reject_offset) *(u32 *)p = v;
 }
 void msleep(unsigned int ms) { slept += ms; }
+void udelay(unsigned long us) { busy_us += us; }
 
 static void reset(void)
 {
 	memset(&gpu, 0, sizeof(gpu)); memset(&port, 0, sizeof(port)); memset(mmio, 0, sizeof(mmio));
 	gpu.vendor = 0x10de; gpu.device = 0x1f0b; gpu.parent = &port;
+	gpu.cap_pos = 0x60; port.cap_pos = 0xa0;
+	gpu.cached_flags = port.cached_flags = 2;
 	gpu.pcie = port.pcie = true; port.type = PCI_EXP_TYPE_ROOT_PORT;
 	put16(&gpu, PCI_EXP_FLAGS, 2); put16(&port, PCI_EXP_FLAGS, 2);
 	put32(&gpu, PCI_EXP_LNKCAP, 0x00453d01); put32(&gpu, PCI_EXP_LNKCAP2, 2);
@@ -110,19 +168,23 @@ static void reset(void)
 	mmio[0x110100 / 4] = 0x10;
 	mmio[REG_CFG / 4] = 0x80145800; mmio[REG_PL / 4] = 0x01210080;
 	mmio[REG_MISC / 4] = 0xa5125555; mmio[REG_CYA / 4] = 0x87654327;
+	mmio[REG_XP_PLM / 4] = ~0u;
+	mmio[REG_XP_VAL / 4] = 0x123; mmio[REG_XP_OVR / 4] = 0x456;
 	command = 0x1407; writes = retrains = maps = enables = slept = mode = 0;
+	kicks = policy_writes = last_policy_offset = busy_us = 0; fail_adopt = lose_selectors = false;
 	reject_offset = ~0u; lose_device = fail_gpu_target = fail_gpu_restore = fail_map = false;
 	bar_len = sizeof(mmio);
 }
 
 static void balanced(void) { assert(!maps && !enables); }
+#ifndef TEST_OPEN_ADAPTER
 int main(void)
 {
 	struct cmp40_gen2_result r;
 	unsigned cases = 0;
 #define CASE_DONE() do { balanced(); cases++; } while (0)
 	reset();
-	assert(!cmp40_gen2_prepare(&gpu, true, false, &r));
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
 	assert(r.device_ok && r.link_status == 0x1102 && retrains == 1);
 	assert(mmio[REG_CFG / 4] == ((0x80145800 & ~0xc0000u) | 0x80000));
 	assert(mmio[REG_PL / 4] == ((0x01210080 & ~0x60000u) | 0x40000));
@@ -130,41 +192,41 @@ int main(void)
 	assert(mmio[REG_CYA / 4] == (0x87654327 & ~BIT(2)));
 	assert(get16(&gpu, PCI_EXP_LNKCTL2) == 0xa042 && get16(&port, PCI_EXP_LNKCTL2) == 0x3022);
 	assert(command == 0x1407); CASE_DONE();
-	reset(); assert(!cmp40_gen2_prepare(&gpu, false, true, &r));
+	reset(); assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_PREPARE, true, &r));
 	assert(r.device_ok && !retrains && mmio[REG_MISC / 4] == 0xe0b42d00 && mmio[REG_CYA / 4] == 0x068731b3);
 	assert(get16(&gpu, PCI_EXP_LNKCTL2) == 0xa041); CASE_DONE();
-	reset(); mode = 1; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -ETIMEDOUT);
-	assert(r.device_ok && r.link_status == 0x1101 && slept <= 4050);
+	reset(); mode = 1; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -ETIMEDOUT);
+	assert(r.device_ok && r.link_status == 0x1101 && retrains == 2 && kicks == 1 && slept <= 4100);
 	assert(get16(&gpu, PCI_EXP_LNKCTL2) == 0xa041 && get16(&port, PCI_EXP_LNKCTL2) == 0x3021); CASE_DONE();
-	reset(); mode = 2; assert(cmp40_gen2_prepare(&gpu, true, false, &r) != 0);
+	reset(); mode = 2; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) != 0);
 	assert(!r.device_ok && get16(&port, PCI_EXP_LNKCTL2) == 0x3021); CASE_DONE();
-	reset(); mode = 3; assert(cmp40_gen2_prepare(&gpu, true, false, &r) != 0);
+	reset(); mode = 3; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) != 0);
 	assert(!r.device_ok && r.link_status == 0x1082); CASE_DONE();
-	reset(); mode = 4; assert(cmp40_gen2_prepare(&gpu, true, false, &r) != 0);
+	reset(); mode = 4; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) != 0);
 	assert(!r.device_ok); CASE_DONE();
-	reset(); reject_offset = REG_PL; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EIO);
-	assert(r.device_ok && !retrains && mmio[REG_MISC / 4] == 0xa5125555); CASE_DONE();
-	reset(); mmio[REG_CYA / 4] = 0xbadf1234; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EIO);
+	reset(); reject_offset = REG_PL; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
+	assert(r.device_ok && !retrains && !kicks); CASE_DONE();
+	reset(); mmio[REG_CYA / 4] = 0xbadf1234; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
 	assert(!writes && !retrains && r.device_ok); CASE_DONE();
-	reset(); fail_gpu_target = true; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EIO);
+	reset(); fail_gpu_target = true; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
 	assert(!retrains && get16(&gpu, PCI_EXP_LNKCTL2) == 0xa041); CASE_DONE();
-	reset(); mode = 1; fail_gpu_restore = true; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EIO);
+	reset(); mode = 1; fail_gpu_restore = true; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
 	assert(get16(&port, PCI_EXP_LNKCTL2) == 0x3021); CASE_DONE();
-	reset(); gpu.driver = &native_driver; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EBUSY);
+	reset(); gpu.driver = &native_driver; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EBUSY);
 	assert(!writes); CASE_DONE();
-	reset(); gpu.current_state = 3; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EBUSY);
+	reset(); gpu.current_state = 3; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EBUSY);
 	assert(!writes); CASE_DONE();
-	reset(); gpu.parent = NULL; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EOPNOTSUPP);
+	reset(); gpu.parent = NULL; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EOPNOTSUPP);
 	assert(!writes); CASE_DONE();
-	reset(); put32(&port, PCI_EXP_LNKCAP2, 2); assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EOPNOTSUPP);
+	reset(); put32(&port, PCI_EXP_LNKCAP2, 2); assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EOPNOTSUPP);
 	assert(!writes); CASE_DONE();
-	reset(); put16(&port, PCI_EXP_LNKCTL, PCI_EXP_LNKCTL_LD); assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EOPNOTSUPP);
+	reset(); put16(&port, PCI_EXP_LNKCTL, PCI_EXP_LNKCTL_LD); assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EOPNOTSUPP);
 	assert(!writes); CASE_DONE();
-	reset(); mmio[REG_SS0 / 4] = 0; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -EIO);
+	reset(); mmio[REG_SS0 / 4] = 0; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
 	assert(!writes && !r.device_ok); CASE_DONE();
-	reset(); fail_map = true; assert(cmp40_gen2_prepare(&gpu, true, false, &r) == -ENOMEM);
+	reset(); fail_map = true; assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -ENOMEM);
 	assert(!r.device_ok && command == 0x1407); CASE_DONE();
-	reset(); command = 0x1401; assert(!cmp40_gen2_prepare(&gpu, false, false, &r));
+	reset(); command = 0x1401; assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_PREPARE, false, &r));
 	assert(r.device_ok && command == 0x1401); CASE_DONE();
 	reset(); cmp40_gen2_snapshot(&gpu, "inspect"); assert(!writes); CASE_DONE();
 	reset(); gpu.driver = &native_driver;
@@ -177,6 +239,119 @@ int main(void)
 	reset(); assert(cmp40_gen2_runtime(&gpu, false, &r) == -EBUSY && !writes); CASE_DONE();
 	reset(); gpu.driver = &native_driver; command &= ~PCI_COMMAND_MEMORY;
 	assert(cmp40_gen2_runtime(&gpu, false, &r) == -ENODEV && !writes); CASE_DONE();
+	/* Live v2 works even with v1 cached by Linux; the cache is untouched. */
+	reset(); gpu.cached_flags = 1;
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(gpu.cached_flags == 1 && retrains == 1); CASE_DONE();
+	/* Initially live v1: adoption must precede any v2 register access. */
+	reset(); gpu.cached_flags = 1; put16(&gpu, PCI_EXP_FLAGS, 1);
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(kicks == 1 && gpu.cached_flags == 1); CASE_DONE();
+	reset(); fail_adopt = true; put16(&gpu, PCI_EXP_FLAGS, 1);
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_TARGETS, false, &r) == -EOPNOTSUPP);
+	assert(!retrains && get16(&gpu, PCI_EXP_LNKCTL2) == 0xa041); CASE_DONE();
+	/* Capability alone cannot skip policy repair or actual retraining. */
+	reset(); put32(&gpu, PCI_EXP_LNKCAP, 0x00453d02); put32(&gpu, PCI_EXP_LNKCAP2, 6);
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(!kicks && retrains == 1 && policy_writes == 6);
+	assert(mmio[REG_XP_VAL / 4] == 0 && mmio[REG_XP_OVR / 4] == 1); CASE_DONE();
+	reset(); mode = 5;
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(retrains == 2 && kicks == 1 && r.link_status == 0x1102); CASE_DONE();
+	/* Protected XP3G retains the older CMP40 subset; no speculative writes. */
+	reset(); mmio[REG_XP_PLM / 4] = 0xff;
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(mmio[REG_XP_VAL / 4] == 0x123 && mmio[REG_XP_OVR / 4] == 0x456); CASE_DONE();
+	reset(); mmio[REG_XP_VAL / 4] = 0xbadf1234;
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
+	assert(!writes); CASE_DONE();
+	reset(); assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_TARGETS, false, &r));
+	assert(!retrains && get16(&gpu, PCI_EXP_LNKCTL2) == 0xa042 &&
+	       get16(&port, PCI_EXP_LNKCTL2) == 0x3022); CASE_DONE();
+	reset(); put16(&gpu, PCI_EXP_LNKSTA, 0x1102); put16(&port, PCI_EXP_LNKSTA, 0x1102);
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(!retrains); CASE_DONE();
+	reset(); put16(&gpu, PCI_EXP_LNKSTA, 0x1901);
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EOPNOTSUPP);
+	assert(!writes); CASE_DONE();
+	reset(); put16(&port, PCI_EXP_LNKSTA, 0x1081);
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EOPNOTSUPP);
+	assert(!writes); CASE_DONE();
+	/* The RM-stage path never sleeps and never retries after its 200ms poll. */
+	{
+		struct cmp40_g2_result early;
+		reset(); mode = 1;
+		assert(cmp40_g2_run(&gpu, mmio, CMP40_G2_RETRAIN, false, true, &early) == -ETIMEDOUT);
+		assert(early.device_ok && retrains == 1 && slept == 0 && busy_us <= 250000);
+		CASE_DONE();
+	}
+	reset(); mode = 6; /* Endpoint-only success must never pass. */
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -ENODEV);
+	assert(retrains == 1 && !r.device_ok); CASE_DONE();
+	reset(); reject_offset = REG_OVR;
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
+	assert(!retrains); CASE_DONE();
+	reset(); mode = 1; lose_selectors = true;
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -ENODEV);
+	assert(!r.device_ok && retrains == 1); CASE_DONE();
+	reset(); port.cached_flags = 1;
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(port.cached_flags == 1); CASE_DONE();
+	reset(); lose_selectors = true;
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -ENODEV);
+	assert(!r.device_ok && get16(&gpu, PCI_EXP_LNKCTL2) == 0xa041 &&
+	       get16(&port, PCI_EXP_LNKCTL2) == 0x3021); CASE_DONE();
+	reset(); put32(&gpu, PCI_EXP_LNKCAP, 0);
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EIO);
+	assert(!writes); CASE_DONE();
+	reset(); put16(&port, PCI_EXP_FLAGS, 1);
+	assert(cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r) == -EOPNOTSUPP);
+	assert(!writes); CASE_DONE();
+	reset(); mode = 7;
+	assert(!cmp40_gen2_prepare(&gpu, CMP40_G2_RETRAIN, false, &r));
+	assert(retrains == 2 && kicks == 1 && r.link_status == 0x1102); CASE_DONE();
 	printf("Gen2: %u production-code fault-injection cases passed\n", cases);
 	return 0;
 }
+#else
+/* Compile the real open adapter against the same hardware model. */
+#undef CMP40_GEN2_LOG
+#define NV_API_CALL
+#define module_param(name, type, perm)
+#define MODULE_PARM_DESC(name, text)
+typedef u32 NvU32;
+struct mock_regs { u32 *map; size_t size; };
+typedef struct { struct pci_dev *pci_dev; } nv_linux_state_t;
+typedef struct { struct mock_regs *regs; nv_linux_state_t *os_state; } nv_state_t;
+#define NV_GET_NVL_FROM_NV_STATE(nv) ((nv)->os_state)
+#include "../../../tools/gen2/open_adapter.h"
+int main(void)
+{
+	struct mock_regs regs = { mmio, sizeof(mmio) };
+	nv_linux_state_t nvl = { &gpu };
+	nv_state_t nv = { &regs, &nvl };
+	(void)native_driver; (void)other_driver;
+	reset(); os_cmp40_gen2(&nv, 0);
+	assert(!retrains && kicks == 1 && slept == 0 && get16(&gpu, PCI_EXP_LNKCTL2) == 0xa042);
+	/* GSP clobbers policy while retaining Gen2 capability and TLS. */
+	mmio[REG_CFG / 4] = 0x80145800; mmio[REG_MISC / 4] = 0xa5125555;
+	os_cmp40_gen2(&nv, 1);
+	assert(!retrains && kicks == 1 && slept == 0 && (mmio[REG_CFG / 4] & 0xc0000) == 0x80000);
+	mode = 5; os_cmp40_gen2(&nv, 2);
+	assert(retrains == 2 && kicks == 1 && get16(&gpu, PCI_EXP_LNKSTA) == 0x1102);
+	balanced();
+	reset(); cmp40_gen2_early = 0; os_cmp40_gen2(&nv, 0);
+	assert(!retrains && get16(&gpu, PCI_EXP_LNKCTL2) == 0xa041 && slept == 0);
+	reset(); cmp40_gen2_early = 2; mode = 1; os_cmp40_gen2(&nv, 0);
+	assert(retrains == 1 && slept == 0 && busy_us <= 250000 && get16(&gpu, PCI_EXP_LNKCTL2) == 0xa042);
+	reset(); gpu.device = 0x1e78; os_cmp40_gen2(&nv, 0); assert(!writes);
+	reset(); regs.size = 0x90000; os_cmp40_gen2(&nv, 0); assert(!writes);
+	regs.size = sizeof(mmio);
+	reset(); command &= ~PCI_COMMAND_MEMORY; os_cmp40_gen2(&nv, 0); assert(!writes);
+	reset(); gpu.current_state = 3; os_cmp40_gen2(&nv, 0); assert(!writes);
+	reset(); mmio[REG_SS0 / 4] = 0; os_cmp40_gen2(&nv, 0); assert(!writes);
+	reset(); cmp40_gen2_early = 3; os_cmp40_gen2(&nv, 0); assert(!writes);
+	printf("Open Gen2 adapter: stage ordering, early modes and guards passed\n");
+	return 0;
+}
+#endif

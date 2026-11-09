@@ -5,8 +5,11 @@ sets for NVIDIA `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default)
 by [`install.sh`](../install.sh), plus the optional userspace pipeline patch in
 [`cmp_glcore_patch/`](../cmp_glcore_patch/README.md).
 
-The 620.70.06 patch series passes build/offline checks and manual runtime
-tests for compute, Gen2 x16, 8 GiB BAR1 and a CUPTI hardware counter.
+The earlier 620.70.06 patch series passed build/offline checks and manual
+runtime tests for compute, Gen2 x16, 8 GiB BAR1 and a CUPTI hardware counter.
+The Gen2 engine updated on 2026-11-08 passed hardware validation. Its
+[shared implementation](research/CPU_RM_PCIE_GEN2.md#shared-gen2-engine-0170)
+is used by all four open patch sets and CPU-RM.
 The first normal Gen2 pass failed in that session; subsequent initializations
 passed. Automatic cold-boot startup remains unverified. See
 [the Booter report](research/615_BOOTER_COMPATIBILITY.md).
@@ -17,8 +20,9 @@ For the **proprietary Linux driver with GSP disabled**, use the separate
 [`linux/cpu-rm/README.md`](../linux/cpu-rm/README.md). That pre-driver module
 is validated with 610.43.03, 615.78.08 and 620.70.06 and does not patch NVIDIA's
 driver. The 620 tests confirmed native initialization, compute and runtime
-Gen2 after driver unload. Its hook before the first NVIDIA initialization
-after power-on remains untested. Keep the pinned 610.43.03 pre-driver assets.
+Gen2 after driver unload. A later cold-boot control confirmed the mkinitcpio
+hook before the first NVIDIA load and runtime Gen2 with the previous engine.
+Keep the pinned 610.43.03 pre-driver assets.
 `install.sh` below continues to target the open kernel modules.
 
 ## 1. Prepare the environment
@@ -217,7 +221,29 @@ SS1=0x00000008
 FECS_PLM=0xffffff8f
 ```
 
-For the PCIe unlock:
+For the PCIe unlock, the log records `post_booter`, `gsp_ready` and
+`post_rm_init`. A successful final result has `result=0 device_ok=1`, and
+the GPU and upstream link must agree on speed and retain their original width.
+`CAP2=00000006` alone does not show that the link trained to Gen2.
+
+The default early stage applies policy and sets both TLS fields. The later
+stages restore policy after GSP initialization and request normal upstream
+retraining after `rm_init_adapter`, with at most two attempts. For a controlled
+comparison, the NVIDIA module parameter `cmp40_gen2_early` selects:
+
+| Value | Post-Booter operation |
+|---|---|
+| `0` | Policy only |
+| `1` (default) | Policy and TLS=2 on both ends |
+| `2` | Policy, both TLS fields and one early retrain |
+
+Value `2` is based on the CMP50HX X99 report. Its early poll lasts at most
+200 ms. A healthy Gen1 timeout retains TLS=2 for the later stage; other
+failures restore the saved targets. The
+GSP-ready stage only restores policy. Neither RM callback sleeps or allocates
+memory. CCC/ASPM and `0x88610` remain unchanged.
+
+Check the actual link:
 
 ```bash
 sudo lspci -vvv -s 10:00.0 | grep -iE 'LnkCap|LnkSta|LnkCtl2'
