@@ -66,22 +66,22 @@ profiling on `7.2.9-2-cachyos`, using Clang. The CUPTI helper built with
 `-Werror`. An initial query returned `CUDA_ERROR_NO_DEVICE` and provided no
 hardware baseline.
 
-The subsequent hardware test on `0000:10:00.0`, recorded in
-`profiling_test.txt`, reported `cmp=UNSUPPORTED range_profiling=UNSUPPORTED`
+The subsequent hardware test reported `cmp=UNSUPPORTED range_profiling=UNSUPPORTED`
 before the patch and `cmp=SUPPORTED range_profiling=SUPPORTED` afterwards.
 The other support reasons remained supported. This confirms the CUPTI support
 gate; the log does not demonstrate counter collection.
 
 ## NVIDIA 620.70.06 counter validation
 
-Verified on 2026-11-08, on CMP40HX `0000:10:00.0`, `7.3.3-1-cachyos` and
+Verified on 2026-11-08, on CMP40HX, `7.3.3-1-cachyos` and
 matching 620.70.06 userspace/GSP: the normal open series without profiling
 reported `cmp=UNSUPPORTED range_profiling=UNSUPPORTED`. Both PCIe variants
 with profiling reported `cmp=SUPPORTED range_profiling=SUPPORTED`; all other
 support reasons were supported. The proprietary GSP-OFF baseline also
 reported CMP unsupported. The repository helper built with `-Werror`.
 
-The installed CUPTI range-profiling sample was compiled for sm_75:
+The installed CUPTI range-profiling sample was compiled for sm_75. The
+generated executable path is redacted as `<sample-output>`:
 
 ```bash
 /opt/cuda/bin/nvcc -allow-unsupported-compiler \
@@ -90,8 +90,8 @@ The installed CUPTI range-profiling sample was compiled for sm_75:
   /opt/cuda/extras/CUPTI/samples/range_profiling/range_profiling.cu \
   -L/opt/cuda/lib64 -lcuda -lcupti \
   -Xlinker -rpath -Xlinker /opt/cuda/lib64 \
-  -o artifacts/620.70.06/runtime-2026-11-08/cupti-range-profiling
-sudo artifacts/620.70.06/runtime-2026-11-08/cupti-range-profiling \
+  -o <sample-output>
+sudo <sample-output> \
   --device 0 --range auto --replay user --metrics sm__ctas_launched.sum
 ```
 

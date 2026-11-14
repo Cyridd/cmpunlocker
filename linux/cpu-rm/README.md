@@ -369,7 +369,7 @@ the hardware unlock. Leave the installed NVIDIA driver files intact.
 The GPL-2.0-only pre-driver module and firmware tooling derive from
 [nlzy/turing-unlock](https://github.com/nlzy/turing-unlock), commit
 `417f333263ff169e8f449c931b70db9dfd7b8ef4`, with CMP40HX-specific parsing,
-asset verification, handoff and small-WPR changes by Cyridd. The selector
+asset verification, handoff and small-WPR changes. The selector
 payload is MIT; NVIDIA source assets and binary firmware keep their respective
 terms. License copies are in [licenses/](licenses/), and the extracted NVIDIA
 firmware notice accompanies the prepared assets.

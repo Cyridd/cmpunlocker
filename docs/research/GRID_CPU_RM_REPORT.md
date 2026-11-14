@@ -159,27 +159,27 @@ The archive's integrity check passed during extraction. This records the
 supplied file's identity; an independent comparison with an NVIDIA-published
 checksum was not performed.
 
-The test root is a writable Btrfs snapshot, subvolume ID `649`, under
-`artifacts/issue8/grid-580-2026-11-08/rootfs`. Its `fstab` mounts only that
-root and a temporary `/tmp`. Its home directory and logs are separate from
-the ordinary system, and the ESP is not mounted there. Limine entry
-`CachyOS / cmp40-grid-580` selects kernel `6.12.69-2-cachyos-lts-lto` and a
-dedicated initramfs. The ordinary boot entries, kernel images and initramfs
-files passed unchanged-content checks after deployment.
+The test root is a writable Btrfs snapshot. Its `fstab` mounts only that
+root and a temporary filesystem. Its home directory and logs are separate
+from the ordinary system, and the ESP is not mounted there. A dedicated
+Limine entry selects kernel `6.12.69-2-cachyos-lts-lto` and its own initramfs.
+The ordinary boot entries, kernel images and initramfs files passed
+unchanged-content checks after deployment.
 
 ### Build and image checks
 
-From the repository root, the successful builds were:
+The successful build commands below have redacted source-directory values.
+The diagnostic PCI-cache module was a local experiment and is not published:
 
 ```bash
-make -C artifacts/issue8/grid-580-2026-11-08/driver/kernel -j4 \
+make -C <grid-kernel-source> -j4 \
   SYSSRC=/usr/lib/modules/6.12.69-2-cachyos-lts-lto/build \
   SYSOUT=/usr/lib/modules/6.12.69-2-cachyos-lts-lto/build \
   KERNEL_UNAME=6.12.69-2-cachyos-lts-lto LLVM=1 CC=clang LD=ld.lld modules
-make -C artifacts/issue8/grid-580-2026-11-08/cmp40-kernel -j4 \
+make -C <isolated-cmp40-kernel-source> -j4 \
   KDIR=/usr/lib/modules/6.12.69-2-cachyos-lts-lto/build LLVM=1
 make -C /usr/lib/modules/6.12.69-2-cachyos-lts-lto/build \
-  M=/home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/pci-cache \
+  M=<pci-cache-source> \
   LLVM=1 -j4 modules
 ```
 
@@ -224,64 +224,44 @@ mount failed with `ENOENT`. The staged modprobe settings and test boot
 command line were therefore checked separately. Both select GSP OFF and
 omit the ordinary system's PCIe and license options.
 
-`verify-root.py` and `deploy-boot.py --apply` both exited `0` after their
-checks passed. The latter used `limine-entry-tool --add-kernel` and
-`limine-enroll-config`; copied-image checksums, the resolved command line
-and preservation of the ordinary boot configuration passed. Full commands
-and check results are saved in `root-verification.json` and
-`boot-verification.json` beside those scripts. Python syntax checks passed,
-and `native-test.py --check` refused the ordinary 620 boot with exit `1`,
-as intended.
+Local deployment checks passed for copied-image checksums, the resolved
+command line and preservation of the ordinary boot configuration. Python
+syntax checks passed, and the native-test guard refused the ordinary 620
+boot with exit `1`, as intended. These deployment helpers were specific to
+the isolated test environment and are not part of the repository.
 
-### Native test procedure
+### Native test boundaries
 
-After a full power-off, select `CachyOS / cmp40-grid-580`, log in as
-`cyrid` with the existing password, and run:
+The local harness required the prepared root, LTS kernel, matching PCI
+identity and module hashes, and successful initramfs unlock. It saved three
+stages: after compute unlock, after loading native GRID, and after the first
+matching 580.178.05 `nvidia-smi -q`. It compared cached and raw PCI capabilities
+and read the audited BAR0 offsets only while the card was active in D0 with
+memory decoding enabled. It stopped before Gen2, the vGPU module, manager
+or any guest.
 
-```bash
-sudo cmp40-grid-test native
-```
-
-The script requires the prepared root, LTS kernel, PCI identities, module
-hashes and successful initramfs unlock. It saves three stages: after
-compute unlock, after loading native GRID, and after the first matching
-580.178.05 `nvidia-smi -q`. It compares the cached and raw PCI capabilities
-and reads the previously audited BAR0 offsets only when the card is already
-active in D0 with memory decoding enabled. It stops before Gen2, the vGPU
-module, manager or any guest. Logs stay in
-`/var/lib/cmp40-grid-test/native-<boot-id>/` inside the test root and can be
-read from the ordinary system after returning to it.
-
-Only the host module and matching host utilities are staged for this first
-run. No guest CUDA stack or `vgpu-unlock` modification is installed.
-**Hypothesis:** the first native GRID initialization may reproduce the
-capability or CFG differences. A successful stock native test would still
-leave the effects of `vgpu-unlock`, vGPU startup and the reporter's platform
-to investigate.
+Only the host module and matching host utilities were prepared for the first
+run. No guest CUDA stack or `vgpu-unlock` modification was installed.
+**Hypothesis:** the first native GRID initialization could reproduce the
+capability or CFG differences. A successful native test would still leave
+`vgpu-unlock`, vGPU startup and platform effects to investigate.
 
 ### First cold boot: pre-driver power check
 
-**Verified:** boot `6d944f64ba8546dba4fe08df93dce713` reached the test console
-on 2026-11-08. I reported a cold start and a refusal from
-`sudo cmp40-grid-test native`. Inspection of the snapshot's persistent
-journal found:
+**Verified:** the first cold boot reached the test console on 2026-11-08.
+I reported a cold start and a refusal from the native-test guard. Inspection
+of the snapshot's persistent journal found:
 
 ```text
-cmp40-unlock: unlocking 0000:10:00.0 (CPU-RM, stock handoff, small WPR heap)
-cmp40-unlock: FAILED: modprobe cmp40_preboot failed for 0000:10:00.0
+cmp40-unlock: unlocking <pci-address> (CPU-RM, stock handoff, small WPR heap)
+cmp40-unlock: FAILED: modprobe cmp40_preboot failed for <pci-address>
 modprobe: ERROR: could not insert 'cmp40_preboot': Host is down
 ```
 
 The initramfs failure guard remained installed. No `PRE_DRIVER_UNLOCK_PASS`,
 native NVIDIA load or Gen2 result was recorded. The native test stopped at
-the guard, before its first capture. The saved journal and parsed findings
-are `first-boot-journal.txt` and `first-boot-result.json` in the preparation
-directory. The journal was read with:
-
-```bash
-sudo -n journalctl --directory=/home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/rootfs/var/log/journal --list-boots --no-pager
-sudo -n journalctl --directory=/home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/rootfs/var/log/journal -b 0 --no-pager -o short-monotonic
-```
+the guard, before its first capture. The journal excerpt above is redacted: the PCI address has been replaced
+with `<pci-address>`.
 
 **Hypothesis:** the pre-driver check rejected cached `PCI_UNKNOWN` while
 the physical card was already in D0. The initial module did not log either
@@ -303,13 +283,11 @@ during inspection remain rejected. The fallback does not write PMCSR or
 update either PCI cache. The repository module and installed ordinary-boot
 module remain unchanged.
 
-**Verified:** the following tests and rebuild exited `0`:
+**Verified:** local fallback tests and the isolated LTS rebuild exited `0`.
+The rebuild used the source-directory placeholder defined above:
 
 ```bash
-cc -std=c11 -Wall -Wextra -Werror -O2 artifacts/issue8/grid-580-2026-11-08/test-power-guard.c -o artifacts/issue8/grid-580-2026-11-08/test-power-guard
-artifacts/issue8/grid-580-2026-11-08/test-power-guard
-make -C artifacts/issue8/grid-580-2026-11-08/cmp40-kernel -j4 KDIR=/usr/lib/modules/6.12.69-2-cachyos-lts-lto/build LLVM=1
-sudo -n python3 /home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/refresh-power-guard.py --apply
+make -C <isolated-cmp40-kernel-source> -j4 KDIR=/usr/lib/modules/6.12.69-2-cachyos-lts-lto/build LLVM=1
 ```
 
 The 16 unit cases exercise the actual fallback helper, including refusals
@@ -322,18 +300,15 @@ fallback on the GPU.
 
 The `power-guard-1` initramfs SHA-256 is
 `7ae3266b9cfc37dc188c3db593ddb94c40cf3a27ab78f5fb7b95d9fe1239e015`.
-The previous image, module and preparation records are preserved in
-`power-guard-backup/`. The command remains `sudo cmp40-grid-test native`.
-If its preconditions fail, it now saves a read-only report under
-`/var/lib/cmp40-grid-test/refused-<boot-id>/` without removing the guard,
-retrying unlock or loading a GPU module.
+The revised native-test guard saved a read-only report when preconditions
+failed, without removing the guard, retrying unlock or loading a GPU module.
 
 ### Second cold boot: native GRID initialization
 
-**Verified:** boot `9b6384aa-cb13-4d0a-8a64-dae61f94c668` passed the revised
-pre-driver check, compute-unlock completion and native GRID initialization.
-I confirmed that the PSU was disconnected for about 30 seconds before this
-boot and ran `sudo cmp40-grid-test native`. The recorded commands
+**Verified:** the second cold boot passed the revised pre-driver check,
+compute-unlock completion and native GRID initialization. I confirmed that
+the PSU was disconnected for about 30 seconds before this boot and ran the
+native-test harness. The recorded commands
 `modprobe --ignore-install nvidia NVreg_EnableGpuFirmware=0` and
 `/usr/bin/nvidia-smi -q` both exited `0`.
 
@@ -389,46 +364,32 @@ enumeration state, `vgpu-unlock`, or later vGPU initialization. Clean native
 GRID did not produce them on this B550 host. This second boot stopped before
 Gen2; the third boot below tested it.
 
-Evidence is saved under
-`rootfs/var/lib/cmp40-grid-test/native-9b6384aa-cb13-4d0a-8a64-dae61f94c668/`,
-with a normalized comparison in `second-boot-result.json`. The full journal
-was read with:
-
-```bash
-sudo -n journalctl --directory=/home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/rootfs/var/log/journal -b 9b6384aacb134d0a8a64dae61f94c668 --no-pager -o short-monotonic
-```
-
 ### Prepared native Gen2 control
 
-The same test boot now provides `sudo cmp40-grid-gen2`. It runs or validates
-the native control from that boot, checks the completed unlock and idle
-driver, removes only `cmp40_preboot`, then invokes the unchanged public
-`gen2.sh` once. The core NVIDIA module stays bound. The helper retains its
-v1 guard, client checks, NVML monitor and post-retrain health query.
-The wrapper saves results under `/var/lib/cmp40-grid-test/gen2-<boot-id>/`
-and stops before workloads or vGPU startup. An existing attempt directory
-prevents a second invocation in the same boot.
+The local Gen2 harness validated the completed native control and idle
+driver, removed only `cmp40_preboot`, then invoked the public `gen2.sh` once.
+The core NVIDIA module stayed bound. The helper retained its v1 guard, client
+checks, NVML monitor and post-retrain health query. The harness stopped
+before workloads or vGPU startup and refused a second attempt in the same boot.
 
-**Verified:** `python3 artifacts/issue8/grid-580-2026-11-08/test-gen2-runner.py`
-passed 7 native-record cases, 10 link-result cases and rejection outside the
-test boot. `bash -n linux/cpu-rm/gen2.sh linux/cpu-rm/common.sh` exited `0`.
-`sudo -n python3 /home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/install-gen2-runner.py --apply`
-exited `0`; installed file hashes matched, and the helper scripts, test
-initramfs and ordinary boot images were unchanged. This validates preparation
-and those guard/result checks. The third boot below exercised the hardware
-sequence.
+**Verified:** local tests passed seven native-record cases, ten link-result
+cases and rejection outside the test boot.
+`bash -n linux/cpu-rm/gen2.sh linux/cpu-rm/common.sh` exited `0`. Installed
+file hashes matched; the helper scripts, test initramfs and ordinary boot
+images were unchanged. The third boot exercised the hardware sequence.
 
 ### Third cold boot: native GRID Gen2
 
-**Verified, 2026-11-08:** boot `76208954-bcc4-4572-af31-354626316a27`
-reached Gen2 x16 with the same GRID 580.178.05 and LTS kernel. I confirmed
-disconnecting the PSU for about 30 seconds before this boot and ran
-`sudo cmp40-grid-gen2`. The command completed native initialization, removed
-the completed unlock module and invoked the public helper once:
+**Verified, 2026-11-08:** the third cold boot reached Gen2 x16 with the same
+GRID 580.178.05 and LTS kernel. I confirmed disconnecting the PSU for about
+30 seconds before this boot and ran the Gen2 harness. It completed native
+initialization, removed the completed unlock module and invoked the public
+helper once. The installed helper/module paths and PCI address are redacted
+below; the helper path is shown relative to the repository:
 
 ```bash
-bash /opt/cmp40-grid/tools/cpu-rm/gen2.sh --gpu 0000:10:00.0 \
-  --module /usr/lib/modules/6.12.69-2-cachyos-lts-lto/extra/cmp40_preboot.ko
+bash linux/cpu-rm/gen2.sh --gpu <pci-address> \
+  --module <installed-lts-module>
 ```
 
 The helper exited `0`, including its post-retrain NVIDIA-SMI health check.
@@ -463,15 +424,9 @@ the helper's native health check. It does not verify DMA throughput, CUDA
 correctness, guest operation or continuous link stability until shutdown.
 Those workloads were deliberately outside this test's scope.
 
-**Verified:** these commands exited `0`:
-
-```bash
-sudo -n journalctl --directory=/home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/rootfs/var/log/journal -b 76208954bcc44572af31354626316a27 --no-pager -o short-monotonic > /home/cyrid/Documents/cmpunlocker/artifacts/issue8/grid-580-2026-11-08/third-boot-journal.txt
-python3 artifacts/issue8/grid-580-2026-11-08/review-third-boot.py
-```
-
-The review script passed 16 evidence checks and saved the PCI decoding,
-620 comparison and evidence hashes in `third-boot-result.json`. The
+**Verified:** offline journal inspection and the local review script exited `0`.
+The review script passed 16 evidence checks covering PCI decoding, the
+620 comparison and evidence hashes. The
 experimental `gen2.c`/`gen2.h` and installed `gen2.sh`/`common.sh` match
 the public files byte for byte. The experimental power-state fallback
 remains confined to the LTS preparation copy. No GPU operations were run
@@ -667,13 +622,12 @@ the report. The read commands were:
 ```bash
 gh issue view 68 --repo xrip/cmp50hx-unlock --json title,body,comments,url,state
 gh issue view 51 --repo xrip/cmp50hx-unlock --json title,body,comments,url,state
-sha256sum artifacts/issue8/cmp50-x99-2026-11-08/cmp50hx-hybrid-minimal.patch
+sha256sum <downloaded-patch>
 ```
 
-All exited `0`. The saved issues, attachment, three upstream source files
-and their hashes are under `artifacts/issue8/cmp50-x99-2026-11-08/`.
-`sources.json` records the source revision and the PL bit decoding. These
-patches were read without applying, building or running them; no CMP50HX
+All exited `0`; the downloaded patch path is redacted. The attachment and
+three upstream source files were inspected at the revision cited above.
+These patches were read without applying, building or running them; no CMP50HX
 hardware test was performed. The register-order and early-initialization
 hypotheses concern the affected CMP40HX host.
 

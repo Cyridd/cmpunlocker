@@ -21,15 +21,16 @@ Verified on 2026-11-08: the same 610.43.03 firmware and 1 MiB heap worked with
 proprietary NVIDIA 620.70.06, GSP OFF, on `7.3.3-1-cachyos`. The module was
 built with `make -C linux/cpu-rm/kernel LLVM=1 W=1 -j8` using Clang/LLD
 `23.1.4`. Firmware preparation with `--offline`, the firmware unit tests and
-`make -C linux/cpu-rm offline-test ROM=/home/cyrid/project2/cmp40hx_original_current.rom`
+`make -C linux/cpu-rm offline-test ROM=<board-rom>`
 passed. The offline run included 24 Gen2 fault cases and six helper cases.
 
-The hardware sequence was stock native initialization and a locked benchmark,
+The ROM path and PCI address in these commands are redacted. The hardware
+sequence was stock native initialization and a locked benchmark,
 driver unload, then:
 
 ```bash
 sudo insmod linux/cpu-rm/kernel/cmp40_preboot.ko \
-  target=0000:10:00.0 mode=unlock cpu_rm_handoff=1 stock_handoff=1 \
+  target=<pci-address> mode=unlock cpu_rm_handoff=1 stock_handoff=1 \
   small_wpr_heap=1 gen2=off
 ```
 

@@ -149,10 +149,8 @@ all four pinned archives. The checker applied all seven normal/diagnostic
 combinations at fuzz 0, including ReBAR and optional profiling, and verified
 that each embedded core and adapter matched the canonical files.
 
-The complete resolved build/patch commands, exit codes, module hashes and
-logs are saved locally in `artifacts/gen2-refresh-2026-11-08/`, including
-`build-validation.json` and `patch-validation.json`. The build record's core
-hash matches the final `gen2_core.h`. `git diff --check` also passed.
+The recorded build inputs matched the final `gen2_core.h`.
+`git diff --check` also passed.
 
 **Verified limitation:** a full CPU-RM LTS build exited 2 at the existing
 `timeline.c:35` sysfs callback: these headers require `struct bin_attribute *`,
@@ -160,17 +158,19 @@ while the current callback takes `const struct bin_attribute *`. The separate
 final `gen2.o` build passed with:
 
 ```bash
-make -C /usr/lib/modules/6.12.69-2-cachyos-lts-lto/build M=/home/cyrid/Documents/cmpunlocker/artifacts/gen2-refresh-2026-11-08/cpu-lts LLVM=1 gen2.o
+make -C /usr/lib/modules/6.12.69-2-cachyos-lts-lto/build M=<isolated-lts-build> LLVM=1 gen2.o
 ```
 
-That object result does not establish a working full LTS module. The public
-timeline compatibility code and the isolated GRID boot installation were
-not changed by this Gen2 update.
+The isolated build path is redacted. That object result does not establish
+a working full LTS module. The public timeline compatibility code and the
+isolated GRID boot installation were not changed by this Gen2 update.
 
 ## Test setup
 
-- CMP40HX / TU106, PCI ID `10de:1f0b`, GPU `0000:10:00.0`.
-- Physical upstream AMD port `0000:00:01.1`.
+PCI addresses in the commands below are redacted as `<pci-address>`.
+
+- CMP40HX / TU106, PCI ID `10de:1f0b`.
+- Physical upstream AMD port.
 - MSI MPG B550 GAMING PLUS (MS-7C56), BIOS `1.M2`; VBIOS `90.06.67.00.06`.
 - Linux `7.2.9-2-cachyos`, proprietary NVIDIA 615.78.08, GSP Firmware `N/A`.
 - Isolated cold boot with the GPU unbound before the first operation.
@@ -305,7 +305,7 @@ Gen2 writes preceded native initialization. NVIDIA DRM and modeset were
 unloaded and `fuser` found no clients before running:
 
 ```bash
-sudo bash linux/cpu-rm/gen2.sh --gpu 0000:10:00.0 \
+sudo bash linux/cpu-rm/gen2.sh --gpu <pci-address> \
   --module linux/cpu-rm/kernel/cmp40_preboot.ko
 ```
 
@@ -358,9 +358,9 @@ to it. The public helper ran once, with its existing client checks and NVML
 monitor, using this command from the repository root:
 
 ```bash
-bash /home/cyrid/Documents/cmpunlocker/linux/cpu-rm/gen2.sh \
-  --gpu 0000:10:00.0 \
-  --module /home/cyrid/Documents/cmpunlocker/linux/cpu-rm/kernel/cmp40_preboot.ko
+bash linux/cpu-rm/gen2.sh \
+  --gpu <pci-address> \
+  --module linux/cpu-rm/kernel/cmp40_preboot.ko
 ```
 
 It ran as root and exited 0 with `GEN2_RUNTIME_RESULT error=0 device_ok=1
@@ -384,14 +384,15 @@ that sample and the final retrain sample. Comparing the final `00240036`
 directly with the GRID report's failed preparation state would mix phases;
 these samples do not establish the meaning of each PL field.
 
-Verified workload commands, run as root with the existing 150 W power limit:
+Verified workload commands, run as root with the existing 150 W power limit
+(external executable and output paths are redacted):
 
 ```bash
-/home/cyrid/Загрузки/clpeak-2.0.19-linux-x86_64-cuda/bin/clpeak \
+<clpeak-executable> \
   --cuda --cuda-device 0 --single-precision-compute --transfer-bandwidth \
-  --json-file /home/cyrid/Documents/cmpunlocker/artifacts/issue8/cold-620-2026-11-08/validation-ab30ca98/clpeak.json \
-  --csv-file /home/cyrid/Documents/cmpunlocker/artifacts/issue8/cold-620-2026-11-08/validation-ab30ca98/clpeak.csv
-/home/cyrid/Документы/artifacts_backup_20260511/tu106-preboot/verify-wmma
+  --json-file <json-output> \
+  --csv-file <csv-output>
+<wmma-executable>
 ```
 
 Both exited 0. With CUDA toolkit 13.2 and driver API 13.5, clpeak reported
@@ -401,10 +402,8 @@ WMMA verified 163,840 outputs across 20 launches with maximum absolute error
 No new Xid, AER or RmInitAdapter errors appeared in the kernel log. The power
 limit remained 150 W; temperature changed from 36.19 C to 40.12 C.
 
-Raw logs, command records and snapshots are retained locally under
-`artifacts/issue8/cold-620-2026-11-08/`, for boot ID
-`ab30ca98-4a20-4320-9b4c-3b736281375f`. The baseline collector used PCI and
-MMIO reads without querying NVIDIA; boot services had initialized the driver.
+The baseline collector used PCI and MMIO reads without querying NVIDIA;
+boot services had initialized the driver.
 This verifies one cold boot and a short workload on the native 620 driver.
 GRID 580.178.05, vGPU guests and VFIO were not exercised. Builds and offline
 module tests were not repeated because the module and helper were unchanged.

@@ -12,7 +12,7 @@
 
 static char *target;
 module_param(target, charp, 0444);
-MODULE_PARM_DESC(target, "Exact PCI address of one CMP40HX, e.g. 0000:10:00.0");
+MODULE_PARM_DESC(target, "Exact PCI address of one CMP40HX in domain:bus:slot.function format");
 
 static char *mode = "inspect";
 module_param(mode, charp, 0444);

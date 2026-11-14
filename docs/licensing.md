@@ -9,7 +9,7 @@ their original terms.
 - Proprietary CPU-RM pre-driver module and firmware tooling in `linux/cpu-rm/`
   — derived from [nlzy/turing-unlock](https://github.com/nlzy/turing-unlock)
   commit `417f333263ff169e8f449c931b70db9dfd7b8ef4`, GPL-2.0-only, with
-  CMP40HX-specific changes by Cyridd. License copies are in
+  CMP40HX-specific changes. License copies are in
   [`linux/cpu-rm/licenses/`](../linux/cpu-rm/licenses/).
   The shared published selector payload is MIT. Extracted NVIDIA generated
   source assets retain NVIDIA's MIT terms; the binary GSP firmware retains
@@ -20,8 +20,8 @@ their original terms.
 - PCIe / ReBAR patches - ported from @xrip (https://github.com/xrip/cmp50hx-unlock). 
   Licensed under copyleft-next 0.3.1. Original attribution is preserved.
 - NVIDIA open-gpu-kernel-modules remains subject to NVIDIA's applicable open-source license terms.
-- CMP 40HX pipeline throttle unlock and related modifications —
-  Copyright (c) 2026 Cyridd, licensed under the MIT License.
+- CMP 40HX pipeline throttle unlock and related modifications are licensed
+  under the MIT License; see [`LICENSE`](../LICENSE) for the copyright notice.
 - Optional CMP SKU profiling unlock — adapted from
   [amoghmunikote/cmpunlocker](https://github.com/amoghmunikote/cmpunlocker),
   commits `300127f` and `ee41902`, licensed under MIT.
@@ -48,8 +48,8 @@ their original terms.
   patched `libnvidia-glcore.so` is not distributed at all: it is a modified copy
   of NVIDIA's proprietary library, so it is generated locally from the installed
   original copy.
-- Remaining fork-specific changes — Copyright (c) 2026 Cyridd, licensed under
-  the MIT License.
+- Remaining fork-specific changes are licensed under the MIT License; see
+  [`LICENSE`](../LICENSE) for the copyright notice.
 
 Because the Windows tree redistributes a GPL-3.0 driver and a proprietary
 driver, the repository as a whole is not distributable under MIT alone. Honour

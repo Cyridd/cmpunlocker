@@ -7,7 +7,7 @@ rem ============================================================
 setlocal
 cd /d "%~dp0"
 set "PYEXE=python"
-if exist "C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe" set "PYEXE=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe"
+if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 echo [run] 40HX Gen2 BYOVD unlock...
 "%PYEXE%" "%~dp040hx_gen2_byovd.py" %*
 echo.

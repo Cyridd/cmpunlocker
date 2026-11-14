@@ -19,14 +19,14 @@ profiling build all five modules on `7.3.3-1-cachyos` with Clang/LLD `23.1.4`:
 ```bash
 ./tools/check-linux-patches.sh --version 620.70.06 \
   --source open-gpu-kernel-modules-620.70.06.tar.gz --keep
-make -C /tmp/cmp40-patchcheck.hGiO2PRD/620.70.06-normal/open-gpu-kernel-modules-620.70.06 \
+make -C <work-dir>/620.70.06-normal/open-gpu-kernel-modules-620.70.06 \
   -j4 modules CC=clang LD=ld.lld LLVM=1
-make -C /tmp/cmp40-patchcheck.hGiO2PRD/620.70.06-diagnostic/open-gpu-kernel-modules-620.70.06 \
+make -C <work-dir>/620.70.06-diagnostic/open-gpu-kernel-modules-620.70.06 \
   -j4 modules CC=clang LD=ld.lld LLVM=1
 ```
 
-The `/tmp` work directory above is the path printed by this check's `--keep`
-option; use the directory printed by a new run when reproducing the build.
+The work-directory value is redacted. Use the directory printed by the
+check's `--keep` option when reproducing the build.
 
 Installer preflight also passed with `CC=clang` in both configurations:
 
@@ -52,7 +52,7 @@ unchanged; the native 620 Booter launches GSP. Its DBG/PROD images have the
 same hashes as the native 615 images in the table below.
 
 The hardware tests used an ASUS CMP40HX `10de:1f0b`, VBIOS
-`90.06.67.00.06`, at `0000:10:00.0` behind AMD port `0000:00:01.1`, with
+`90.06.67.00.06`, behind an AMD upstream port, with
 matching 620.70.06 userspace and firmware. Proprietary CPU-RM tests preceded
 the open-module tests. Before each open load, FLR reset `SS0` and `SS1` to
 zero; read-only inspection confirmed this, excluding an inherited compute
@@ -266,7 +266,7 @@ complete normal series on `7.2.9-2-cachyos` using Clang. A regression check with
 the original 615 PCIe patch fails specifically on the missing GSP policy
 marker. The host retrain helper and compute patch are unchanged.
 
-The 2026-10-18 hardware test confirmed the normal variant on `0000:10:00.0`:
+The 2026-10-18 hardware test confirmed the normal variant:
 
 ```text
 CMP40_PCIE_GEN2_V2: LNKCFG=0x80085800(bits[19:18]=2) PL_RATE=0x00140036(bits[18:17]=2) CYA0=0x068731b3(DIS_G2=0)

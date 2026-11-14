@@ -8809,7 +8809,7 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         mmio_write32(SEC2_ENGINE, 0x0);
         for (it = 0; it < 16; it++) mmio_read32(SEC2_ENGINE);
         BS->Stall(100000);
-        /* MB 清（cyridd: MB0=0, MB1=0/1） */
+        /* MB 清（MB0=0, MB1=0/1） */
         mmio_write32(SEC2_MAILBOX0, 0);
         mmio_write32(SEC2_MAILBOX1, 0);
         Print(L"[40HX v89] sanitize done cpu=0x%x mbox0=0x%x\n",

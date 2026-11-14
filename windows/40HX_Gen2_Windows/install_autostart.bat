@@ -9,7 +9,7 @@ setlocal
 cd /d "%~dp0"
 
 set "PYEXE=python"
-if exist "C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe" set "PYEXE=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe"
+if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 
 echo [1/3] verify driver files exist...
 if not exist "drivers\ThrottleStop.sys" (echo   MISSING drivers\ThrottleStop.sys & goto :err)
