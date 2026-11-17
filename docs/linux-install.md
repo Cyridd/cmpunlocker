@@ -64,8 +64,23 @@ sudo pacman -S --needed base-devel pciutils patch curl \
 ```bash
 sudo apt update
 sudo apt install build-essential linux-headers-$(uname -r) pciutils patch \
-  curl ca-certificates tar gzip xz-utils bzip2 kmod initramfs-tools \
+  curl ca-certificates tar gzip xz-utils bzip2 kmod \
   bc flex bison libelf-dev libssl-dev
+```
+
+Ubuntu builds the NVIDIA open modules with its own kernel-specific fixes, kept
+as `PATCH`/`PATCH_MATCH` entries in the `dkms.conf` of `nvidia-dkms-*-open`.
+Ubuntu 26.04 `7.0.0` kernels need them for `615.71.09`. Pass that DKMS source
+with `--dkms-source`: the installer applies the entries matching the target
+kernel to `kernel-open/` before the CMP 40HX patches, as DKMS would. The package
+version must match the installed driver; the package does not have to be
+installed:
+
+```bash
+apt-get download nvidia-dkms-615-server-open
+dpkg-deb -x nvidia-dkms-615-server-open_*.deb ubuntu-dkms
+sudo ./install.sh --driver-version=615.71.09 \
+  --dkms-source="$PWD/ubuntu-dkms/usr/src/nvidia-615.71.09"
 ```
 
 ### Fedora / RHEL / Rocky / AlmaLinux
