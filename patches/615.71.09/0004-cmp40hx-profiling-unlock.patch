@@ -1,0 +1,15 @@
+diff --git a/src/nvidia/src/kernel/gpu/subdevice/subdevice_ctrl_gpu_kernel.c b/src/nvidia/src/kernel/gpu/subdevice/subdevice_ctrl_gpu_kernel.c
+--- a/src/nvidia/src/kernel/gpu/subdevice/subdevice_ctrl_gpu_kernel.c
++++ b/src/nvidia/src/kernel/gpu/subdevice/subdevice_ctrl_gpu_kernel.c
+@@ -512,7 +512,10 @@
+             }
+             case NV2080_CTRL_GPU_INFO_INDEX_CMP_SKU:
+             {
+-                if (gpuGetIsCmpSku_HAL(pGpu))
++                // CMP170HX profiling unlock, scoped to CMP 40HX only.
++                // Keep GSP branding and the physical PCI ID unchanged.
++                if (gpuGetIsCmpSku_HAL(pGpu) &&
++                    ((pGpu->idInfo.PCIDeviceID >> 16) != 0x1F0BU))
+                 {
+                     data = NV2080_CTRL_GPU_INFO_INDEX_CMP_SKU_YES;
+                 }

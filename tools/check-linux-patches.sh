@@ -30,12 +30,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Keep in sync with install.sh: the script fails when they disagree, because
 # CI would otherwise validate a different set than users install.
-SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.78.08 620.70.06)
+SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.71.09 615.78.08 620.70.06)
 
 sha256_for() {
     case "$1" in
         580.173.02) echo "a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f" ;;
         610.57.04) echo "619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681" ;;
+        615.71.09) echo "caf48cda7d5fe7374d1d24ca4a90efb4dc783eefabfad5fa4b64fdc24213b62a" ;;
         615.78.08) echo "eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf" ;;
         620.70.06) echo "bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d" ;;
         *) echo "" ;;
@@ -219,7 +220,7 @@ for version in "${selected[@]}"; do
         "${SCRIPT_DIR}/patches/${version}/0002-cmp40hx-pcie2-unlock.patch" \
         "CMP40_PCIE_GEN2_V2"
 
-    # The diagnostic PCIe patch exists for 610.57.04 and 615.78.08 only.
+    # The diagnostic PCIe patch does not exist for 580.173.02.
     if [[ -f "${SCRIPT_DIR}/patches/${version}/0002-cmp40hx-pcie2-diagnostic.patch" ]]; then
         apply_and_check "${version}" "${source}" diagnostic \
             "${SCRIPT_DIR}/patches/${version}/0002-cmp40hx-pcie2-diagnostic.patch" \
