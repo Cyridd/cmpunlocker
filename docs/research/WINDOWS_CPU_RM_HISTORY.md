@@ -2,7 +2,7 @@
 
 These October 2026 experiments explain how the search narrowed before the
 successful [small-WPR handoff](CPU_RM_SMALL_WPR.md). Code 43 remained
-unresolved on 2026-10-07; I later confirmed successful ZERO/FULL 960 KiB
+unresolved on 2026-10-07; later tests confirmed successful ZERO/FULL 960 KiB
 initialization and FULL unlock.
 
 The earlier stand was CMP 40HX / TU106 on MSI MPG B550 Gaming Plus. Older
@@ -27,8 +27,8 @@ so their zeros are not snapshots of the initial fault. The PMU timeout with
 ACR disabled was a distinct control and must not be conflated with the
 primary SEC2 failure under normal ACR.
 
-I corrected some initial observations about stock/GSP OFF, compute retention
-and ReBAR through repeat testing. Code 43 alone does not
+Repeat testing corrected some initial observations about stock/GSP OFF,
+compute retention and ReBAR. Code 43 alone does not
 identify signature rejection, BROM failure or a particular MMIO register.
 The successful Ampere CMP90HX CPU-RM implementation was useful as a control
 flow reference; its registers and firmware layout were not assumed to apply

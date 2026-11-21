@@ -22,7 +22,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, port/rust]
     paths:
       - 'windows/**'
       - 'linux/cpu-rm/**'
@@ -44,6 +44,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust-efi-core:
+    name: Rust EFI core, carrier and QEMU boot checks
+    runs-on: ubuntu-latest
+    env:
+      RUST_TOOLCHAIN: '1.100.0'
+    defaults:
+      run:
+        working-directory: windows/efi-rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy --target x86_64-pc-windows-gnu --target x86_64-unknown-uefi
+      - name: Fetch locked EFI dependencies
+        run: cargo +"$RUST_TOOLCHAIN" fetch --locked --target x86_64-unknown-uefi
+      - name: Check formatting and lints
+        run: |
+          set -euo pipefail
+          cargo +"$RUST_TOOLCHAIN" fmt --all -- --check
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi --features cpu-rm -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi-boot-fixture --features adapters -- -D warnings
+      - name: Compare Rust boot data and firmware operations with the actual C EFI functions
+        run: |
+          set -euo pipefail
+          cargo +"$RUST_TOOLCHAIN" test --locked --offline -p cmp40-efi-core
+          python3 tests/test_assets.py
+      - name: Check the core for the Windows target
+        run: cargo +"$RUST_TOOLCHAIN" check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
+      - name: Build the read-only EFI and test boot targets
+        run: |
+          set -euo pipefail
+          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture
+          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
+      - name: Install QEMU and OVMF
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Boot EFI and verify persisted logs and parked failure in QEMU
+        run: python3 tests/qemu_smoke.py --cpu-rm --adapters --raw
+      - name: Check early logs and unstarted candidate images
+        working-directory: windows/efi-rust
+        run: python3 tests/qemu_smoke.py --case entrycheck --case entrycheck-invalid
+      - name: Preserve the QEMU boot evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rust-efi-qemu-logs
+          path: |
+            windows/efi-rust/target/qemu-smoke/**/serial.log
+            windows/efi-rust/target/qemu-smoke/**/report.json
+            windows/efi-rust/target/qemu-smoke/**/summary.json
+            windows/efi-rust/target/qemu-smoke/**/R*.LOG
+          if-no-files-found: ignore
+
   linux-cpu-rm:
     name: Linux CPU-RM module and offline firmware checks
     runs-on: ubuntu-latest

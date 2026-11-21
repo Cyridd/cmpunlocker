@@ -19,7 +19,7 @@ switching GSP, and redirects existing Gen2 login entries to the current
 installer. Gen2 no longer changes GSP; the obsolete GSP-ensure task is removed
 on installation. See [the report](../docs/research/CPU_RM_SMALL_WPR.md).
 
-I tested the integrated installer and its upgrade path: Disable GSP replaces
+The integrated installer and its upgrade path were tested: Disable GSP replaces
 an existing `EnableGpuFirmware=1` with `0`, and the Gen2 task leaves it at `0`.
 The notice asking for manual boot-order setup uses an information icon.
 

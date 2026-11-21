@@ -1,0 +1,82 @@
+{
+  "code_checkpoint": "9f0882b",
+  "accepted_configuration": "tested CMP40HX TU106 10de:1f0b / 8 GiB; Windows preload handoff",
+  "confirmed_both_modes_work": true,
+  "confirmed_full_compute_unlock_after_handoff": true,
+  "user_reconfirmed_efi_hashes": false,
+  "numeric_benchmark_record_provided": false,
+  "logs": {
+    "full": {
+      "log": "RF000001.LOG",
+      "log_bytes": 576699,
+      "log_sha256": "71b5eb8f0225675d27dc243fe454455e7a219344893c7e2ed0cb96ae074dc1c6",
+      "trace_records": 20499,
+      "trace_dropped": 0,
+      "omitted_data_ports": 14943,
+      "fwsec_halt_wait_us": 99000,
+      "fwsec_to_wpr_stall_us": 3000,
+      "total_stall_us": 5357100,
+      "metadata_sha256": "8cacab9f8134fde1284876164e863d9b45fbb656eed4b07ba0a6c2939d98007c",
+      "metadata_matches_c": true,
+      "target": "0000:10:00.0",
+      "route": "Standard",
+      "parent_return": false,
+      "native": {
+        "00409664": "88888888",
+        "0040966c": "00000008",
+        "001fa824": "1ffffe00",
+        "001fa828": "00000000",
+        "00409650": "ffffff8f",
+        "00840040": "00000000",
+        "00840100": "00000010",
+        "00110100": "00000010",
+        "00840094": "deadb00d"
+      },
+      "native_ready": true
+    },
+    "zero": {
+      "log": "RZ000002.LOG",
+      "log_bytes": 576699,
+      "log_sha256": "cb3117c1f149e5658c7e7ff4d3f91253f785ce44602b5ad6d7a4d3ec4ee522b1",
+      "trace_records": 20499,
+      "trace_dropped": 0,
+      "omitted_data_ports": 14943,
+      "fwsec_halt_wait_us": 99000,
+      "fwsec_to_wpr_stall_us": 3000,
+      "total_stall_us": 5357100,
+      "metadata_sha256": "8cacab9f8134fde1284876164e863d9b45fbb656eed4b07ba0a6c2939d98007c",
+      "metadata_matches_c": true,
+      "target": "0000:10:00.0",
+      "route": "Standard",
+      "parent_return": false,
+      "native": {
+        "00409664": "00000000",
+        "0040966c": "00000000",
+        "001fa824": "1ffffe00",
+        "001fa828": "00000000",
+        "00409650": "ffffff8f",
+        "00840040": "00000000",
+        "00840100": "00000010",
+        "00110100": "00000010",
+        "00840094": "deadb00d"
+      },
+      "native_ready": true
+    }
+  },
+  "metadata_identical": true,
+  "retained_traces_equal_excluding_timer_and_selectors": true,
+  "provided_release_image_sha256": {
+    "/workspace/cmpunlocker/windows/efi-rust/target/x86_64-unknown-uefi/release/cmp40-cpu-rm-full.efi": "18b8be92560ee6ed670073a1a7fb2e47e35250d7e45088e55971d651ac40d639",
+    "/workspace/cmpunlocker/windows/efi-rust/target/x86_64-unknown-uefi/release/cmp40-cpu-rm-zero.efi": "5dca7e43b6c813e4140385cd9f32f32437b1a2027428b42b393a2e0a3b6c31c1"
+  },
+  "physical_parent_return_validated": false,
+  "other_boards_or_suspend_resume_validated": false,
+  "next_proposed_step": "remove duplicate zero-image allocation in a separate memory-optimized variant",
+  "duplicate_dummy_allocation_bytes": 29339648,
+  "potential_reduction_mib": 27.98046875,
+  "baseline_archives_sha256": {
+    "cmp40-rust-logcheck-usb.zip": "4433390cfebde0cbec2c6e31be49b21ed4938a096c50b5d2eb478708e7437a91",
+    "cmp40-rust-cpu-rm-zero-usb.zip": "2d26b91fc99bf74f2bd2288081d8e43fa7b77d5a7ccbe989f340116c714d0ec1",
+    "cmp40-rust-cpu-rm-full-usb.zip": "3d559327eb6cd1f0eee8d15d8b45227b0dc013a79447f69b4b18dfff071c5119"
+  }
+}

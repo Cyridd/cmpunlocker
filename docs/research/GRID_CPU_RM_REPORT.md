@@ -249,7 +249,7 @@ capability or CFG differences. A successful native test would still leave
 ### First cold boot: pre-driver power check
 
 **Verified:** the first cold boot reached the test console on 2026-11-08.
-I reported a cold start and a refusal from the native-test guard. Inspection
+A cold start and a refusal from the native-test guard were reported. Inspection
 of the snapshot's persistent journal found:
 
 ```text
@@ -306,9 +306,9 @@ failed, without removing the guard, retrying unlock or loading a GPU module.
 ### Second cold boot: native GRID initialization
 
 **Verified:** the second cold boot passed the revised pre-driver check,
-compute-unlock completion and native GRID initialization. I confirmed that
-the PSU was disconnected for about 30 seconds before this boot and ran the
-native-test harness. The recorded commands
+compute-unlock completion and native GRID initialization. PSU disconnection
+for about 30 seconds before this boot and a native-test harness run are
+confirmed. The recorded commands
 `modprobe --ignore-install nvidia NVreg_EnableGpuFirmware=0` and
 `/usr/bin/nvidia-smi -q` both exited `0`.
 
@@ -381,8 +381,8 @@ images were unchanged. The third boot exercised the hardware sequence.
 ### Third cold boot: native GRID Gen2
 
 **Verified, 2026-11-08:** the third cold boot reached Gen2 x16 with the same
-GRID 580.178.05 and LTS kernel. I confirmed disconnecting the PSU for about
-30 seconds before this boot and ran the Gen2 harness. It completed native
+GRID 580.178.05 and LTS kernel. PSU disconnection for about 30 seconds before
+this boot and a Gen2 harness run are confirmed. It completed native
 initialization, removed the completed unlock module and invoked the public
 helper once. The installed helper/module paths and PCI address are redacted
 below; the helper path is shown relative to the repository:
@@ -456,9 +456,9 @@ version, so the Linux v1 accessor boundary does not apply there.
 
 There is a separate register difference in `src/core_40hx.c:write_full_set()`:
 the compute stage writes BAR0 `0x88610 = 0x1001` before SBR. Its source
-comment describes matching an RTX 2070 value. **Verified by my prior tests:**
-I repeatedly tested this Gen3-enabling register, including `0x1001`, without
-an effect on CMP40HX. I confirmed these prior results on 2026-11-08; their
+comment describes matching an RTX 2070 value. **Verified by prior tests:**
+Repeated tests of this Gen3-enabling register, including `0x1001`, had no
+effect on CMP40HX. These prior results were confirmed on 2026-11-08; their
 raw logs were not reviewed in this session.
 The current collector does sample `0x88610` under the name `HIER`: it was
 `00000001` before and after the successful GRID Gen2 run. This corrects the
@@ -657,7 +657,7 @@ CPU-RM 0.17.0 and the refreshed open patches now use a
 [shared Gen2 engine](CPU_RM_PCIE_GEN2.md#shared-gen2-engine-0170). It reads
 live capability independently of Linux's cached version, permits policy
 application from live v1, and requires live v2 before TLS writes. It adds
-`gen2=targets` for the early TLS comparison. I tested the new engine on
-hardware and confirmed successful operation.
+`gen2=targets` for the early TLS comparison. The new engine was tested on
+hardware; successful operation is confirmed.
 Kernel PCI caches, CFG bit 22 and Link Disable remain unchanged. See [the B550 Gen2 report](CPU_RM_PCIE_GEN2.md)
 and [Link Disable audit](PCIE_LINK_DISABLE_AUDIT.md) for the tested boundaries.

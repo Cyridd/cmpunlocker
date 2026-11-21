@@ -7,6 +7,12 @@ NVIDIA-*.tar.xz
 NVIDIA-kernel-module-source-*/
 NVIDIA-kernel-module-source-*.tar.*
 artifacts/
+
+# Local agent configuration and cloud credentials.
+.agents/
+.codex/
+.aws/
+
 linux/cpu-rm/build/
 linux/cpu-rm/kernel/*.o
 linux/cpu-rm/kernel/*.ko
@@ -43,3 +49,6 @@ windows/tools/unlock40x/*.signed.efi
 # proprietary libnvidia-glcore.so and is generated locally, never committed.
 cmp_glcore_patch/patch_glcore
 cmp_glcore_patch/libnvidia-glcore.so*
+
+# Rust EFI port build outputs.
+windows/efi-rust/target/

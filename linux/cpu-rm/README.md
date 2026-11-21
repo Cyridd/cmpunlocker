@@ -161,7 +161,7 @@ unlock inside a systemd-based initramfs, before module loading and udev. It
 selects exactly one unbound `10de:1f0b`, uses the stock handoff and 1 MiB WPR
 heap, and leaves `gen2=off`. NVIDIA loads later through the normal boot path.
 
-I tested this hook on my CachyOS system with proprietary NVIDIA 615.78.08
+This hook was tested on CachyOS with proprietary NVIDIA 615.78.08
 and GSP OFF. Automatic compute unlock worked after boot.
 
 Install the module and prepared firmware as described above for every kernel

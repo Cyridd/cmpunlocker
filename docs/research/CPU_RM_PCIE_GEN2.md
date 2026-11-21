@@ -1,6 +1,6 @@
 # CMP40HX PCIe Gen2 with proprietary Linux CPU-RM
 
-On 2026-11-01 I tested a pre-driver Gen2 setup followed by the unmodified
+On 2026-11-01, a pre-driver Gen2 setup was tested with the unmodified
 proprietary NVIDIA 615.78.08 driver with GSP disabled. Preparing and training
 the link before NVIDIA worked, but native initialization changed the GPU-side
 policy and returned the link to Gen1. A normal post-driver retrain alone failed.
@@ -18,7 +18,7 @@ and the post-driver helper alone exposed and trained Gen2 x16.
 open-driver patch sets. The hardware measurements elsewhere in this report
 used the previous implementation.
 
-**Verified:** I tested 0.17.0 on hardware and confirmed successful operation.
+**Verified:** 0.17.0 was tested on hardware; successful operation is confirmed.
 
 The policy follows the current
 [CMP50HX source](https://github.com/xrip/cmp50hx-unlock/tree/b630a493b7877fbd4472113dcb960a93749c0a78)
@@ -59,7 +59,7 @@ A retained Gen2 capability no longer skips policy restoration. Actual speed
 is checked separately. Retraining uses only the upstream port's RL bit;
 CCC, ASPM, HASD/HAWD, CFG bit 22 and the other unmasked fields are preserved.
 The update does not write `0x88610`, XP3G VAL3/OVR3, PL bits 16/20, or the
-endpoint's RL bit. My repeated `0x88610` tests on CMP40HX, including `0x1001`,
+endpoint's RL bit. Repeated `0x88610` tests on CMP40HX, including `0x1001`,
 produced no Gen2 improvement. This register is a Gen3 control.
 
 The open adapter calls the engine after the successful stock-Booter guard,
@@ -259,7 +259,7 @@ actual transfers for acceptance, without modifying Linux's PCI cache.
 
 ## Cold control with runtime-only Gen2
 
-I repeated the test after a full cold power-off with `gen2=off` during compute
+The test was repeated after a full cold power-off with `gen2=off` during compute
 unlock. Both the post-unlock and post-NVIDIA PCI snapshots still reported
 `CAP2=00000002`, Gen1 x16, GPU TLS=1. Before the runtime helper, the GPU-side
 state was:

@@ -28,6 +28,12 @@ their original terms.
 
 ## Windows / UEFI (`windows/`)
 
+- The independently implemented Rust sources under `windows/efi-rust/` are MIT,
+  under this repository's `LICENSE`. It contains no NVIDIA firmware and no
+  imported code from `nv-uefi-unlocker`. The EFI carrier depends on uefi-rs
+  (MIT OR Apache-2.0) and the dependencies pinned in its Cargo.lock. Host tests
+  compile selected functions from the existing C EFI as a reference; this does not relicense
+  the inherited C code or third-party inputs listed below.
 - The tree is a fork of [`PZH1gdmu/CMP40HX-Unlock`](https://github.com/PZH1gdmu/CMP40HX-Unlock),
   which builds on [`WildFlash1st/cmp90hx-unlock-for-windows`](https://github.com/WildFlash1st/cmp90hx-unlock-for-windows).
   Upstream terms apply to the inherited code; see [`windows/FORK_CHANGES.md`](../windows/FORK_CHANGES.md)

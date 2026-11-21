@@ -3,7 +3,7 @@
 Unless stated otherwise, the measurements below come from the Windows/UEFI unlock
 path on one system: CMP 40HX, AMD Ryzen 5 5600G host, NVIDIA driver `617.14`,
 CUDA Toolkit `13.4`. The Windows-side summary is in
-[`windows/README.md`](../windows/README.md#results). My Linux measurements
+[`windows/README.md`](../windows/README.md#results). Linux measurements
 and a separately attributed community GRID/vGPU report follow below.
 
 ## clpeak (CUDA backend)
@@ -144,9 +144,9 @@ sbccc1888's own benchmarks. They are replaced by the clpeak measurements above:
 | FP16 cuBLAS, `~0.39 -> 11.42 TFLOPS` | Replaced. cuBLASLt GEMM fp16 measures 1.12 TFLOPS before and 56.5 TFLOPS after. |
 | FP16 Tensor Core MMA, *unavailable -> 63.8 TFLOPS* | Replaced. The Tensor path runs on the stock card at about 1.1 TFLOPS (WMMA fp16) and reaches 72.0 TFLOPS after. |
 
-## My measurements (Linux, own benchmarks)
+## Local measurements (Linux benchmarks)
 
-The sections below are single-system observations by me. The benchmark
+The sections below are single-system observations. The benchmark
 sources are not published in this repository, so treat them as reported
 observations, not reproducible results.
 
@@ -218,9 +218,8 @@ cuBLASLt FP16 from 1.0335 to 52.1347 TFLOPS. A separate numerical WMMA test
 matched 163,840 outputs with maximum error 0 and passed again after a fresh
 FULL unlock. The earlier 610 pair used the recorded 184 W default limit.
 
-I confirmed successful Windows ZERO/FULL initialization and FULL unlock with
-the 960 KiB EFI. I also tested the integrated installer and reproduced an
-upgrade: Disable GSP changed `EnableGpuFirmware=1` to `0`, and the Gen2 task
+Successful Windows ZERO/FULL initialization and FULL unlock are confirmed
+with the 960 KiB EFI. Integrated installer tests reproduced an upgrade: Disable GSP changed `EnableGpuFirmware=1` to `0`, and the Gen2 task
 left it at `0`. GRID/vGPU support has not been independently validated.
 The exact geometry, controls, full table, provenance and limitations are in
 [CPU_RM_SMALL_WPR.md](research/CPU_RM_SMALL_WPR.md).

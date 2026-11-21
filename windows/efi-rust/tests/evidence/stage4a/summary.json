@@ -1,0 +1,373 @@
+{
+  "variant": "carrier-r1",
+  "base_commit": "965bf6d",
+  "accepted_gpu_runtime": "e1422c1",
+  "hardware_acceptance": "readonly_and_gpu_windows_and_full_linux_accepted_on_tested_configuration",
+  "validation": {
+    "core_tests_gcc": 39,
+    "new_disk_tests": 11,
+    "c_parity_and_transaction_tests_clang": 15,
+    "asset_tests": 2,
+    "format": "passed",
+    "core_clippy": "passed",
+    "efi_clippy_default_and_cpu_rm": "passed",
+    "windows_gnu_core": "passed",
+    "release_default_and_cpu_rm": "passed"
+  },
+  "qemu": {
+    "images": {
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-readonly.efi": "361b7b7faf02ae6e048df0137bf5e55db2c0f3317694c5a2fd732d0f789f05f4",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-fixture-windows.efi": "1062d4efff13b91a6172d5330eeff933e468adc61e09f561bfa828b54376e87c",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-fixture-parent.efi": "dfa8dd0b399b0b4a1d8bba5fff3d84beed258911ea857bd655d4290ad34913bc",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-cpu-rm-full.efi": "8cbc06100323032dd75654f70103c925ae886a863876cdd2df0f595b29176735",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-cpu-rm-zero.efi": "fab513e7116f86c2de333f7b6050e5083d5e2671347b981ca1935416a0362978",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-fixture-log.efi": "c968cac454e023b3689dda54ec1150693cb858211eb9b63def117bcec82b4058",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-fixture-failed-parent.efi": "f7c096bd6b36cb4ad2ca6276cfaa41b08369eb0c9d7b063aae36bb4fe8ca8100",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-logcheck.efi": "f3a11e31a2e55dcd6f6e248f239fe32959521f4ce1bcecf3c2de076b7e3280db",
+      "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-fixture-raw.efi": "2ba24095478d472cc48e4eaad757b967afa81306527f901eae6ff4437c1e2bc8"
+    },
+    "ovmf_code_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
+    "ovmf_vars_sha256": "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e",
+    "qemu_version": "QEMU emulator version 11.1.3",
+    "complete": true,
+    "requested_cases": [
+      "windows",
+      "unique-windows",
+      "parent",
+      "no-windows",
+      "invalid-windows",
+      "ambiguous-windows",
+      "self-windows",
+      "cpu-full-no-gpu",
+      "cpu-zero-no-gpu",
+      "logging",
+      "failed-parent",
+      "logcheck",
+      "raw-windows",
+      "raw-corrupt-chain",
+      "raw-ambiguous",
+      "raw-parent",
+      "raw-gpt-windows",
+      "raw-gpt-4k",
+      "raw-gpt-bad-crc"
+    ],
+    "results": [
+      {
+        "case": "windows",
+        "passed": true,
+        "seconds": 1.98,
+        "serial_log": "qemu/windows.log",
+        "serial_sha256": "63692588263a4f02f300f52d730f89dd5a8bce59beab32394424d31059f57e2e"
+      },
+      {
+        "case": "unique-windows",
+        "passed": true,
+        "seconds": 2.04,
+        "serial_log": "qemu/unique-windows.log",
+        "serial_sha256": "77ac79e16f5856b20231840a149815d47decd08db3e2da1aa2e5093d18cab2e1"
+      },
+      {
+        "case": "parent",
+        "passed": true,
+        "seconds": 2.03,
+        "serial_log": "qemu/parent.log",
+        "serial_sha256": "99280f6c03e11a0b44d012d077b2b354bf5c0b489c29764375ce639a3bd0e1a3"
+      },
+      {
+        "case": "no-windows",
+        "passed": true,
+        "seconds": 1.93,
+        "serial_log": "qemu/no-windows.log",
+        "serial_sha256": "218fd9521624b324bdccab27d7d39a9e50151b23f11c2eeaad4225c2c45b421c"
+      },
+      {
+        "case": "invalid-windows",
+        "passed": true,
+        "seconds": 1.93,
+        "serial_log": "qemu/invalid-windows.log",
+        "serial_sha256": "72d8bcdff53f703046d82b89fc11b8b87f50a4af6d50ffa0286510451f6473f0"
+      },
+      {
+        "case": "ambiguous-windows",
+        "passed": true,
+        "seconds": 1.98,
+        "serial_log": "qemu/ambiguous-windows.log",
+        "serial_sha256": "85877f4048ac30a4605b1606a5a7a11735d71a5319461e717400b8e688592335"
+      },
+      {
+        "case": "self-windows",
+        "passed": true,
+        "seconds": 1.93,
+        "serial_log": "qemu/self-windows.log",
+        "serial_sha256": "aad422cc3465e8bea562bdf351b1129528034e7aa4961e54c5c69447c3d1f961"
+      },
+      {
+        "case": "cpu-full-no-gpu",
+        "passed": true,
+        "seconds": 1.83,
+        "serial_log": "qemu/cpu-full-no-gpu.log",
+        "serial_sha256": "d64d9459d65cca0bd03d3e32cebf626fc8665ecc5847dadd78dfb69d1732097f"
+      },
+      {
+        "case": "cpu-zero-no-gpu",
+        "passed": true,
+        "seconds": 1.83,
+        "serial_log": "qemu/cpu-zero-no-gpu.log",
+        "serial_sha256": "566baf26ae02fc778d43726d2cb3798351f09b47f83d5b7aacb05911d7c01616"
+      },
+      {
+        "case": "logging",
+        "passed": true,
+        "seconds": 1.91,
+        "serial_log": "qemu/logging.log",
+        "serial_sha256": "ae71a5ea7f7fad8191610fe8cb6b90938abfce19f442bcc39e71e3af17e7c5cd"
+      },
+      {
+        "case": "failed-parent",
+        "passed": true,
+        "seconds": 2.98,
+        "serial_log": "qemu/failed-parent.log",
+        "serial_sha256": "496aff82259f1bd2d5a5c11e758c9f44a89bd61b8030da62c00ad9fb97e60a6c"
+      },
+      {
+        "case": "logcheck",
+        "passed": true,
+        "seconds": 1.92,
+        "serial_log": "qemu/logcheck.log",
+        "serial_sha256": "4c881e3b36d16608dea519b944673669f0a2b3945df7c8b796b3edaaa102292e"
+      },
+      {
+        "case": "raw-windows",
+        "passed": true,
+        "seconds": 1.93,
+        "serial_log": "qemu/raw-windows.log",
+        "serial_sha256": "b66c108e24f03dc87c50f69bef40c0e007169578fe09f1a4312e4611bb8d3d50"
+      },
+      {
+        "case": "raw-corrupt-chain",
+        "passed": true,
+        "seconds": 1.88,
+        "serial_log": "qemu/raw-corrupt-chain.log",
+        "serial_sha256": "5cf8bde3a2c286a3ecfca3897265785b9a1227e409ec802cffa5a1f0212141cb"
+      },
+      {
+        "case": "raw-ambiguous",
+        "passed": true,
+        "seconds": 2.08,
+        "serial_log": "qemu/raw-ambiguous.log",
+        "serial_sha256": "9b2cd35faff9341e4cc13479294c94a4f7cd1216355b457f5a162678aa3fa73c"
+      },
+      {
+        "case": "raw-parent",
+        "passed": true,
+        "seconds": 1.88,
+        "serial_log": "qemu/raw-parent.log",
+        "serial_sha256": "ce6a9a000b14b037720da84d22d74694cffe4d914f9451b4bc9e1fdb489f93a9"
+      },
+      {
+        "case": "raw-gpt-windows",
+        "passed": true,
+        "seconds": 2.0,
+        "serial_log": "qemu/raw-gpt-windows.log",
+        "serial_sha256": "36d25d090cac4502c4c455123f963ad9dc2a4c08fc63aff994e98f73f9c12be2"
+      },
+      {
+        "case": "raw-gpt-4k",
+        "passed": true,
+        "seconds": 1.99,
+        "serial_log": "qemu/raw-gpt-4k.log",
+        "serial_sha256": "f88cc89f23e109869377ee70d882fe10fcca18237c1eaf04478576bc94835803"
+      },
+      {
+        "case": "raw-gpt-bad-crc",
+        "passed": true,
+        "seconds": 1.93,
+        "serial_log": "qemu/raw-gpt-bad-crc.log",
+        "serial_sha256": "46123d4f3ecfb0d67465c286ba5e8c8b3b9753fe976fa4cb714a9ff63f1291e1"
+      }
+    ],
+    "original_report": "target/qemu-smoke/run-6flzzl8a/report.json"
+  },
+  "qemu_readonly": {
+    "images": {
+      "target/carrier-r1/readonly/x86_64-unknown-uefi/release/cmp40-readonly.efi": "10fd039eda1ba4815b4dbf8bf514e9b6003ce51c3d9cf568ff646430fc9f53be",
+      "target/carrier-r1/readonly/x86_64-unknown-uefi/release/cmp40-fixture-windows.efi": "41baf8bf7d604a5ea2d5b234d0d4fb8e96edaeb3b40b40718bf66ba297aaf9e5",
+      "target/carrier-r1/readonly/x86_64-unknown-uefi/release/cmp40-fixture-parent.efi": "fa9321d807335d7c277fadd91a5569877b39ac4bc04d0df2c6d222b623244f88",
+      "target/carrier-r1/readonly/x86_64-unknown-uefi/release/cmp40-fixture-raw.efi": "e382d541f3c60b09120475af2e2af300684908a2bdf0913d86f8f322d9c1446d"
+    },
+    "ovmf_code_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
+    "ovmf_vars_sha256": "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e",
+    "qemu_version": "QEMU emulator version 11.1.3",
+    "complete": true,
+    "requested_cases": [
+      "windows",
+      "unique-windows",
+      "raw-windows",
+      "raw-parent"
+    ],
+    "results": [
+      {
+        "case": "windows",
+        "passed": true,
+        "seconds": 2.08,
+        "serial_log": "qemu-readonly/windows.log",
+        "serial_sha256": "63692588263a4f02f300f52d730f89dd5a8bce59beab32394424d31059f57e2e"
+      },
+      {
+        "case": "unique-windows",
+        "passed": true,
+        "seconds": 1.98,
+        "serial_log": "qemu-readonly/unique-windows.log",
+        "serial_sha256": "77ac79e16f5856b20231840a149815d47decd08db3e2da1aa2e5093d18cab2e1"
+      },
+      {
+        "case": "raw-windows",
+        "passed": true,
+        "seconds": 2.08,
+        "serial_log": "qemu-readonly/raw-windows.log",
+        "serial_sha256": "388f56b92669c2c6c25044e86dfd7292ef32a415c3b36c3ca4380be24f17c443"
+      },
+      {
+        "case": "raw-parent",
+        "passed": true,
+        "seconds": 1.98,
+        "serial_log": "qemu-readonly/raw-parent.log",
+        "serial_sha256": "ce6a9a000b14b037720da84d22d74694cffe4d914f9451b4bc9e1fdb489f93a9"
+      }
+    ],
+    "original_report": "target/qemu-smoke/run-58dmgc6c/report.json"
+  },
+  "provided_readonly": {
+    "image": "target/carrier-r1/readonly/x86_64-unknown-uefi/release/cmp40-readonly.efi",
+    "efi_sha256": "10fd039eda1ba4815b4dbf8bf514e9b6003ce51c3d9cf568ff646430fc9f53be",
+    "features": [],
+    "archive": "target/carrier-r1/cmp40-rust-carrier-r1-usb.zip",
+    "archive_sha256": "57061df60528d745a44bf334ac2219126d9e5191d2f8bd3d45b691be6e5599f3",
+    "guide_sha256": "85eb34f9ccf3ad2a47b9adbc8b76200e89d5ce800466f873118a341bfae27283"
+  },
+  "unchanged_from_accepted_gpu_runtime": {
+    "core/src/transaction.rs": "18be4d1f3df466c01e03ac876748a1d72d9ca2dbf1ab0e91a135fe55c4ad18ee",
+    "core/src/metadata.rs": "f1caf2844497f41a3d5c1146750695cf778f4a753e809701e15c47b54d437d54",
+    "core/src/radix.rs": "624c9f28359bf9a2f24cc5827940ec67c31a1bd8c1257f40593bcecde8d73f86",
+    "core/src/allocation.rs": "9b3b903efb1557112ab9fba910b0c47e628cb1b696ef1ab0b6c167cac5a1acff",
+    "app/src/dma.rs": "7618ca740202d916062040ed535f2ade160018fe0a4a4ea2b14e818f93d006a3",
+    "app/src/assets.rs": "52f568c6da1f5755d2dbf1e4c1a4676ce954bcf31080dbf79c23694f688c2342",
+    "app/prepare_assets.py": "2020263210d998022e7dd9f999f3b0426c0bbcd9ce0d510bf782fdf70df3c480"
+  },
+  "gpu_prepare_and_execute_unchanged": true,
+  "source_sha256": {
+    "core/src/fat.rs": "2c5a8502da52dd36acb44dbd82d8b53af168bd765d1792a1cc44aab5ed7c618c",
+    "core/src/partition.rs": "1a78eb9f3b82330ff1375a076d58d2d6450e9961d19477d5622cd9d3b93c1c90",
+    "core/tests/fat.rs": "31dfcebf5002e39c072a6604ba3bd01fff1bd23f86648bd176ac3e2e3ddc61d1",
+    "app/src/raw.rs": "04613be55d952c666f8dc5bf4eb6fc89835908a1693bfa60a58d7779dd231390",
+    "app/src/policy.rs": "fa4930329d61d1100cd3f575ba03c0061ea2c6c29f0a65d5b73640dcec0c8d0b",
+    "app/src/image.rs": "6cade131709e3be14c85ce743bde9e06f71dcc91fe6323da9af75763b08c5f70",
+    "app/src/handoff.rs": "10f175450818fba6bc132e29959a2f6aa25e129875988f0cd840de8023152e2b",
+    "app/src/cpu_rm.rs": "59748c23790f7717cc81089a3e1a8e2ef110b226c780aad2555ad9718b56e538",
+    "app/src/hardware.rs": "c5c34d1ee1c5963f03df14c740c4b399fda0e994c9eb05b1753c13e770b70b81",
+    "app/src/pci.rs": "48fefba39efb214553d82a7cb236ece1e576f491640478bf7c7c7371f29fda71",
+    "tests/qemu_smoke.py": "41a12d4bf6479fc90b7e51fab7af93c80022290b65072e4f233dc06efccf6356",
+    "tests/fat16_fixture.py": "95bb88931ee1129c6496522130b56df74f6ddb6f143f91f1f0d249824136cdaf",
+    "tests/fat32_fixture.py": "4e751154f17fe36adc7e1760b5444f207b2aeda92c6397f6132035b83beebaee",
+    "tests/boot-fixture/src/raw.rs": "0f0c997f5371be2f06f56b8c9fcd907dff424136dafa25b63d76cc047ea82791",
+    "tests/boot-fixture/src/windows.rs": "748fddba6e403095cfcbc27b0f7ed78efc83664423c7e34d35552bf73c778150"
+  },
+  "logging_policy": "../../../LOGGING_POLICY.md",
+  "logging_retention_implemented": false,
+  "proposed_log_budget_bytes": 8388608,
+  "next_physical_checks": [],
+  "hardware_report": {
+    "report": "hardware-report.md",
+    "report_sha256": "c49dcb445ff33a97cade5edfc943f0d7fd575ffc744afd8c6d0e6678eb0633ba",
+    "source_report": "hardware-report.md",
+    "recorded_date": "2026-11-18",
+    "code_checkpoint": "fe02bf7",
+    "evidence_type": "reported_observation_without_raw_console_capture",
+    "reported_following_hardware_guide": true,
+    "confirmed_windows_and_nvidia_boot": true,
+    "confirmed_return_to_limine": true,
+    "confirmed_subsequent_linux_boot": true,
+    "cold_power_events_separately_reconfirmed": false,
+    "executed_efi_checksum_separately_reconfirmed": false,
+    "raw_console_capture_provided": false,
+    "gpu_zero_full_carrier_acceptance": "accepted_windows_on_tested_configuration",
+    "gpu_full_parent_linux_compute_acceptance": "accepted_full_620.70.06_proprietary_gsp_off_no_independent_unlocker"
+  },
+  "frozen_readonly": {
+    "image": "target/carrier-r1/readonly/x86_64-unknown-uefi/release/cmp40-readonly.efi",
+    "efi_sha256": "10fd039eda1ba4815b4dbf8bf514e9b6003ce51c3d9cf568ff646430fc9f53be",
+    "features": [],
+    "archive": "target/baseline-carrier-fe02bf7/cmp40-rust-carrier-r1-usb.zip",
+    "archive_sha256": "57061df60528d745a44bf334ac2219126d9e5191d2f8bd3d45b691be6e5599f3",
+    "guide_sha256": "85eb34f9ccf3ad2a47b9adbc8b76200e89d5ce800466f873118a341bfae27283",
+    "matches_original_archive": true
+  },
+  "provided_gpu_candidates": {
+    "zero": {
+      "image": "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-cpu-rm-zero.efi",
+      "efi_sha256": "fab513e7116f86c2de333f7b6050e5083d5e2671347b981ca1935416a0362978",
+      "archive": "target/carrier-r1/cmp40-rust-cpu-rm-zero-usb.zip",
+      "archive_sha256": "84a03fc1b04937c36a1960349e41926ce15b64fa7575bccb578194573cc7edeb",
+      "features": [
+        "cpu-rm",
+        "adapters"
+      ],
+      "guide": "tests/CARRIER_GPU_HARDWARE.md",
+      "guide_sha256": "3b7a61139d2baa238ea68aa507a80a6c62bfb63e831715b1f1bf44aac7f61d9e",
+      "image_matches_recorded_qemu": true,
+      "hardware_acceptance": "accepted_windows_on_tested_configuration"
+    },
+    "full": {
+      "image": "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-cpu-rm-full.efi",
+      "efi_sha256": "8cbc06100323032dd75654f70103c925ae886a863876cdd2df0f595b29176735",
+      "archive": "target/carrier-r1/cmp40-rust-cpu-rm-full-usb.zip",
+      "archive_sha256": "9bc18416fae1289b6923f260f7128776a2cd07530be5117abba92d5c1507fdc4",
+      "features": [
+        "cpu-rm",
+        "adapters"
+      ],
+      "guide": "tests/CARRIER_GPU_HARDWARE.md",
+      "guide_sha256": "3b7a61139d2baa238ea68aa507a80a6c62bfb63e831715b1f1bf44aac7f61d9e",
+      "image_matches_recorded_qemu": true,
+      "hardware_acceptance": "accepted_windows_on_tested_configuration"
+    }
+  },
+  "candidate_packaging": {
+    "rebuilt": false,
+    "efi_header_and_archive_checksums": "passed",
+    "recorded_qemu_and_source_hashes_rechecked": true,
+    "runtime_source_changed": false,
+    "default_three_archive_behavior": "passed_in_temporary_directory",
+    "selected_archive_reproduction": "byte_identical",
+    "accepted_memory_r1_and_readonly_archives": "unchanged_hashes_verified"
+  },
+  "gpu_attempts_report": {
+    "report": "../stage4b/hardware-report.md",
+    "both_controls_appeared_to_skip_immediately_to_windows": true,
+    "no_visible_entry_messages": true,
+    "no_new_gpu_logs_found_on_image_volume": true,
+    "used_existing_working_limine_entries_with_replaced_efi_files": true,
+    "cmdline_empty_confirmed": true,
+    "candidate_sha256_matches_confirmed": true,
+    "gpu_execution_proven": false,
+    "report_sha256": "01914f0466cffbc89b70b5d84fb340a3c68cd93393627a084d1c53252225837c",
+    "early_diagnostic_raw_log": "../stage4b/RE000001.LOG"
+  },
+  "gpu_windows_acceptance": {
+    "report": "../stage4c/hardware-report.json",
+    "report_sha256": "e43510f31d7cbb10f33f8f8bcd461d421504b277e65e179313b7dcc4a7bab775",
+    "frozen_gpu_packages": "target/baseline-carrier-gpu-fe02bf7",
+    "full_raw_log_verified": true,
+    "zero_raw_log_verified": true,
+    "full_compute_unlock_confirmed": true,
+    "gpu_parent_linux_acceptance": "accepted_full_in_stage4d"
+  },
+  "gpu_parent_linux_acceptance": {
+    "report": "../stage4d/hardware-report.json",
+    "report_sha256": "35f48ddde96eb0f0ab719bebd6abdb2a699c1377163bae376e286d07bed6c346",
+    "driver_version": "620.70.06",
+    "gsp": "OFF",
+    "independent_unlockers": false,
+    "accepted": true
+  }
+}

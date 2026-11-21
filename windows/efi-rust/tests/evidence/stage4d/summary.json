@@ -1,0 +1,24 @@
+{
+  "variant": "carrier-r1",
+  "code_checkpoint": "fe02bf7",
+  "control": "Full",
+  "hardware_acceptance": "accepted_full_parent_linux_on_tested_configuration",
+  "hardware_report": "hardware-report.json",
+  "hardware_report_sha256": "35f48ddde96eb0f0ab719bebd6abdb2a699c1377163bae376e286d07bed6c346",
+  "full_efi_sha256": "8cbc06100323032dd75654f70103c925ae886a863876cdd2df0f595b29176735",
+  "frozen_gpu_packages": "target/baseline-carrier-gpu-fe02bf7",
+  "windows_gpu_acceptance": "../stage4c/README.md",
+  "source_runtime_changed": false,
+  "binaries_rebuilt": false,
+  "validation": {
+    "metadata_matches_accepted_windows_full": true,
+    "trace_matches_accepted_windows_except_ptimer": true,
+    "frozen_gpu_archive_hashes": "verified_unchanged",
+    "native_gpu_records_retained": true
+  },
+  "carrier_parity_on_tested_configuration": "accepted_windows_zero_full_and_full_parent_linux",
+  "remaining_work": [
+    "bounded production logging and Go checker/uninstaller support",
+    "Go installer Rust image integration"
+  ]
+}

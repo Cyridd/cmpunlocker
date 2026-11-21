@@ -1,0 +1,134 @@
+$ cargo fmt --all -- --check
+exit_code=0
+
+$ cargo test --locked --offline -p cmp40-efi-core
+   Compiling cmp40-efi-core v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/lib.rs (target/debug/build/cmp40-efi-core/8ed1de1d226acd67/out/cmp40_efi_core-8ed1de1d226acd67)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/c_parity.rs (target/debug/build/cmp40-efi-core/3c0af4f30fdfcceb/out/c_parity-3c0af4f30fdfcceb)
+
+running 4 tests
+test metadata_matches_all_256_c_bytes_in_both_signature_modes ... ok
+test options_match_c_including_binary_optional_data_and_policy_precedence ... ok
+test entry_and_native_completion_match_c_under_register_faults ... ok
+test radix_matches_c_across_leaf_boundaries_and_the_real_image_size ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running tests/contracts.rs (target/debug/build/cmp40-efi-core/29373d663111364b/out/contracts-29373d663111364b)
+
+running 4 tests
+test cpu_rm_geometry_keeps_the_measured_small_wpr_boundary ... ok
+test radix_refuses_unsupported_sizes_without_integer_wrap ... ok
+test metadata_rejects_bad_dma_addresses_before_serialization ... ok
+test invalid_radix_inputs_leave_the_caller_buffer_untouched ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/image_path.rs (target/debug/build/cmp40-efi-core/4d7eff1cab37c04f/out/image_path-4d7eff1cab37c04f)
+
+running 2 tests
+test rejects_malformed_paths_and_extra_hidden_filename_data ... ok
+test recognizes_self_at_windows_path_including_split_and_case_variants ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/preparation.rs (target/debug/build/cmp40-efi-core/e5066433758d4128/out/preparation-e5066433758d4128)
+
+running 3 tests
+test invalid_allocation_sizes_refuse_before_the_backend ... ok
+test high_slots_and_all_fallbacks_match_c_with_occupied_ranges ... ok
+test ptimer_writes_match_c_calendar_arithmetic_and_fallback ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/transaction.rs (target/debug/build/cmp40-efi-core/fdf3f0fd0d929da7/out/transaction-fdf3f0fd0d929da7)
+
+running 7 tests
+test malformed_prepared_buffers_fail_before_any_io ... ok
+test deferred_fwsec_preparation_runs_once_at_the_c_allocation_point ... ok
+test gfw_stop_and_conditional_falcon_switch_match_the_c_entry_segment ... ok
+test whole_prepared_transaction_orders_fwsec_booter_and_native_finish_without_retry ... ok
+test fwsec_with_loader_matches_c_under_reset_geometry_dma_and_wpr_failures ... ok
+test booter_port_load_readbacks_and_sparse_completion_match_c ... ok
+test native_finish_matches_c_for_full_and_zero_under_faults ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+
+   Doc-tests cmp40_efi_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit_code=0
+
+$ cargo clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+exit_code=0
+
+$ CC=clang cargo test --locked --offline -p cmp40-efi-core --test preparation --test transaction
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/preparation.rs (target/debug/build/cmp40-efi-core/e5066433758d4128/out/preparation-e5066433758d4128)
+
+running 3 tests
+test invalid_allocation_sizes_refuse_before_the_backend ... ok
+test ptimer_writes_match_c_calendar_arithmetic_and_fallback ... ok
+test high_slots_and_all_fallbacks_match_c_with_occupied_ranges ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running tests/transaction.rs (target/debug/build/cmp40-efi-core/fdf3f0fd0d929da7/out/transaction-fdf3f0fd0d929da7)
+
+running 7 tests
+test malformed_prepared_buffers_fail_before_any_io ... ok
+test deferred_fwsec_preparation_runs_once_at_the_c_allocation_point ... ok
+test gfw_stop_and_conditional_falcon_switch_match_the_c_entry_segment ... ok
+test whole_prepared_transaction_orders_fwsec_booter_and_native_finish_without_retry ... ok
+test fwsec_with_loader_matches_c_under_reset_geometry_dma_and_wpr_failures ... ok
+test native_finish_matches_c_for_full_and_zero_under_faults ... ok
+test booter_port_load_readbacks_and_sparse_completion_match_c ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+
+exit_code=0
+
+$ cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
+    Checking cmp40-efi-core v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+exit_code=0
+
+$ cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-unknown-uefi
+    Checking cmp40-efi-core v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+exit_code=0
+
+$ cargo clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture -- -D warnings
+    Checking cmp40-efi-core v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/core)
+    Checking cmp40-efi v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/app)
+    Checking cmp40-efi-boot-fixture v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/tests/boot-fixture)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.38s
+exit_code=0
+
+$ cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture
+   Compiling cmp40-efi-core v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/core)
+   Compiling cmp40-efi v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/app)
+   Compiling cmp40-efi-boot-fixture v0.1.0 (/workspace/cmpunlocker/windows/efi-rust/tests/boot-fixture)
+    Finished `release` profile [optimized] target(s) in 0.51s
+exit_code=0
+
+$ python3 tests/qemu_smoke.py
+PASS windows: 1.98s
+PASS unique-windows: 1.88s
+PASS parent: 1.83s
+PASS no-windows: 1.83s
+PASS invalid-windows: 1.83s
+PASS ambiguous-windows: 1.93s
+PASS self-windows: 1.83s
+Artifacts: /workspace/cmpunlocker/windows/efi-rust/target/qemu-smoke/run-kv4_xlwl
+exit_code=0

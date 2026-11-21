@@ -1,0 +1,51 @@
+[package]
+name = "cmp40-efi-boot-fixture"
+description = "QEMU-only boot targets for testing the read-only EFI carrier"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.91"
+publish = false
+
+[dependencies]
+cmp40-efi = { path = "../../app" }
+cmp40-efi-core = { path = "../../core" }
+uefi.workspace = true
+
+[features]
+adapters = ["cmp40-efi/cpu-rm"]
+
+[[bin]]
+name = "cmp40-fixture-log"
+path = "src/log.rs"
+required-features = ["adapters"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-fixture-failed-parent"
+path = "src/failed_parent.rs"
+required-features = ["adapters"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-fixture-windows"
+path = "src/windows.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-fixture-raw"
+path = "src/raw.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-fixture-parent"
+path = "src/parent.rs"
+test = false
+bench = false
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

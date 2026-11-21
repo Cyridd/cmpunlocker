@@ -343,9 +343,9 @@ remained loaded at that point.
 
 ### Stock/restored kernel comparison
 
-Verified on 2026-11-14: I ran the temporary kernel comparison from KDE on the
-integrated GPU. I closed the application using NVIDIA and stopped
-`nvidia-persistenced`; KDE remained running. A TTY and display-manager stop
+Verified on 2026-11-14: the temporary kernel comparison ran from KDE on the
+integrated GPU. The application using NVIDIA was closed and
+`nvidia-persistenced` was stopped; KDE remained running. A TTY and display-manager stop
 were unnecessary in this setup. Normal module unloading succeeded after
 the NVIDIA clients released their device handles.
 
@@ -482,8 +482,8 @@ python3 tools/devid/probe_selector.py "$pci_selector_device"
 
 ### Measured alternate identity
 
-Verified on 2026-11-14: I unloaded NVIDIA, held runtime PM active, ran both
-selector cases and restored the original `auto` policy after the experiment.
+Verified on 2026-11-14: NVIDIA was unloaded, runtime PM was held active, both
+selector cases ran and the original `auto` policy was restored afterward.
 The commands were run from the repository root; the external device-directory
 value is redacted:
 
@@ -554,7 +554,7 @@ Vulkan. Reset/resume remains untested.
 
 ### Native initialization and policy under 1f4b
 
-Verified on 2026-11-14: I followed the two-terminal protocol with the
+Verified on 2026-11-14: the two-terminal protocol was followed with the
 prepared stock `nvidia.ko`, GSP OFF, and the selector held at value one.
 Inspection of the six saved outputs confirmed:
 
@@ -602,8 +602,8 @@ Before manual recovery, a read-only inspection found NVIDIA bound again
 with selector one still enabled and physical identity `1f4b`. The failed
 hold record was preserved. Separate recovery successfully
 reasserted runtime PM, restored CYA3 `0987e0ed` and all three identities to
-`1f0b10de`, and preserved unrelated fields. I restored the `auto` power
-policy, reloaded NVIDIA with GSP OFF and checked the original ID in
+`1f0b10de`, and preserved unrelated fields. The `auto` power policy was
+restored, NVIDIA was reloaded with GSP OFF and the original ID was checked in
 `nvidia-smi -q`. The post-reload result was reported directly; no saved NVML
 output was supplied for that check.
 
@@ -701,7 +701,7 @@ when the selector or identity cannot be restored and confirmed.
 
 ### Stock Linux A1/B/A2 results
 
-Verified on 2026-11-14: I completed the sequence with stock proprietary
+Verified on 2026-11-14: the sequence completed with stock proprietary
 620.70.06 and stock glcore, GSP OFF. A1 and A2 used physical `1f0b`; B used
 physical `1f4b` while the Linux PCI cache stayed `1f0b`. Inspection of the
 saved runs confirmed identical recorded sources, executables, workload
