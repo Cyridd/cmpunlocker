@@ -554,7 +554,16 @@ fi
 
 # ---------- NVIDIA userspace version ----------
 NVIDIA_USERSPACE_VER=""
-if command -v nvidia-smi >/dev/null 2>&1; then
+if command -v ldconfig >/dev/null 2>&1; then
+    NVIDIA_USERSPACE_VER="$(
+        ldconfig -p 2>/dev/null \
+            | awk '$1 == "libnvidia-ml.so.1" {print $NF; exit}' \
+            | xargs -r readlink -f \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' || true
+    )"
+fi
+
+if [[ -z "${NVIDIA_USERSPACE_VER}" ]] && command -v nvidia-smi >/dev/null 2>&1; then
     NVIDIA_USERSPACE_VER="$(
         nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
