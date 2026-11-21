@@ -226,7 +226,7 @@ The exact geometry, controls, full table, provenance and limitations are in
 
 ## Community GRID/vGPU guest results
 
-The [follow-up in issue #8](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/8#issuecomment-6570291262)
+The [follow-up in issue #8](https://github.com/Cyridd/cmpunlocker/issues/8#issuecomment-6570291262)
 reports Linux and Windows guest benchmarks on one CMP40HX host running
 Proxmox VE 9.2.24, proprietary GRID 19.6 / 580.178.05 with GSP OFF and
 vgpu-unlock. Compute unlock used the pre-driver module at commit `275bf98`;

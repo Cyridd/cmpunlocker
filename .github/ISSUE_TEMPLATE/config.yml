@@ -2,5 +2,5 @@ blank_issues_enabled: false
 
 contact_links:
   - name: Questions & discussion
-    url: https://github.com/REPOSITORY_OWNER/cmpunlocker/discussions
+    url: https://github.com/Cyridd/cmpunlocker/discussions
     about: General questions, comments, or "does this card qualify" — not a bug report.

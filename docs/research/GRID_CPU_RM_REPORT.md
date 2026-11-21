@@ -1,9 +1,9 @@
 # CMP40HX CPU-RM on GRID 19.6
 
-The [host report in issue #8](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/8#issuecomment-6555353992)
+The [host report in issue #8](https://github.com/Cyridd/cmpunlocker/issues/8#issuecomment-6555353992)
 describes successful compute unlock with the existing pre-driver module at
 commit `275bf98`, followed by proprietary GRID 19.6 / NVIDIA 580.178.05.
-The [guest follow-up](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/8#issuecomment-6570291262)
+The [guest follow-up](https://github.com/Cyridd/cmpunlocker/issues/8#issuecomment-6570291262)
 includes Linux CUDA and Windows OpenCL benchmarks, plus about half an hour
 of repeated clpeak runs without noticed instability or driver errors.
 These guest results were supplied by @Scirese and have not been independently

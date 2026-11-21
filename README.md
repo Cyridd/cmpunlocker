@@ -88,9 +88,9 @@ other metrics and Nsight Compute still need validation. See
 
 ### Windows
 
-Download the Windows ZIP from the [Releases page](https://github.com/REPOSITORY_OWNER/cmpunlocker/releases), verify its checksum against the attached `SHA256SUMS.txt`, and extract the entire archive. Then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
+Download the Windows ZIP from the [Releases page](https://github.com/Cyridd/cmpunlocker/releases), verify its checksum against the attached `SHA256SUMS.txt`, and extract the entire archive. Then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
 
-`REPOSITORY_OWNER` in hosting links is a placeholder for the repository account.
+Hosting links use the `Cyridd/cmpunlocker` repository.
 
 ## Compatibility at a glance
 

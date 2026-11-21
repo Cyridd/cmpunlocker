@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an idea, a new unlock, or distro/hardware support
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's missing or annoying right now?
+      description: Describe the gap or limitation you've run into.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Your suggested solution, as concretely as you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you're already using, or other approaches you thought of.
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Links, references, hardware specifics, etc.
+    validations:
+      required: false

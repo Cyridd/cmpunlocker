@@ -316,7 +316,7 @@ Gen1 capability state without preliminary PCIe preparation.
 
 Early preparation remains an optional comparison for other platforms,
 including the Gen2 training reports in
-[discussion #10](https://github.com/REPOSITORY_OWNER/cmpunlocker/discussions/10) and the
+[discussion #10](https://github.com/Cyridd/cmpunlocker/discussions/10) and the
 [Alder Lake audit](../../docs/research/PCIE_LINK_DISABLE_AUDIT.md). An early
 policy setup could affect native initialization or capability sampling;
 neither report has yet been fixed by this experiment. The

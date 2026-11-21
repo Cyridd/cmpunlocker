@@ -1,6 +1,6 @@
 # Windows disk and PCI safety
 
-[Issue #19](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/19) reports disk I/O
+[Issue #19](https://github.com/Cyridd/cmpunlocker/issues/19) reports disk I/O
 errors after unlock. Verified by source inspection: the executable unlock
 paths contain no raw-disk writes, partition edits, formatting, filesystem
 repair commands or AHCI resets. PCI resource changes and link resets can

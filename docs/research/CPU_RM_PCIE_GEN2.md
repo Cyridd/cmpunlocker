@@ -441,7 +441,7 @@ The runtime-only success on MSI B550 does not establish that pre-driver Gen2
 policy is unnecessary on every platform. The `--gen2 prepare` and
 `--gen2 retrain` modes are retained for that comparison.
 
-[Discussion #10](https://github.com/REPOSITORY_OWNER/cmpunlocker/discussions/10) reports
+[Discussion #10](https://github.com/Cyridd/cmpunlocker/discussions/10) reports
 ASUS `1043:8804`, VBIOS `90.06.67.00.06`, CachyOS `7.2.7-1-cachyos` and NVIDIA
 open modules 610.57.04. The endpoint already advertises Gen2 with TLS=2,
 CFG/PL rate fields=2 and `DIS_G2=0`, yet ordinary retraining and a repeated
@@ -476,14 +476,14 @@ in the open driver. The CPU-RM runtime helper requires GSP OFF.
 
 ## VFIO passthrough: host retrain in issue #20
 
-[Issue #20](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/20#issuecomment-6497769200)
+[Issue #20](https://github.com/Cyridd/cmpunlocker/issues/20#issuecomment-6497769200)
 uses full VFIO passthrough on Proxmox 9.2, kernel `7.0.14-24-pve`, QEMU
 `11.0.3-4` and q35/OVMF. The guest runs patched open NVIDIA 610.57.04 with
 GSP ON. Its ASUS CMP40HX (`1043:8804`, VBIOS `90.06.67.00.04`) is directly
 behind a physical AMD `1022:14db` root port. This differs from the proprietary
 CPU-RM tests above and the GRID/vGPU host in [issue #8](GRID_CPU_RM_REPORT.md).
 
-The [host experiment result](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/20#issuecomment-6569682975)
+The [host experiment result](https://github.com/Cyridd/cmpunlocker/issues/20#issuecomment-6569682975)
 records a masked Gen2 target write and an ordinary Retrain Link request on
 the physical root port, with the VM running and its GPU declared idle. The
 test left endpoint LnkCtl2 and GPU MMIO untouched. The bounded poll did not
