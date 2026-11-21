@@ -2,7 +2,7 @@
 
 Hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`), covering both Linux and Windows.
 
-- **Linux** — open-kernel-module patches for NVIDIA `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default), installed by `install.sh`; a separate [proprietary CPU-RM unlock](linux/cpu-rm/README.md) validated on `610.43.03`, `615.78.08` and `620.70.06` with GSP OFF; and an optional proprietary-userspace pipeline patch. The 620 runtime tests cover manual driver switching; startup before the first NVIDIA initialization still needs validation.
+- **Linux** — open-kernel-module patches for NVIDIA `580.173.02`, `610.57.04`, `615.71.09`, `615.78.08` and `620.70.06` (default), installed by `install.sh`; a separate [proprietary CPU-RM unlock](linux/cpu-rm/README.md) validated on `610.43.03`, `615.78.08` and `620.70.06` with GSP OFF; and an optional proprietary-userspace pipeline patch. The 620 runtime tests cover manual driver switching; startup before the first NVIDIA initialization still needs validation.
 - **Windows / UEFI** ([`windows/`](windows/)) — a UEFI unlock application and Go installer/checker/uninstaller tools. See [`windows/README.md`](windows/README.md).
 
 Choose the path matching your driver and OS. The proprietary Linux and Windows
@@ -67,7 +67,7 @@ NVIDIA loads; the optional [CPU-RM Gen2 helper](linux/cpu-rm/gen2.sh) runs after
 native initialization and was validated with 615.78.08 and 620.70.06. The commands below are
 for the **open kernel modules**.
 
-Requires the NVIDIA open kernel module stack and matching userspace/firmware for one of the supported patch versions (`580.173.02`, `610.57.04`, `615.78.08`, `620.70.06` default), a matching kernel headers package, and a C toolchain. Select the version with `--driver-version=VER`; per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).
+Requires the NVIDIA open kernel module stack and matching userspace/firmware for one of the supported patch versions (`580.173.02`, `610.57.04`, `615.71.09`, `615.78.08`, `620.70.06` default), a matching kernel headers package, and a C toolchain. Select the version with `--driver-version=VER`; per-distribution package lists and all installer options are in the [Linux installation guide](docs/linux-install.md).
 
 ```bash
 lspci -nn | grep -i nvidia   # expected: 10de:1f0b
@@ -80,7 +80,7 @@ The optional pipeline unlock is separate, selects the library version automatica
 and has runtime confirmation on 610.57.04, 615.78.08 and 620.70.06. See
 [`cmp_glcore_patch/README.md`](cmp_glcore_patch/README.md).
 
-An optional profiling unlock for 615.78.08 and 620.70.06 is available with
+An optional profiling unlock for 615.71.09, 615.78.08 and 620.70.06 is available with
 `sudo ./install.sh --profiling`. It ports CMP170HX's CMP SKU query mask.
 CUPTI support and a range-profiling hardware counter were confirmed on 620;
 other metrics and Nsight Compute still need validation. See
@@ -92,7 +92,7 @@ Download the Windows ZIP from the [Releases page](https://github.com/Cyridd/cmpu
 
 ## Compatibility at a glance
 
-- **Linux:** open-gpu-kernel-modules `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default); 620 compute, ReBAR and CUPTI counters passed runtime tests. Other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
+- **Linux:** open-gpu-kernel-modules `580.173.02`, `610.57.04`, `615.71.09` (Ubuntu `nvidia-*-615-server-open`), `615.78.08` and `620.70.06` (default); 620 compute, ReBAR and CUPTI counters passed runtime tests. Other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
 - **Proprietary Linux CPU-RM:** `610.43.03`, `615.78.08` and `620.70.06`, GSP OFF, 8 GiB TU106. The 620 tests confirmed compute, numerical WMMA and runtime Gen2 after driver unload.
 - **Windows:** UEFI/GPT, Above 4G Decoding on, Secure Boot and CSM off.
 - **Windows GSP OFF:** the installer now recommends `EnableGpuFirmware=0`; upgrade both the EFI and installer. Gen2 no longer changes GSP.

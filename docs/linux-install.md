@@ -1,7 +1,7 @@
 # Linux installation guide
 
 This guide covers the Linux half of the project: open-kernel-module patch
-sets for NVIDIA `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default), installed
+sets for NVIDIA `580.173.02`, `610.57.04`, `615.71.09`, `615.78.08` and `620.70.06` (default), installed
 by [`install.sh`](../install.sh), plus the optional userspace pipeline patch in
 [`cmp_glcore_patch/`](../cmp_glcore_patch/README.md).
 
@@ -34,7 +34,8 @@ You need a matching kernel headers/devel package, a C toolchain, `make`, GNU
 `patch`, `tar`, `sha256sum`, `pciutils`, `kmod`/`depmod`, and `curl` or `wget`
 if the NVIDIA source is downloaded automatically. The installed NVIDIA
 userspace and firmware must match the selected driver version: `580.173.02`,
-`610.57.04`, `615.78.08` or `620.70.06`.
+`610.57.04`, `615.71.09`, `615.78.08` or `620.70.06`.
+On Ubuntu, the `nvidia-*-615-server-open` packages ship `615.71.09`.
 The distribution's NVIDIA installation must provide a compatible open kernel
 module stack; this project does not install the NVIDIA driver or firmware.
 
@@ -63,8 +64,23 @@ sudo pacman -S --needed base-devel pciutils patch curl \
 ```bash
 sudo apt update
 sudo apt install build-essential linux-headers-$(uname -r) pciutils patch \
-  curl ca-certificates tar gzip xz-utils bzip2 kmod initramfs-tools \
+  curl ca-certificates tar gzip xz-utils bzip2 kmod \
   bc flex bison libelf-dev libssl-dev
+```
+
+Ubuntu builds the NVIDIA open modules with its own kernel-specific fixes, kept
+as `PATCH`/`PATCH_MATCH` entries in the `dkms.conf` of `nvidia-dkms-*-open`.
+Ubuntu 26.04 `7.0.0` kernels need them for `615.71.09`. Pass that DKMS source
+with `--dkms-source`: the installer applies the entries matching the target
+kernel to `kernel-open/` before the CMP 40HX patches, as DKMS would. The package
+version must match the installed driver; the package does not have to be
+installed:
+
+```bash
+apt-get download nvidia-dkms-615-server-open
+dpkg-deb -x nvidia-dkms-615-server-open_*.deb ubuntu-dkms
+sudo ./install.sh --driver-version=615.71.09 \
+  --dkms-source="$PWD/ubuntu-dkms/usr/src/nvidia-615.71.09"
 ```
 
 ### Fedora / RHEL / Rocky / AlmaLinux
@@ -129,6 +145,7 @@ The official GitHub `.tar.gz` archives are verified automatically:
 |---|---|
 | `580.173.02` | `a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f` |
 | `610.57.04` | `619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681` |
+| `615.71.09` | `caf48cda7d5fe7374d1d24ca4a90efb4dc783eefabfad5fa4b64fdc24213b62a` |
 | `615.78.08` | `eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf` |
 | `620.70.06` | `bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d` |
 
@@ -164,11 +181,11 @@ The installer applies the patch set for the selected version from
 - `0001-cmp40hx-unlock.patch`
 - `0002-cmp40hx-pcie2-unlock.patch` (or `0002-cmp40hx-pcie2-diagnostic.patch` with `--pcie-diagnostic`)
 - `0003-cmp40hx-rebar-unlock.patch`
-- Optional `0004-cmp40hx-profiling-unlock.patch` with `--profiling` (615.78.08
-  and 620.70.06; CUPTI support was confirmed on both, and a range-profiling
+- Optional `0004-cmp40hx-profiling-unlock.patch` with `--profiling` (615.71.09,
+  615.78.08 and 620.70.06; CUPTI support was confirmed on both, and a range-profiling
   hardware counter was verified on 620).
 
-The diagnostic PCIe patch is available for `610.57.04`, `615.78.08` and `620.70.06`; the
+The diagnostic PCIe patch is available for `610.57.04`, `615.71.09`, `615.78.08` and `620.70.06`; the
 `580.173.02` set has no diagnostic variant.
 
 This installs only the kernel-module patches. It does not apply the optional `cmp_glcore_patch` userspace modification.

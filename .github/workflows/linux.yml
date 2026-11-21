@@ -1,7 +1,8 @@
 # CI for the Linux half of the project (repository root).
 #
 # The patches under patches/<version>/ are pinned to one exact release of
-# open-gpu-kernel-modules each (580.173.02, 610.57.04, 615.78.08, 620.70.06). They are
+# open-gpu-kernel-modules each (580.173.02, 610.57.04, 615.71.09, 615.78.08,
+# 620.70.06). They are
 # applied to a local source tree during installation. An edited patch, retagged
 # upstream archive or changed SHA256 can therefore cause installation failures.
 # This workflow reproduces patch application without kernel headers, a compiler
@@ -62,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [580.173.02, 610.57.04, 615.78.08, 620.70.06]
+        version: [580.173.02, 610.57.04, 615.71.09, 615.78.08, 620.70.06]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -97,7 +98,7 @@ jobs:
         run: ./tools/check-linux-patches.sh --version "$VERSION" --source "$ARCHIVE"
 
       - name: Verify the signed CMP40 compatibility Booter
-        if: matrix.version == '615.78.08' || matrix.version == '620.70.06'
+        if: matrix.version == '615.71.09' || matrix.version == '615.78.08' || matrix.version == '620.70.06'
         env:
           CACHE_DIR: ${{ runner.temp }}/nvidia-source
           VERSION: ${{ matrix.version }}

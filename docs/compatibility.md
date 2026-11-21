@@ -29,7 +29,7 @@ were taken with the earlier implementation. See
   without noticed instability or driver errors. These guest results have not
   been independently reproduced; the physical link remains Gen1 x8.
 
-- **NVIDIA open-gpu-kernel-modules `580.173.02`, `610.57.04`, `615.78.08` and `620.70.06` (default).** Select one with `--driver-version=VER`; other driver versions require porting and revalidation. The userspace/firmware version must match the selected kernel-module version.
+- **NVIDIA open-gpu-kernel-modules `580.173.02`, `610.57.04`, `615.71.09`, `615.78.08` and `620.70.06` (default).** Select one with `--driver-version=VER`; other driver versions require porting and revalidation. The userspace/firmware version must match the selected kernel-module version.
 
 The `620.70.06` port uses the native `KernelVbios` FWSEC/FRTS commands and
 common boot-argument cleanup. Its signed `610.57.04` unlock Booter matches the
@@ -60,7 +60,7 @@ failure analysis and validation procedure.
   620 comparison used nvidia-open with GSP ON and original versus patched glcore.
   Its helper selects the matching version automatically; unknown binary layouts
   are rejected.
-- The optional `--profiling` patch is available for `615.78.08` and `620.70.06` and masks the
+- The optional `--profiling` patch is available for `615.71.09`, `615.78.08` and `620.70.06` and masks the
   CMP SKU query for 40HX. CUPTI gate support is hardware-confirmed on both
   versions; a range-profiling hardware counter was verified on 620. Other
   metrics and Nsight Compute remain untested. See

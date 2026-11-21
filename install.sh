@@ -11,7 +11,7 @@
 #   - Builds the open NVIDIA kernel modules
 #   - Installs them into /lib/modules/<kernel>/updates/cmpunlocker
 #   - Supports the optional PCIe diagnostic patch
-#   - Supports optional CMP SKU profiling on 615.78.08 and 620.70.06
+#   - Supports optional CMP SKU profiling on 615.71.09, 615.78.08 and 620.70.06
 #
 # Usage:
 #   sudo ./install.sh
@@ -41,12 +41,13 @@ DRIVER_VERSION="${NVIDIA_VERSION:-620.70.06}"
 
 # Supported open-gpu-kernel-modules releases, each with its own patch
 # directory (patches/<version>/) and official source-archive SHA256.
-SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.78.08 620.70.06)
+SUPPORTED_VERSIONS=(580.173.02 610.57.04 615.71.09 615.78.08 620.70.06)
 
 sha256_for() {
     case "$1" in
         580.173.02) echo "a2cd41cf100a81d90de9d5ca192b828ed8a63408330acef7931df00487acd82f" ;;
         610.57.04) echo "619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681" ;;
+        615.71.09) echo "caf48cda7d5fe7374d1d24ca4a90efb4dc783eefabfad5fa4b64fdc24213b62a" ;;
         615.78.08) echo "eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf" ;;
         620.70.06) echo "bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d" ;;
         *) echo "" ;;
@@ -119,6 +120,7 @@ USE_LOCAL_SRC=0
 USE_PCIE_DIAGNOSTIC=0
 USE_PROFILING=0
 SOURCE_DIR_EXPLICIT=0
+DKMS_SOURCE=""
 ASSUME_YES=0
 DRY_RUN=0
 FORCE_UNINSTALL=0
@@ -141,6 +143,9 @@ for arg in "$@"; do
             ;;
         --no-download)
             USE_LOCAL_SRC=1
+            ;;
+        --dkms-source=*)
+            DKMS_SOURCE="${arg#--dkms-source=}"
             ;;
         --pcie-diagnostic)
             USE_PCIE_DIAGNOSTIC=1
@@ -176,13 +181,18 @@ Actions:
 
 Options:
   --driver-version=VER   NVIDIA open-gpu-kernel-modules version to build.
-                         Supported: 580.173.02, 610.57.04, 615.78.08, 620.70.06 (default)
+                         Supported: 580.173.02, 610.57.04, 615.71.09, 615.78.08,
+                         620.70.06 (default)
   --source-dir=PATH      Use an existing NVIDIA source tree
   --no-download          Do not download; use an existing source tree or
                          local source archive
+  --dkms-source=PATH     Distribution DKMS source of the same driver version
+                         (directory with dkms.conf and patches/); its PATCH
+                         entries that match the kernel are applied to
+                         kernel-open before the CMP 40HX patches, as DKMS does
   --pcie-diagnostic      Use the diagnostic PCIe Gen2 patch instead of the
                          normal one (not available for 580.173.02)
-  --profiling            Apply the CMP SKU profiling unlock (615.78.08/620.70.06;
+  --profiling            Apply the CMP SKU profiling unlock (615.71.09/615.78.08/620.70.06;
                          CUPTI support gate confirmed; a range-profiling
                          hardware counter verified on 620.70.06)
   -y, --yes              Do not ask questions; use the default answer. Also
@@ -268,6 +278,38 @@ fi
 # Profiling remains independently selectable; CUPTI support gate is confirmed.
 if [[ "${USE_PROFILING}" -eq 1 && ! -f "${PATCH_PROFILING}" ]]; then
     die "--profiling is not available for ${DRIVER_VERSION} (no profiling patch in patches/${DRIVER_VERSION}/)."
+fi
+
+DKMS_PATCHES=()
+if [[ -n "${DKMS_SOURCE}" ]]; then
+    [[ -f "${DKMS_SOURCE}/dkms.conf" ]] || die "--dkms-source: ${DKMS_SOURCE}/dkms.conf not found."
+    DKMS_SOURCE="$(cd "${DKMS_SOURCE}" && pwd)"
+    dkms_selection="$(
+        set +eu
+        # shellcheck disable=SC2034
+        kernelver="${KERNEL_UNAME}"
+        PACKAGE_VERSION=""
+        PATCH=()
+        PATCH_MATCH=()
+        # shellcheck source=/dev/null
+        . "${DKMS_SOURCE}/dkms.conf" >/dev/null
+        printf '%s\n' "${PACKAGE_VERSION}"
+        for ((i = 0; i < ${#PATCH[@]}; i++)); do
+            if [[ ${PATCH[i]} && (! ${PATCH_MATCH[i]} || ${KERNEL_UNAME} =~ ${PATCH_MATCH[i]}) ]]; then
+                printf '%s\n' "${PATCH[i]}"
+            fi
+        done
+    )"
+    mapfile -t DKMS_PATCHES <<< "${dkms_selection}"
+    dkms_version="${DKMS_PATCHES[0]}"
+    DKMS_PATCHES=("${DKMS_PATCHES[@]:1}")
+    [[ "${dkms_version}" == "${DRIVER_VERSION}" ]] \
+        || die "--dkms-source is NVIDIA ${dkms_version:-unknown}; expected ${DRIVER_VERSION}."
+    for patch_name in "${DKMS_PATCHES[@]}"; do
+        [[ -f "${DKMS_SOURCE}/patches/${patch_name}" ]] \
+            || die "--dkms-source: patches/${patch_name} not found."
+    done
+    info "DKMS patches for ${KERNEL_UNAME}: ${DKMS_PATCHES[*]:-none}"
 fi
 
 # Questions are skipped with --yes or when there is no terminal to answer on.
@@ -762,22 +804,22 @@ cd "${SRC_DIR}"
 # and this directory may itself be located inside the user's cmpunlocker Git
 # repository. GNU patch applies the diff paths relative to this source tree.
 apply_patch() {
-    local patch_file="$1"
+    local patch_file="$1" dir="${2:-.}"
     local patch_name
     patch_name="$(basename "${patch_file}")"
 
     info "Checking ${patch_name}..."
 
     # Fresh application.
-    if patch --dry-run -p1 < "${patch_file}" >/dev/null 2>&1; then
+    if patch --dry-run -d "${dir}" -p1 < "${patch_file}" >/dev/null 2>&1; then
         info "Applying ${patch_name}"
-        patch -p1 < "${patch_file}"
+        patch -d "${dir}" -p1 < "${patch_file}"
         info "${patch_name}: applied successfully"
         return 0
     fi
 
     # Already applied.
-    if patch --dry-run -R -p1 < "${patch_file}" >/dev/null 2>&1; then
+    if patch --dry-run -R -d "${dir}" -p1 < "${patch_file}" >/dev/null 2>&1; then
         info "${patch_name}: already applied, keeping existing changes"
         return 0
     fi
@@ -803,17 +845,27 @@ if [[ "${DRY_RUN}" -eq 1 ]]; then
     if [[ "${USE_PROFILING}" -eq 1 ]]; then
         dry_patches+=("${PATCH_PROFILING}")
     fi
+    dry_apply() {
+        patch --dry-run -d "$1" -p1 < "$2" >/dev/null 2>&1 \
+            || die "$(basename "$2"): does not apply to this source tree."
+        info "$(basename "$2"): applies cleanly"
+        patch -d "$1" -p1 --silent < "$2"
+    }
+    for patch_name in "${DKMS_PATCHES[@]}"; do
+        dry_apply kernel-open "${DKMS_SOURCE}/patches/${patch_name}"
+    done
     for patch_file in "${dry_patches[@]}"; do
-        patch --dry-run -p1 < "${patch_file}" >/dev/null 2>&1 \
-            || die "$(basename "${patch_file}"): does not apply to this source tree."
-        info "$(basename "${patch_file}"): applies cleanly"
-        patch -p1 --silent < "${patch_file}"
+        dry_apply . "${patch_file}"
     done
 
     info "All patches apply cleanly."
     info "Dry run complete: nothing was built or installed."
     exit 0
 fi
+
+for patch_name in "${DKMS_PATCHES[@]}"; do
+    apply_patch "${DKMS_SOURCE}/patches/${patch_name}" kernel-open
+done
 
 apply_patch "${PATCH_COMPUTE}"
 
@@ -967,6 +1019,9 @@ mkdir -p "${MANIFEST_DIR}"
     printf 'installed_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'pcie_mode\t%s\n' "$( [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]] && echo diagnostic || echo normal )"
     printf 'profiling\t%s\n' "$( [[ "${USE_PROFILING}" -eq 1 ]] && echo enabled || echo disabled )"
+    for patch_name in "${DKMS_PATCHES[@]}"; do
+        printf 'patch\t%s\t%s\n' "${patch_name}" "$(sha256sum "${DKMS_SOURCE}/patches/${patch_name}" | awk '{print $1}')"
+    done
     printf 'patch\t%s\t%s\n' "$(basename "${PATCH_COMPUTE}")" "$(sha256sum "${PATCH_COMPUTE}" | awk '{print $1}')"
     if [[ "${USE_PCIE_DIAGNOSTIC}" -eq 1 ]]; then
         printf 'patch\t%s\t%s\n' "$(basename "${PATCH_PCIE_DIAG}")" "$(sha256sum "${PATCH_PCIE_DIAG}" | awk '{print $1}')"

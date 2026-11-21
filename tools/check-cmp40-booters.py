@@ -14,6 +14,7 @@ import zlib
 
 ARCHIVES = {
     "610.57.04": "619d7b5ce1f79c3211afdbf87d02b2174d268b10d005c5b8f994be22299be681",
+    "615.71.09": "caf48cda7d5fe7374d1d24ca4a90efb4dc783eefabfad5fa4b64fdc24213b62a",
     "615.78.08": "eac0ecd52facab28ad2963cf7e03ae8d2289d596ad590c703b5f72d65899e2bf",
     "620.70.06": "bc9fa156dcdc5e0ed19c3c9ea70cfe2b8c9a0fdc415426af1ba5c3a1f9a7238d",
 }
@@ -98,13 +99,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--legacy-source", type=Path, required=True)
     parser.add_argument("--native-source", type=Path, required=True)
-    parser.add_argument("--native-version", choices=["615.78.08", "620.70.06"], default="615.78.08")
+    parser.add_argument("--native-version", choices=["615.71.09", "615.78.08", "620.70.06"], default="615.78.08")
     parser.add_argument("--tree", type=Path, help="Patched native-version source tree to verify")
     parser.add_argument("--generate-header", type=Path, help="Write the generated header here")
     args = parser.parse_args()
     legacy = read_archive(args.legacy_source, "610.57.04")
     native = read_archive(args.native_source, args.native_version)
-    for version, entries, code_size in [("610.57.04", legacy, 0x8400), (args.native_version, native, 0x8600)]:
+    # 615.71.09 still ships the 610.57.04 Booter; 615.78.08 introduced the larger one.
+    native_code_size = 0x8400 if args.native_version == "615.71.09" else 0x8600
+    for version, entries, code_size in [("610.57.04", legacy, 0x8400), (args.native_version, native, native_code_size)]:
         for variant in ["DBG", "PROD"]:
             header = struct.unpack("<9I", entries["HEADER_" + variant][1])
             assert header == (0, 0x100, code_size + 0x100, 0x6200, 1, 0x100, code_size, 0x100, 0)
