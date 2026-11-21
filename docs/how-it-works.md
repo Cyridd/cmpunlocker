@@ -92,7 +92,7 @@ LnkCtl2: Target Link Speed: 5GT/s
 
 This is a genuine PCIe Gen2 x16 link, not just a spoofed capability value.
 
-The normal sequence is verified on the maintainer's AMD root port. On Intel
+The normal sequence is verified on the tested AMD root port. On Intel
 Alder Lake, a manual Link Disable experiment can train the physical link to
 Gen2 x16 but can also leave `nvidia-smi` unable to access the GPU; that
 platform-specific experiment is intentionally excluded from the kernel patch.

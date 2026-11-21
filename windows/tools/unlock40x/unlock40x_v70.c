@@ -2965,7 +2965,7 @@ u40x_dmem_write(UINT32 dst, const UINT32 *src, UINT32 sizeBytes)
         mmio_write32(SEC2_DMEMD0, src[i]);
 }
 
-#define SEC2_RESET_PLM_REG      0x008403C4UL  /* SEC2 RESET_PRIV_LEVEL_MASK (cyridd/cmpunlocker CMP40_SEC2_RESET_PLM) */
+#define SEC2_RESET_PLM_REG      0x008403C4UL  /* SEC2 RESET_PRIV_LEVEL_MASK (CMP40HX CPU-RM EFI CMP40_SEC2_RESET_PLM) */
 
 /* =====================================================================
  * v58（参考 cmpunlocker 0001 patch 后重写装载器入口）：
@@ -3018,7 +3018,7 @@ booter_load_tu102_direct(UINT64 wprMetaPhys, UINT64 ucodePhys)
           mmio_read32(REG_PFB_MMU_WPR2_HI), mmio_read32(REG_PFB_MMU_WPR2_LO));
     Print(L"tu102 v62: read SEC2_RESET_PLM(0x8403C4)...\n");
     data = mmio_read32(SEC2_RESET_PLM_REG);
-    Print(L"tu102 v62:   reset_plm=0x%08x (cyridd/cmpunlocker expected 0xff)\n", data);
+    Print(L"tu102 v62:   reset_plm=0x%08x (CMP40HX CPU-RM EFI expected 0xff)\n", data);
 
     for (attempt = 0; attempt < 2; attempt++) {
         BOOLEAN bReset = (attempt == 1);
@@ -8791,7 +8791,7 @@ efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     }
     u40x_handoff_snapshot(L"NATIVE_EXIT");
     if (handoffFlr) goto done; /* one shared cleanup, including early exits */
-    /* v89: SEC2 Sanitize（cyridd/cmpunlocker kgspCmp40SanitizeSec2AfterExploit 简版——
+    /* v89: SEC2 Sanitize（CMP40HX CPU-RM EFI kgspCmp40SanitizeSec2AfterExploit 简版——
      * 解锁后 SEC2 回冷态：engine reset + MB 清——验证黑屏=非冷态，sanitize 解） */
     Print(L"[40HX v89] SEC2 sanitize (engine reset + MB clear)...\n");
     {

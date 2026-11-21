@@ -1,6 +1,6 @@
 # CMP40HX PCIe Gen2 with proprietary Linux CPU-RM
 
-On 2026-11-01 I tested a pre-driver Gen2 setup followed by the unmodified
+On 2026-11-01, a pre-driver Gen2 setup was tested with the unmodified
 proprietary NVIDIA 615.78.08 driver with GSP disabled. Preparing and training
 the link before NVIDIA worked, but native initialization changed the GPU-side
 policy and returned the link to Gen1. A normal post-driver retrain alone failed.
@@ -18,7 +18,7 @@ and the post-driver helper alone exposed and trained Gen2 x16.
 open-driver patch sets. The hardware measurements elsewhere in this report
 used the previous implementation.
 
-**Verified:** I tested 0.17.0 on hardware and confirmed successful operation.
+**Verified:** 0.17.0 was tested on hardware; successful operation is confirmed.
 
 The policy follows the current
 [CMP50HX source](https://github.com/xrip/cmp50hx-unlock/tree/b630a493b7877fbd4472113dcb960a93749c0a78)
@@ -59,7 +59,7 @@ A retained Gen2 capability no longer skips policy restoration. Actual speed
 is checked separately. Retraining uses only the upstream port's RL bit;
 CCC, ASPM, HASD/HAWD, CFG bit 22 and the other unmasked fields are preserved.
 The update does not write `0x88610`, XP3G VAL3/OVR3, PL bits 16/20, or the
-endpoint's RL bit. My repeated `0x88610` tests on CMP40HX, including `0x1001`,
+endpoint's RL bit. Repeated `0x88610` tests on CMP40HX, including `0x1001`,
 produced no Gen2 improvement. This register is a Gen3 control.
 
 The open adapter calls the engine after the successful stock-Booter guard,
@@ -259,7 +259,7 @@ actual transfers for acceptance, without modifying Linux's PCI cache.
 
 ## Cold control with runtime-only Gen2
 
-I repeated the test after a full cold power-off with `gen2=off` during compute
+The test was repeated after a full cold power-off with `gen2=off` during compute
 unlock. Both the post-unlock and post-NVIDIA PCI snapshots still reported
 `CAP2=00000002`, Gen1 x16, GPU TLS=1. Before the runtime helper, the GPU-side
 state was:
@@ -441,7 +441,7 @@ The runtime-only success on MSI B550 does not establish that pre-driver Gen2
 policy is unnecessary on every platform. The `--gen2 prepare` and
 `--gen2 retrain` modes are retained for that comparison.
 
-[Discussion #10](https://github.com/Cyridd/cmpunlocker/discussions/10) reports
+[Discussion #10](https://github.com/REPOSITORY_OWNER/cmpunlocker/discussions/10) reports
 ASUS `1043:8804`, VBIOS `90.06.67.00.06`, CachyOS `7.2.7-1-cachyos` and NVIDIA
 open modules 610.57.04. The endpoint already advertises Gen2 with TLS=2,
 CFG/PL rate fields=2 and `DIS_G2=0`, yet ordinary retraining and a repeated
@@ -476,14 +476,14 @@ in the open driver. The CPU-RM runtime helper requires GSP OFF.
 
 ## VFIO passthrough: host retrain in issue #20
 
-[Issue #20](https://github.com/Cyridd/cmpunlocker/issues/20#issuecomment-6497769200)
+[Issue #20](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/20#issuecomment-6497769200)
 uses full VFIO passthrough on Proxmox 9.2, kernel `7.0.14-24-pve`, QEMU
 `11.0.3-4` and q35/OVMF. The guest runs patched open NVIDIA 610.57.04 with
 GSP ON. Its ASUS CMP40HX (`1043:8804`, VBIOS `90.06.67.00.04`) is directly
 behind a physical AMD `1022:14db` root port. This differs from the proprietary
 CPU-RM tests above and the GRID/vGPU host in [issue #8](GRID_CPU_RM_REPORT.md).
 
-The [host experiment result](https://github.com/Cyridd/cmpunlocker/issues/20#issuecomment-6569682975)
+The [host experiment result](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/20#issuecomment-6569682975)
 records a masked Gen2 target write and an ordinary Retrain Link request on
 the physical root port, with the VM running and its GPU declared idle. The
 test left endpoint LnkCtl2 and GPU MMIO untouched. The bounded poll did not

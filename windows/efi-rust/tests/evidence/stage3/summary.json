@@ -1,0 +1,74 @@
+{
+  "date": "2026-11-17",
+  "baseline_commit": "0a82aa4",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "gcc": "gcc (GCC) 16.2.1 20260810",
+  "clang": "clang version 23.1.5",
+  "core_tests": 20,
+  "comparisons": {
+    "firmware_operations": 147,
+    "reserved_allocations": 896,
+    "ptimer_seeds": 180
+  },
+  "checks": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo test --locked --offline -p cmp40-efi-core",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings",
+      "exit_code": 0
+    },
+    {
+      "command": "CC=clang cargo test --locked --offline -p cmp40-efi-core --test preparation --test transaction",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-unknown-uefi",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture -- -D warnings",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 tests/qemu_smoke.py",
+      "exit_code": 0
+    }
+  ],
+  "source_sha256": {
+    "windows/efi-rust/core/Cargo.toml": "68874dd70584880fc72ac17112d4d19b392dfccfe980df69b1ef2c1627bee72b",
+    "windows/efi-rust/core/src/allocation.rs": "9b3b903efb1557112ab9fba910b0c47e628cb1b696ef1ab0b6c167cac5a1acff",
+    "windows/efi-rust/core/src/image_path.rs": "c7d05588389cee5d5b624860caf0f0c5d6b8af149110d651735b76e90d6481dc",
+    "windows/efi-rust/core/src/lib.rs": "c91fa0db3fa810d8c6f90270e3ac66d3a1b050b8ed1f42610ce984f3ee4f0c6c",
+    "windows/efi-rust/core/src/metadata.rs": "f1caf2844497f41a3d5c1146750695cf778f4a753e809701e15c47b54d437d54",
+    "windows/efi-rust/core/src/options.rs": "9d665361367f4c48957fe963b4589b35ff3a644932189bcd52d320772c76e764",
+    "windows/efi-rust/core/src/radix.rs": "bf65c97c4434156467ddcac5f79033ecd06935d48688ff6a2492ba220c5dcb52",
+    "windows/efi-rust/core/src/state.rs": "4f2e994b8a9ed2230a4fca9ff445aa5a66e8d619951988dcb08b1a44e9bb7b0f",
+    "windows/efi-rust/core/src/timer.rs": "5f11ea7451cb00331763a62833a3b0381fa093c074525da7ddd4e387d8a3af7d",
+    "windows/efi-rust/core/src/transaction.rs": "773e03bbdb5d59eb981e77f9509e9b74a1df0358ee8eb498f3dc9119290ad7dc",
+    "windows/efi-rust/core/tests/c_execution_reference.py": "8cc6a284c8486b3e2bdd37965a00ce98206657dc2e6848769841483b342e0396",
+    "windows/efi-rust/core/tests/c_parity.rs": "caa988b090cf9f314b007384035a0602fbee244a6136f8a120b617a67784bb45",
+    "windows/efi-rust/core/tests/c_preparation_reference.py": "6c715c2680a9ce4be491fb414e20c063174266725bd45d97ac7e4b215efb5369",
+    "windows/efi-rust/core/tests/c_reference.py": "144745df88fcb6afb7b32d7ac079c9b6a2fd29e2df6d19b649219c6494680d72",
+    "windows/efi-rust/core/tests/contracts.rs": "cec06952e3a1702adf278c616d09d92f34f380ab8ad0e36b130ab4a4e8661cab",
+    "windows/efi-rust/core/tests/image_path.rs": "a7110d8b4cf3c8ed9a97f37081ba939c0e104903947862e61fcbadaae057fd04",
+    "windows/efi-rust/core/tests/preparation.rs": "830cccdfb44860f7ef768df40f22ff58d03bb270b0efb796ab1098c6d2ad93a8",
+    "windows/efi-rust/core/tests/support/mod.rs": "c99d4b37617db0debd814f09ea7479b2f1e48fd04e0c3bf0928d2787dabd76e0",
+    "windows/efi-rust/core/tests/transaction.rs": "97dc8567bc1d345d7132d9bfb6fe1ebd67f3dec8a21112fb065da9da45e36fc9",
+    "windows/tools/unlock40x/unlock40x_v70.c": "1eb03fdcd73784527f4c368ecdec4f55d62ca989ea1f33b8e9c9c1e036222231"
+  },
+  "readonly_efi_sha256": "fe955e8b1e25eeaa89e1b645e4ba326b2455221906d6b5c197ce62f8b6cafe2d"
+}

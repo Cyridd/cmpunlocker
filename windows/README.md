@@ -16,8 +16,8 @@ applied again after a full GPU reset or power cycle.
 | --- | --- |
 | Compute | `SS0=0x88888888`, `SS1=0x00000008`; Tensor Core FP16 from about 1.1 to about 72 TFLOPS (clpeak WMMA) and INT8 `dp4a` from about 1 to about 34 TOPS on the reference card; see [`docs/results.md`](../docs/results.md) |
 | PCIe | Gen2 x16 when the platform accepts the retrain |
-| ReBAR | BAR1 enlarged from 64 MiB to 8 GiB; confirmed by me in GPU-Z and `40HXCheck.exe` with the ESP-policy build |
-| NVIDIA driver | GSP OFF / CPU-RM: ZERO/FULL initialization and FULL unlock tested by me |
+| ReBAR | BAR1 enlarged from 64 MiB to 8 GiB; confirmed on hardware in GPU-Z and `40HXCheck.exe` with the ESP-policy build |
+| NVIDIA driver | GSP OFF / CPU-RM: ZERO/FULL initialization and FULL unlock tested on hardware |
 
 PCIe Gen3 and RT-core unlocks are research topics and are not advertised as
 working features. This tree targets CMP 40HX only.
@@ -69,8 +69,8 @@ assembles a package into `release-fork/` from the following inputs:
 - `tools/inst40hx/embed/40HXUNLK.EFI` - the UEFI unlock application.
 - [`release-files/`](release-files/) - documents and helpers that ship alongside
   the binaries: `make_usb_efi.bat` (FAT32 recovery USB),
-  `EFI应急修复指南.md` (recovery guide), `README.md` (release readme),
-  `AI辅助安装提示词.txt`. No benchmark is bundled; for an independent compute
+  `EFI应急修复指南.md` (recovery guide), `README.md` (release readme).
+  No benchmark is bundled; for an independent compute
   check use a third-party tool such as
   [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) or
   [OpenCL-Benchmark](https://github.com/ProjectPhysX/OpenCL-Benchmark).
@@ -197,7 +197,7 @@ preselects missing or outdated components. A complete installation selects
 **Disable GSP (recommended)**, installs the EFI entry, deploys the Gen2 helper, registers the login
 task, and disables Windows Fast Startup and PCIe ASPM.
 
-I tested installation and reproduced an upgrade by setting
+Installation tests reproduced an upgrade by setting
 `EnableGpuFirmware=1` first: **Disable GSP** changed it to `0`, and the Gen2
 login task left it at `0`.
 
@@ -418,6 +418,13 @@ the archive checksum. Review the draft's description and assets, then select
 source files above; it is not derived automatically from the tag.
 
 ## EFI Build
+
+The independent [Rust EFI port](efi-rust/README.md) provides CPU-RM preparation
+and firmware operations tested against C, plus a read-only EFI carrier tested
+in QEMU and on the tested CMP40HX/Windows system. Its separate FULL/ZERO images
+now have [physical acceptance](efi-rust/tests/evidence/stage3e/README.md), including
+FULL compute unlock after handoff. The instructions below produce the shipped
+C application; installer replacement and experimental Rust ReBAR remain pending.
 
 `tools/unlock40x/build_v70.sh` requires gcc, binutils, gnu-efi headers and
 libraries, and the `.bin` blobs in the same directory. Intermediate `.o`/`.so`

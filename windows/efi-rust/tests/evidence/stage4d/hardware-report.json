@@ -1,0 +1,85 @@
+{
+  "variant": "carrier-r1",
+  "code_checkpoint": "fe02bf7",
+  "control": "Full",
+  "hardware_acceptance": "accepted_full_parent_linux_on_tested_configuration",
+  "log": "RF000007.LOG",
+  "log_bytes": 576811,
+  "log_sha256": "09b4d2a0a8c4caea8fc366d923aab59c8f5575b9e635223487cb3856ed5247a7",
+  "confirmed_return_to_limine": true,
+  "confirmed_linux_boot": true,
+  "confirmed_nvidia_works": true,
+  "confirmed_compute_unlock_in_linux": true,
+  "linux_driver": {
+    "version": "620.70.06",
+    "kind": "proprietary",
+    "gsp": "OFF",
+    "independent_unlockers_present": false,
+    "source": "reported_observation"
+  },
+  "kernel_version": null,
+  "numeric_benchmark_provided": false,
+  "new_executable_checksum_provided": false,
+  "latest_cold_power_events_not_separately_reconfirmed": true,
+  "handoff_parent": true,
+  "handoff_source": null,
+  "metadata_bytes": 256,
+  "metadata_sha256": "d1c71283a83bda85b8895c5a6d4d5ef7b4d4f64be1fa3f624ca987b8e14010b5",
+  "metadata_matches_accepted_windows_full": true,
+  "asset_manifest_matches_accepted_windows_full": true,
+  "fwsec_halt_wait_us": 99000,
+  "trace_records": 20499,
+  "trace_dropped": 0,
+  "omitted_data_ports": 14943,
+  "total_recorded_stall_us": 5357100,
+  "native_ready": true,
+  "native": {
+    "00409664": "88888888",
+    "0040966c": "00000008",
+    "001fa824": "1ffffe00",
+    "001fa828": "00000000",
+    "00409650": "ffffff8f",
+    "00840040": "00000000",
+    "00840100": "00000010",
+    "00110100": "00000010",
+    "00840094": "deadb00d"
+  },
+  "trace_comparison": {
+    "baseline": "../stage4c/RF000004.LOG",
+    "changes": [
+      {
+        "record_index": 6,
+        "before": {
+          "kind": "W",
+          "offset": "00009410",
+          "value": "18e3f439",
+          "count": 1
+        },
+        "after": {
+          "kind": "W",
+          "offset": "00009410",
+          "value": "18e3f703",
+          "count": 1
+        }
+      },
+      {
+        "record_index": 7,
+        "before": {
+          "kind": "W",
+          "offset": "00009400",
+          "value": "de17bc00",
+          "count": 1
+        },
+        "after": {
+          "kind": "W",
+          "offset": "00009400",
+          "value": "42b96c00",
+          "count": 1
+        }
+      }
+    ],
+    "all_other_retained_records_identical": true,
+    "firmware_data_ports_compared": false
+  },
+  "scope": "same tested board/system; proprietary driver 620.70.06 with GSP OFF; FULL parent return and Linux compute"
+}

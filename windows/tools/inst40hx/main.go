@@ -719,7 +719,7 @@ func install() {
 			fmt.Println(tr("Cancelled — keeping the existing installation unchanged.", "Отменено — существующая установка оставлена без изменений.", "已取消 — 保持现有安装不变。"))
 			return
 		}
-		fmt.Println(tr("    User confirmed; continuing with the overwrite install.", "    Пользователь подтвердил; продолжаем установку с перезаписью.", "    用户确认, 继续覆盖安装。"))
+		fmt.Println(tr("    Confirmed; continuing with the overwrite install.", "    Подтверждено; продолжаем установку с перезаписью.", "    已确认, 继续覆盖安装。"))
 	}
 
 	// 1. GPU 检测

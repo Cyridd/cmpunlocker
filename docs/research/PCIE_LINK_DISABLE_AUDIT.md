@@ -13,7 +13,7 @@ it is not a safe operation after NVIDIA RM/GSP has initialized the GPU.
 
 ## Observed results
 
-### CMP 40HX on my system (Ryzen 5 5600G + MSI MPG B550 Gaming Plus)
+### CMP 40HX on the tested system (Ryzen 5 5600G + MSI MPG B550 Gaming Plus)
 
 The compute and GSP PCIe policy parts completed successfully. The integrated
 Link Disable variant then left the card with POST-like maximum fan speed and

@@ -4,8 +4,8 @@ The former items 1 and 2 are completed for the tested CMP40HX CPU-RM paths:
 
 | Completed direction | Result |
 | --- | --- |
-| 1. Proprietary Linux driver | Pre-driver compute unlock with GSP OFF; native 610.43.03 and 615.78.08 initialization and CUDA workloads pass. [Guide](linux/cpu-rm/README.md). Resolves the proprietary-driver feature requested in [issue #8](https://github.com/Cyridd/cmpunlocker/issues/8). |
-| 2. Windows without GSP | ZERO/FULL 960 KiB EFI initialization and FULL unlock tested by me. Installer installation and GSP-OFF upgrade also pass; Gen2 leaves GSP OFF. [Report](docs/research/CPU_RM_SMALL_WPR.md). |
+| 1. Proprietary Linux driver | Pre-driver compute unlock with GSP OFF; native 610.43.03 and 615.78.08 initialization and CUDA workloads pass. [Guide](linux/cpu-rm/README.md). Resolves the proprietary-driver feature requested in [issue #8](https://github.com/REPOSITORY_OWNER/cmpunlocker/issues/8). |
+| 2. Windows without GSP | ZERO/FULL 960 KiB EFI initialization and FULL unlock tested on hardware. Installer installation and GSP-OFF upgrade also pass; Gen2 leaves GSP OFF. [Report](docs/research/CPU_RM_SMALL_WPR.md). |
 
 GRID/vGPU was part of the original Linux request but has not been independently
 validated. [A community report on GRID 19.6 / 580.178.05](docs/research/GRID_CPU_RM_REPORT.md)

@@ -1,0 +1,116 @@
+{
+  "code_checkpoint": "e1422c1",
+  "variant": "memory-r1",
+  "accepted_configuration": "tested CMP40HX TU106 10de:1f0b / 8 GiB; FULL Windows preload handoff",
+  "confirmed_both_modes_work": true,
+  "confirmed_cold_boot_both_modes": true,
+  "confirmed_full_compute_unlock_after_handoff": true,
+  "user_reconfirmed_efi_hashes": false,
+  "numeric_benchmark_record_provided": false,
+  "full": {
+    "log": "RF000002.LOG",
+    "log_bytes": 576800,
+    "log_sha256": "90a037be9dfd0a01fc12208874ff021a80e857e28b97348e00ed77b3019252ce",
+    "metadata_bytes": 256,
+    "metadata_sha256": "d1c71283a83bda85b8895c5a6d4d5ef7b4d4f64be1fa3f624ca987b8e14010b5",
+    "metadata_matches_c_gcc": true,
+    "metadata_matches_c_clang": true,
+    "metadata_diff_from_baseline_only_radix_pointer": true,
+    "asset_manifest_matches_baseline": true,
+    "dma_addresses": {
+      "payload": "0000000110000000",
+      "booter": "0000000111010000",
+      "boot": "000000011201f000",
+      "radix": "0000000113025000",
+      "meta": "0000000115c30000"
+    },
+    "fwsec_dma_address": "0000000116c31000",
+    "trace_records": 20499,
+    "trace_dropped": 0,
+    "omitted_data_ports": 14943,
+    "fwsec_halt_wait_us": 99000,
+    "total_stall_us": 5357100,
+    "parent_return": false,
+    "native": {
+      "00409664": "88888888",
+      "0040966c": "00000008",
+      "001fa824": "1ffffe00",
+      "001fa828": "00000000",
+      "00409650": "ffffff8f",
+      "00840040": "00000000",
+      "00840100": "00000010",
+      "00110100": "00000010",
+      "00840094": "deadb00d"
+    },
+    "native_ready": true
+  },
+  "zero": {
+    "confirmed_success_without_errors": true,
+    "confirmed_cold_boot": true,
+    "log": null,
+    "raw_log_not_copied_from_esp": true,
+    "native_state_independently_checked": false
+  },
+  "retained_full_trace_comparison": {
+    "baseline": "../stage3e/RF000001.LOG",
+    "equal_except_listed_changes": true,
+    "changes": [
+      {
+        "record_index": 6,
+        "operation": "W",
+        "before_offset": "00009410",
+        "after_offset": "00009410",
+        "before_value": "18e3fba1",
+        "after_value": "18e3fedf",
+        "count": 1,
+        "reason": "PTIMER seed"
+      },
+      {
+        "record_index": 7,
+        "operation": "W",
+        "before_offset": "00009400",
+        "after_offset": "00009400",
+        "before_value": "1be6b400",
+        "after_value": "9dab4a00",
+        "count": 1,
+        "reason": "PTIMER seed"
+      },
+      {
+        "record_index": 20,
+        "operation": "A",
+        "before_offset": "00000001",
+        "after_offset": "00000001",
+        "before_value": "1982c000",
+        "after_value": "16c31000",
+        "count": 1,
+        "reason": "deferred FWSEC DMA address"
+      },
+      {
+        "record_index": 20455,
+        "operation": "W",
+        "before_offset": "00840040",
+        "after_offset": "00840040",
+        "before_value": "1882b000",
+        "after_value": "15c30000",
+        "count": 1,
+        "reason": "Booter metadata mailbox address"
+      },
+      {
+        "record_index": 20459,
+        "operation": "R",
+        "before_offset": "00840040",
+        "after_offset": "00840040",
+        "before_value": "1882b000",
+        "after_value": "15c30000",
+        "count": 1,
+        "reason": "Booter metadata mailbox address"
+      }
+    ],
+    "firmware_data_ports_compared": false
+  },
+  "saved_reserved_system_ram_bytes": 29339648,
+  "frozen_packages": "target/baseline-memory-e1422c1",
+  "physical_parent_return_validated": false,
+  "other_boards_or_suspend_resume_validated": false,
+  "next_step": "carrier parity: raw BlockIo/FAT loading, policy support and physical parent/Linux handoff; Go distribution integration follows"
+}

@@ -1,0 +1,23 @@
+Passed locally:
+
+Physical metadata comparison using core/tests/c_reference.py metadata
+  All 256 bytes match C for radix=115c20000 signature=110000000 boot=11201f000
+cargo fmt --all -- --check
+cargo test --locked --offline -p cmp40-efi-core
+  27 tests passed
+CC=clang cargo test --locked --offline -p cmp40-efi-core --test transaction
+  10 tests passed
+python3 tests/test_assets.py
+  2 tests passed
+cargo clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
+cargo clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters -- -D warnings
+cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
+python3 tests/qemu_smoke.py --cpu-rm --adapters
+  12 scenarios passed; run-mvo88u7v
+  Existing logging/parked-failure/LOGCHECK persistence checks pass
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnullvm
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-msvc
+python3 tests/package_cpu_rm.py --output-dir target/diagnostic-r2
+  Archive image/guide SHA256SUMS verified
+git diff --check

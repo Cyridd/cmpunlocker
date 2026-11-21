@@ -39,6 +39,8 @@ local outputs and are not committed.
 | `windows/README.md` | Windows user guide: prerequisites, installation, verification, recovery |
 | `windows/FORK_CHANGES.md` | Fork-specific changes, the boot-manager handoff, and research boundaries |
 | `windows/tools/unlock40x/` | UEFI unlock application source, firmware blobs, and `build_v70.sh` |
+| `windows/efi-rust/` | Rust port: read-only EFI carrier, CPU-RM execution/preparation core, C comparisons and QEMU boot tests; EFI unlock integration pending |
+| `docs/research/RUST_EFI_PORT.md` | Rust port baseline, completed stage and remaining validation |
 | `windows/tools/inst40hx/` | Installer GUI/CLI (`40HXInstaller.exe`) and its embedded EFI/drivers |
 | `windows/tools/check40x/` | Status and diagnostic utility (`40HXCheck.exe`) |
 | `windows/tools/uninstall40x/` | Component-level uninstaller (`40HXUninstaller.exe`) |

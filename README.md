@@ -28,8 +28,8 @@ reapplied after a full GPU reset or power cycle.
 **GSP OFF is now supported.** Proprietary Linux 615.78.08 at a verified 150 W
 reached FP16 WMMA `1.0440 → 66.1629 TFLOPS` and INT8 WMMA
 `2.0724 → 131.0379 TOPS`; a numerical WMMA check matched 163,840 outputs
-with zero error. I confirmed successful Windows ZERO/FULL initialization,
-FULL unlock, and the installer's GSP-OFF upgrade. See
+with zero error. Successful Windows ZERO/FULL initialization, FULL unlock,
+and the installer's GSP-OFF upgrade are confirmed. See
 [CPU-RM results](docs/research/CPU_RM_SMALL_WPR.md).
 The screenshots below describe the earlier Windows GSP-ON setup.
 
@@ -88,7 +88,9 @@ other metrics and Nsight Compute still need validation. See
 
 ### Windows
 
-Download the Windows ZIP from the [Releases page](https://github.com/Cyridd/cmpunlocker/releases), verify its checksum against the attached `SHA256SUMS.txt`, and extract the entire archive. Then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
+Download the Windows ZIP from the [Releases page](https://github.com/REPOSITORY_OWNER/cmpunlocker/releases), verify its checksum against the attached `SHA256SUMS.txt`, and extract the entire archive. Then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
+
+`REPOSITORY_OWNER` in hosting links is a placeholder for the repository account.
 
 ## Compatibility at a glance
 
