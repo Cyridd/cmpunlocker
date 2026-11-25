@@ -31,6 +31,8 @@ unsafe Rust. It provides:
   header/table CRC checks and checked partition bounds.
 - The C EFI's 8 GiB BAR1/BAR3 relocation, upstream-bridge window changes,
   memory-map and bridge conflict checks, sizing/readback and rollback.
+- An optional Gen2 experiment with masked policy preparation, live capability
+  checks, GPU-only leaf-bus validation and one immediate-port retrain.
 
 ## Experimental FULL/ZERO images
 
@@ -151,6 +153,114 @@ ACPI descriptors and policy bytes. QEMU exercises actual policy-file loading,
 literal opt-in, opt-out and unrelated-volume refusal without a GPU. ReBAR
 checkpoints and a separate buffered trace are appended to `RF*.LOG`/`RZ*.LOG`;
 a hard stall can leave only the pre-ReBAR checkpoint.
+
+## Experimental pre-driver Gen2
+
+The `gen2-experiment` feature adds three separate FULL images. They run after
+native compute completion and before optional ReBAR: `cmp40-gen2-prepare`
+applies the masked GPU policy, `cmp40-gen2-targets` also seeds both TLS fields
+with 2, and `cmp40-gen2-retrain` additionally requests one upstream retrain.
+Normal FULL/ZERO entries keep Gen2 off. `--no-gen2` disables the experiment
+in all three new entries.
+
+The policy uses the register masks documented in the
+[Linux CPU-RM Gen2 research](../../docs/research/CPU_RM_PCIE_GEN2.md), with
+XP3G extensions excluded for this first EFI test. PCIe v2 fields are accessed
+only after the live version becomes 2. Policy is applied even if Gen2
+capability was retained, while OVR=6 is written last only when adoption is
+needed. GPU and immediate upstream port targets use true 16-bit stores,
+preserving adjacent W1C status. The path preserves unrelated policy/control
+bits and requires both ends to retain their original width.
+
+There are no resets, Link Disable, FLR, PnP operations, Windows helper drivers
+or retrain retries. A healthy two-second Gen1 timeout keeps TLS=2 for OS
+initialization and reports `Gen1Timeout`. Failures after mutation park through
+the existing terminal path; saved TLS fields are restored only while they
+remain owned by the experiment. This does not roll back partial MMIO policy.
+
+Build the r2 diagnostic separately from the accepted ReBAR-r1 and Gen2-r1 binaries:
+
+```bash
+cargo build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/gen2-r2 -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters
+python3 tests/qemu_smoke.py --image-dir target/gen2-r2/x86_64-unknown-uefi/release --cpu-rm --adapters --raw --rebar --gen2
+python3 tests/package_cpu_rm.py --gen2 --gen2-revision r2 --image-dir target/gen2-r2/x86_64-unknown-uefi/release --baseline-full target/baseline-rebar-r1/cmp40-cpu-rm-full.efi --output-dir target/gen2-r2
+```
+
+The package includes the three experimental images, the frozen accepted FULL
+control, a disabled ReBAR policy, checksums and the standalone
+[hardware procedure](tests/GEN2_HARDWARE.md). Its fallback image is Prepare.
+Disable both Windows Gen2 tasks and the `40HXGen2` Run entry before each cold
+trial. The installer writes the Run entry under HKCU; check HKLM and custom
+startup sources too. Existing installer behavior is unchanged.
+
+`core/tests/gen2.rs` checks policy writes against actual C functions extracted
+from `linux/cpu-rm/kernel/gen2_core.h` on 128 synthetic inputs, and models
+capability adoption, topology changes, target restoration and failed links.
+The extracted GPL C runs only in the host reference harness and is not linked
+into EFI. QEMU checks all three real image entries and `--no-gen2` without a
+GPU. These checks do not establish physical link training or Windows retention.
+Earlier Linux tests observed NVIDIA initialization restoring Gen1 after a
+successful pre-driver Gen2 retrain. The Windows r1 Retrain log also reached
+Gen2 x16 on both ends within 10 ms, before ReBAR. With NVIDIA 621.14, I
+observed Gen1 under games and GPU-Z Render Test in all three Gen2 modes,
+despite GPU-Z advertising PCIe 2.0 support. I confirmed compute unlock in
+Base and all three modes with Gen2 helpers and ASPM disabled. All four r1 logs
+show active ReBAR; the subsequent r2 controls isolate its effect.
+
+The [OnlyEFI fork's post-bind helper](https://github.com/BardKing-CN/CMP40HX-Unlock-OnlyEFI/blob/f12f8bb92abb0f0a36da08bd1c9a8bcd858687c7/CMP40HX-Unlock-OnlyEFI-v0.1.1-GitHub-Repo/source/windows/CMP40HXGen2_prod.c)
+restores CFG bits 18:19 and MISC bit 13 after NVIDIA initialization, then
+requests upstream retraining using WinRing0/ThrottleStop. Source inspection
+on 2026-11-25 found that its pre-driver policy and TLS do not remove this
+post-driver step. These bits are already set by the Rust EFI policy; moving
+the helper's writes into EFI would repeat that early preparation.
+
+The r2 images retain the same Gen2 writes and add a read-only observation
+after ReBAR, before `HANDOFF_READY`. `GEN2_FINAL_LINK` and `GEN2_FINAL_POLICY`
+show whether the link or policy changed during later EFI work. The observer
+has no write or delay interface, performs no repair/retrain, and rechecks
+native compute state. A healthy Gen1 observation remains diagnostic; an
+unreadable device, invalid topology, width loss or broken native state parks.
+This sample precedes log sealing and OS entry; it cannot observe NVIDIA
+initialization. Both r2 Retrain controls, with `norebar` and with
+`--experimental-rebar`, reached Gen2 x16 in 10 ms and retained it on both ends
+at the final observation. The final policy matched in both logs, every trace
+reported `dropped=0`, and both reached `HANDOFF_READY Full`. I confirmed
+compute in both Windows runs, 8 GiB BAR1 only with ReBAR enabled, and Gen1 x16
+under load in both. GPU-Z still advertised a PCIe 2.0 x16 maximum.
+
+The loss therefore occurs after the final EFI sample and also occurs without
+ReBAR. Its exact cause during handoff or OS initialization remains unresolved.
+The [hardware guide](tests/GEN2_HARDWARE.md) records these completed controls;
+the r2 package has no demonstrated fix for Windows Gen2 retention.
+
+The optional [stock-driver registry trial](tests/GEN2_HARDWARE.md#optional-stock-driver-registry-trial)
+uses the same frozen r2 images with an explicit RM policy, then separately
+tests `RmForceEnableGen2`. It requires NVIDIA 621.14 and an administrator
+PowerShell terminal, with an exclusive backup and restoration of the changed
+DWORDs. Its script uses built-in Windows APIs and adds no project dependency.
+With NVIDIA 621.14, I observed no Gen2 under load in `Policy`,
+`PolicyPlatform`, or a manual `RMPcieLinkSpeed=0x1` variant with the other
+`PolicyPlatform` values, using both ReBAR command-line controls. I reported
+equivalent EFI logs without errors; the additional logs were not supplied
+for independent inspection. These tested settings do not provide Windows
+Gen2 retention. The next diagnostic needs policy observations after driver
+initialization; the current EFI observer cannot collect them.
+
+For reproduction, package it from the frozen inputs without rebuilding EFI:
+
+```bash
+python3 tests/package_cpu_rm.py --gen2 --gen2-revision r2 --gen2-registry --image-dir target/gen2-r2/x86_64-unknown-uefi/release --baseline-full target/baseline-rebar-r1/cmp40-cpu-rm-full.efi --output-dir target/gen2-registry-r1/usb
+```
+
+The packager checks the frozen image hashes, includes `WINDOWS/gen2_registry.ps1`
+and selects Retrain as the USB fallback. It creates a separate
+`cmp40-rust-gen2-registry-r1-usb.zip`; existing r1/r2 archives remain intact.
+The host model check is
+`pwsh -NoProfile -File tests/gen2_registry_model.ps1 -ScratchDirectory <scratch-directory>`.
+It verifies value restoration, failed-apply rollback and device-selection
+refusals without accessing a real registry or GPU. The negative hardware
+results do not verify the model's failure/rollback paths on Windows. The guide
+also covers restoration after the manually tested value 1.
 
 ## Local checks
 

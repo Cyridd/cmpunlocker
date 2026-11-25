@@ -8,6 +8,46 @@ import zipfile
 from qemu_smoke import check_efi
 
 WORKSPACE = Path(__file__).resolve().parents[1]
+GEN2_R2_HASHES = {
+    "prepare": "98f8bc17bf1c2a1af1a3eb71b046923bc09016c0bb3c83124e041cceeb3e7b0b",
+    "targets": "c4d8b2141bc57321d968593685b7be8a878e50faf8b93ac18fa1b8bc12929660",
+    "retrain": "1c31f8dda02409f5374f328476999a7caddc583d0216121834b560cc15625263",
+}
+
+
+def package_gen2(args, guide):
+    images = [("G2PREP", "prepare"), ("G2TLS", "targets"), ("G2TRAIN", "retrain")]
+    inputs = []
+    for name, mode in images:
+        path = args.image_dir / f"cmp40-gen2-{mode}.efi"
+        check_efi(path)
+        data = path.read_bytes()
+        if args.gen2_registry and hashlib.sha256(data).hexdigest() != GEN2_R2_HASHES[mode]:
+            raise ValueError("registry trials must reuse the frozen Gen2-r2 images")
+        suffix = "2" if args.gen2_revision == "r2" else ""
+        inputs.append((f"EFI/CMP40/{name}{suffix}.EFI", data))
+    check_efi(args.baseline_full)
+    baseline = args.baseline_full.read_bytes()
+    if hashlib.sha256(baseline).hexdigest() != "50b8974e4af13630e98b91c1008fa8e3b8dfe2a548a5edb83f06d0ad549f6473":
+        raise ValueError("baseline FULL must match the accepted ReBAR-r1 image")
+    fallback = inputs[2][1] if args.gen2_registry else inputs[0][1]
+    inputs += [("EFI/BOOT/BOOTX64.EFI", fallback),
+               ("EFI/CMP40/BASEFULL.EFI", baseline),
+               ("EFI/40HX/REBAR.CFG", b"CMP40HX_REBAR_V1=0\n"),
+               ("TEST_GUIDE.md", guide)]
+    if args.gen2_registry:
+        inputs.append(("WINDOWS/gen2_registry.ps1", (WORKSPACE / "tests/gen2_registry.ps1").read_bytes()))
+    sums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in inputs).encode()
+    inputs.append(("SHA256SUMS.txt", sums))
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    archive_name = "cmp40-rust-gen2-registry-r1-usb.zip" if args.gen2_registry else f"cmp40-rust-gen2-{args.gen2_revision}-usb.zip"
+    archive = args.output_dir / archive_name
+    with zipfile.ZipFile(archive, "x", compression=zipfile.ZIP_DEFLATED) as output:
+        for name, data in inputs:
+            info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            output.writestr(info, data)
+    print(f"GEN2: {archive}\nArchive SHA-256: {hashlib.sha256(archive.read_bytes()).hexdigest()}")
 
 
 def package_rebar(args, guide):
@@ -40,11 +80,27 @@ def main():
     parser.add_argument("--guide", type=Path)
     parser.add_argument("--control", choices=("logcheck", "zero", "full"), action="append")
     parser.add_argument("--rebar", action="store_true", help="package FULL/ZERO together with explicit ReBAR USB policy")
+    parser.add_argument("--gen2", action="store_true", help="package separate FULL Gen2 experiments with ReBAR disabled")
+    parser.add_argument("--gen2-revision", choices=("r1", "r2"), help="Gen2 archive revision; default r1")
+    parser.add_argument("--gen2-registry", action="store_true", help="reuse frozen Gen2-r2 images with the stock-driver registry trial")
+    parser.add_argument("--baseline-full", type=Path, help="accepted ReBAR-r1 FULL image, required by --gen2")
     args = parser.parse_args()
+    if args.gen2_registry and (not args.gen2 or args.gen2_revision != "r2"):
+        parser.error("--gen2-registry requires --gen2 --gen2-revision r2")
+    if args.gen2_revision and not args.gen2:
+        parser.error("--gen2-revision is only valid with --gen2")
+    args.gen2_revision = args.gen2_revision or "r1"
+    if args.gen2 and (args.rebar or args.control or not args.baseline_full):
+        parser.error("--gen2 needs --baseline-full and cannot be combined with --rebar/--control")
+    if args.baseline_full and not args.gen2:
+        parser.error("--baseline-full is only valid with --gen2")
     if args.rebar and args.control:
         parser.error("--rebar packages both FULL and ZERO; do not combine it with --control")
-    guide_path = args.guide or WORKSPACE / ("tests/REBAR_HARDWARE.md" if args.rebar else "tests/CPU_RM_HARDWARE.md")
+    guide_path = args.guide or WORKSPACE / ("tests/GEN2_HARDWARE.md" if args.gen2 else "tests/REBAR_HARDWARE.md" if args.rebar else "tests/CPU_RM_HARDWARE.md")
     guide = guide_path.read_bytes()
+    if args.gen2:
+        package_gen2(args, guide)
+        return
     if args.rebar:
         package_rebar(args, guide)
         return

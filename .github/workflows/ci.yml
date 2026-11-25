@@ -66,6 +66,7 @@ jobs:
           cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture -- -D warnings
           cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi --features cpu-rm -- -D warnings
           cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi-boot-fixture --features adapters -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters -- -D warnings
       - name: Compare Rust boot data and firmware operations with the actual C EFI functions
         run: |
           set -euo pipefail
@@ -78,10 +79,11 @@ jobs:
           set -euo pipefail
           cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture
           cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
+          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters
       - name: Install QEMU and OVMF
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
       - name: Boot EFI and verify persisted logs and parked failure in QEMU
-        run: python3 tests/qemu_smoke.py --cpu-rm --adapters --raw --rebar
+        run: python3 tests/qemu_smoke.py --cpu-rm --adapters --raw --rebar --gen2
       - name: Check early logs and unstarted candidate images
         working-directory: windows/efi-rust
         run: python3 tests/qemu_smoke.py --case entrycheck --case entrycheck-invalid

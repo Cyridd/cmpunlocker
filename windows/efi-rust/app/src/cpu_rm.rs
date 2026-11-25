@@ -17,7 +17,15 @@ use cmp40_efi_core::{
     timer::{self, Rtc},
     transaction::{self, reg, Io, Transaction},
 };
+#[cfg(feature = "gen2-experiment")]
+use cmp40_efi_core::{gen2::Action, options::has_load_option};
 use uefi::{boot, Handle, Status};
+
+struct RunOptions {
+    boot: CpuRmOptions,
+    #[cfg(feature = "gen2-experiment")]
+    gen2: Action,
+}
 
 struct Backend {
     mmio: Mmio,
@@ -52,6 +60,19 @@ impl Io for Backend {
 }
 
 pub fn entry(control: Control) -> Status {
+    entry_variant(
+        control,
+        #[cfg(feature = "gen2-experiment")]
+        Action::Off,
+    )
+}
+
+#[cfg(feature = "gen2-experiment")]
+pub fn gen2_entry(action: Action) -> Status {
+    entry_variant(Control::Full, action)
+}
+
+fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: Action) -> Status {
     if let Err(error) = uefi::helpers::init() {
         return error.status();
     }
@@ -76,6 +97,22 @@ pub fn entry(control: Control) -> Status {
     };
     // Cache the policy on this image's volume before any GPU mutation.
     let rebar_requested = policy::rebar_requested();
+    #[cfg(feature = "gen2-experiment")]
+    let action = {
+        let disabled =
+            crate::image::protocol::<uefi::proto::loaded_image::LoadedImage>(boot::image_handle())
+                .is_ok_and(|image| {
+                    has_load_option(image.load_options_as_bytes().unwrap_or(&[]), "--no-gen2")
+                });
+        let action = if disabled { Action::Off } else { action };
+        uefi::println!("CMP40-GEN2: MODE {:?} GPU_WRITES=0", action);
+        action
+    };
+    let options = RunOptions {
+        boot: options,
+        #[cfg(feature = "gen2-experiment")]
+        gen2: action,
+    };
     // Resolve the target without any writes. No-device QEMU exits here.
     let mut pci = match Pci::discover() {
         Ok(pci) => pci,
@@ -143,7 +180,7 @@ fn run(
     output: &mut Output,
     windows: &mut Option<Handle>,
     gpu_attempted: &mut bool,
-    options: CpuRmOptions,
+    options: RunOptions,
     control: Control,
     rebar_requested: bool,
 ) -> Result<(), Status> {
@@ -162,7 +199,7 @@ fn run(
     }
     // Allocate trace RAM and prepare the OS before PCI/MMIO mutation.
     let trace = Trace::new()?;
-    let source = if !options.return_to_bootloader {
+    let source = if !options.boot.return_to_bootloader {
         let prepared = handoff::windows_prepared()?;
         *windows = Some(prepared.image);
         Some(prepared.source)
@@ -171,7 +208,7 @@ fn run(
     };
     output.checkpoint(format_args!(
         "CMP40-CPU-RM: HANDOFF_PREPARED parent={} source={:?}\n",
-        options.return_to_bootloader, source
+        options.boot.return_to_bootloader, source
     ))?;
     // Conservatively own the failure tail before a config operation that may
     // modify the GPU even if its command readback later fails.
@@ -219,12 +256,18 @@ fn run(
         io.trace.last_read(reg::SEC2 + reg::MBOX0), io.trace.last_read(reg::GSP + reg::CPU),
     ))?;
     output.checkpoint(format_args!("CMP40-CPU-RM: NATIVE_READY {:?}\n", control))?;
+    #[cfg(feature = "gen2-experiment")]
+    let gen2_watch = crate::gen2::execute(pci, &mut io.mmio, output, options.gen2)?;
     if rebar_requested {
         rebar::execute(pci, &mut io.mmio, output)?;
     } else {
         output.checkpoint(format_args!(
             "CMP40-REBAR: SKIPPED no effective opt-in; stock BARs retained\n"
         ))?;
+    }
+    #[cfg(feature = "gen2-experiment")]
+    if let Some(watch) = gen2_watch {
+        crate::gen2::final_check(pci, &mut io.mmio, output, watch)?;
     }
     output.checkpoint(format_args!("CMP40-CPU-RM: HANDOFF_READY {:?}\n", control))
 }

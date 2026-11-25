@@ -9,6 +9,7 @@ publish = false
 
 [features]
 cpu-rm = ["dep:uefi-raw"]
+gen2-experiment = ["cpu-rm"]
 
 [dependencies]
 cmp40-efi-core = { path = "../core" }
@@ -46,6 +47,27 @@ bench = false
 name = "cmp40-entrycheck"
 path = "src/entrycheck.rs"
 required-features = ["cpu-rm"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-gen2-prepare"
+path = "src/gen2_prepare.rs"
+required-features = ["gen2-experiment"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-gen2-targets"
+path = "src/gen2_targets.rs"
+required-features = ["gen2-experiment"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-gen2-retrain"
+path = "src/gen2_retrain.rs"
+required-features = ["gen2-experiment"]
 test = false
 bench = false
 

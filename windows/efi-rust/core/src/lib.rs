@@ -6,6 +6,7 @@
 
 pub mod allocation;
 pub mod fat;
+pub mod gen2;
 pub mod image_path;
 pub mod metadata;
 pub mod options;

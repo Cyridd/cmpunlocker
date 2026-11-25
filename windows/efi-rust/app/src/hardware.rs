@@ -103,6 +103,31 @@ impl Pci {
         }
         pci::enable_bar(self, bdf).map_err(|_| Status::DEVICE_ERROR)
     }
+
+    #[cfg(feature = "gen2-experiment")]
+    pub fn write_control16(&mut self, bdf: Bdf, offset: u8, value: u16) -> bool {
+        if offset & 1 != 0 || offset > 0xfe {
+            return false;
+        }
+        let address = self.encoding.address(bdf, offset);
+        if let Some(root) = self.root.as_ref() {
+            // SAFETY: Live asserted x64 RootBridgeIo layout, UINT16 width=1,
+            // aligned valid WORD buffer. Core restricts these writes to Link
+            // Control/Control2; adjacent W1C status is never included.
+            let status =
+                unsafe { (root.write)(&**root, 1, address, 1, core::ptr::from_ref(&value).cast()) };
+            !status.is_error()
+        } else {
+            let port = 0xcfcu16 + u16::from(offset & 2);
+            // SAFETY: Firmware-privileged segment-zero CF8 access. Select the
+            // aligned DWORD address, then store only the requested WORD.
+            unsafe {
+                asm!("out dx, eax", in("dx")0xcf8u16, in("eax")address as u32, options(nostack,preserves_flags));
+                asm!("out dx, ax", in("dx")port, in("ax")value, options(nostack,preserves_flags));
+            }
+            true
+        }
+    }
 }
 
 impl Config for Pci {
@@ -216,6 +241,12 @@ impl RebarRoots {
         if let Some(pci) = self.roots.get_mut(bridge.root) {
             pci.write32(bridge.bdf, offset, value);
         }
+    }
+    #[cfg(feature = "gen2-experiment")]
+    pub fn write_control16(&mut self, bridge: Bridge, offset: u8, value: u16) -> bool {
+        self.roots
+            .get_mut(bridge.root)
+            .is_some_and(|pci| pci.write_control16(bridge.bdf, offset, value))
     }
     pub fn aperture(&self, index: usize) -> Option<Range> {
         let root = self.roots.get(index)?.root.as_ref()?;

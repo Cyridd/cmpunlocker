@@ -10,6 +10,8 @@ pub mod assets;
 pub mod cpu_rm;
 #[cfg(feature = "cpu-rm")]
 pub mod dma;
+#[cfg(feature = "gen2-experiment")]
+pub mod gen2;
 pub mod handoff;
 pub mod hardware;
 pub mod image;
