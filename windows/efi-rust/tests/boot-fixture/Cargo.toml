@@ -16,6 +16,13 @@ uefi.workspace = true
 adapters = ["cmp40-efi/cpu-rm"]
 
 [[bin]]
+name = "cmp40-fixture-rebar-policy"
+path = "src/rebar_policy.rs"
+required-features = ["adapters"]
+test = false
+bench = false
+
+[[bin]]
 name = "cmp40-fixture-log"
 path = "src/log.rs"
 required-features = ["adapters"]

@@ -12,6 +12,7 @@ pub mod options;
 pub mod partition;
 pub mod pci;
 pub mod radix;
+pub mod rebar;
 pub mod sha256;
 pub mod state;
 pub mod timer;

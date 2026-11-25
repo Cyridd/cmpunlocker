@@ -6,7 +6,7 @@ use crate::{
     handoff,
     hardware::{Mmio, Pci},
     output::{Output, Trace},
-    policy, terminal,
+    policy, rebar, terminal,
 };
 use cmp40_efi_core::{
     allocation::HighSlots,
@@ -74,6 +74,8 @@ pub fn entry(control: Control) -> Status {
             return status;
         }
     };
+    // Cache the policy on this image's volume before any GPU mutation.
+    let rebar_requested = policy::rebar_requested();
     // Resolve the target without any writes. No-device QEMU exits here.
     let mut pci = match Pci::discover() {
         Ok(pci) => pci,
@@ -106,6 +108,7 @@ pub fn entry(control: Control) -> Status {
         &mut gpu_attempted,
         options,
         control,
+        rebar_requested,
     );
     let mut status = result.err().unwrap_or(Status::SUCCESS);
     if status.is_error() {
@@ -142,8 +145,13 @@ fn run(
     gpu_attempted: &mut bool,
     options: CpuRmOptions,
     control: Control,
+    rebar_requested: bool,
 ) -> Result<(), Status> {
     output.checkpoint(format_args!("CMP40-CPU-RM: BEGIN {:?}; FLR=off\n", control))?;
+    output.write(format_args!(
+        "CMP40-REBAR: POLICY requested={}\n",
+        rebar_requested
+    ))?;
     output.write(format_args!(
         "TARGET {:04x}:{:02x}:{:02x}.{} route={:?}\n",
         pci.segment, pci.bdf.bus, pci.bdf.device, pci.bdf.function, pci.encoding
@@ -193,7 +201,7 @@ fn run(
             failure.check, failure.register, failure.observed, failure.expected
         ))?;
     }
-    // No GPU read/write/reset is introduced in either success or error tail.
+    // Preserve the native trace before the separate, opt-in ReBAR tail.
     let trace_result = io.trace.dump(output);
     output.checkpoint(format_args!(
         "CMP40-CPU-RM: TRANSACTION {:?} failed_at={:?} result={:?}\n",
@@ -210,10 +218,15 @@ fn run(
         io.trace.last_read(reg::FEAT_PLM), io.trace.last_read(reg::SEC2 + reg::CPU),
         io.trace.last_read(reg::SEC2 + reg::MBOX0), io.trace.last_read(reg::GSP + reg::CPU),
     ))?;
-    output.checkpoint(format_args!(
-        "CMP40-CPU-RM: NATIVE_READY {:?}; terminal handoff\n",
-        control
-    ))
+    output.checkpoint(format_args!("CMP40-CPU-RM: NATIVE_READY {:?}\n", control))?;
+    if rebar_requested {
+        rebar::execute(pci, &mut io.mmio, output)?;
+    } else {
+        output.checkpoint(format_args!(
+            "CMP40-REBAR: SKIPPED no effective opt-in; stock BARs retained\n"
+        ))?;
+    }
+    output.checkpoint(format_args!("CMP40-CPU-RM: HANDOFF_READY {:?}\n", control))
 }
 
 fn prepare_and_execute(

@@ -21,6 +21,7 @@ from fat32_fixture import Fat32
 WORKSPACE = Path(__file__).resolve().parents[1]
 
 
+
 def firmware(explicit, filename):
     if explicit:
         path = Path(explicit)
@@ -68,13 +69,40 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
     esp.mkdir()
     app, windows, parent = binaries[:3]
     volumes = [esp]
-    cpu_rm = case in ("cpu-full-no-gpu", "cpu-zero-no-gpu")
+    rebar_case = case.startswith("rebar-")
+    cpu_rm = case in ("cpu-full-no-gpu", "cpu-zero-no-gpu") or rebar_case
     adapter_case = case in ("logging", "failed-parent", "logcheck")
     raw_case = case.startswith("raw-")
     entry_case = case.startswith("entrycheck")
     disk_image = None
     extra_disks = []
-    if entry_case:
+    if rebar_case:
+        fixture = next(path for path in binaries if path.name == "cmp40-fixture-rebar-policy.efi")
+        copy(fixture, esp, "EFI/BOOT/BOOTX64.EFI")
+        copy(binaries[3], esp, "EFI/CMP40/FULL.EFI")
+        (esp / "MODE.TXT").write_bytes(b"optout" if case == "rebar-optout" else b"literal" if case == "rebar-literal" else b"")
+        policies = {"rebar-enabled": b"CMP40HX_REBAR_V1=1\n",
+                    "rebar-disabled": b"CMP40HX_REBAR_V1=0\n",
+                    "rebar-invalid": b"CMP40HX_REBAR_V1=1\nextra",
+                    "rebar-optout": b"CMP40HX_REBAR_V1=1\n"}
+        if case in policies:
+            policy = esp / "EFI/40HX/REBAR.CFG"
+            policy.parent.mkdir(parents=True)
+            policy.write_bytes(policies[case])
+        if case == "rebar-other-volume":
+            other = root / "other-esp"
+            other.mkdir()
+            policy = other / "EFI/40HX/REBAR.CFG"
+            policy.parent.mkdir(parents=True)
+            policy.write_bytes(b"CMP40HX_REBAR_V1=1\n")
+            volumes.append(other)
+        expected = "true" if case in ("rebar-enabled", "rebar-literal") else "false"
+        required = ["CMP40-FIXTURE: REBAR_MEMORY_MAP_OK GPU_WRITES=0",
+                    "START_REBAR_POLICY_CHILD", "CMP40-CPU-RM: BEGIN",
+                    f"requested={expected}", "GPU_NOT_FOUND NOT_FOUND GPU_WRITES=0",
+                    "REBAR_POLICY_CHILD_RETURNED NOT_FOUND GPU_WRITES=0"]
+        forbidden = ["REBAR_POLICY_FAILED", "CMP40-REBAR: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY", "WINDOWS_PREPARED"]
+    elif entry_case:
         checker = next(path for path in binaries if path.name == "cmp40-entrycheck.efi")
         copy(checker, esp, "EFI/BOOT/BOOTX64.EFI")
         copy(binaries[3], esp, "EFI/CMP40/FULLCHK.EFI")
@@ -323,10 +351,12 @@ def main():
     parser.add_argument("--case", action="append", choices=["windows", "unique-windows", "parent",
                         "no-windows", "invalid-windows", "ambiguous-windows", "self-windows",
                         "cpu-full-no-gpu", "cpu-zero-no-gpu", "logging", "failed-parent", "logcheck", "entrycheck", "entrycheck-invalid",
-                        "raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc"])
+                        "raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc",
+                        "rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume"])
     parser.add_argument("--cpu-rm", action="store_true", help="also boot FULL/ZERO no-GPU paths")
     parser.add_argument("--adapters", action="store_true", help="test persistent logs and parked failure")
     parser.add_argument("--raw", action="store_true", help="test BlockIo loading with failing SFS")
+    parser.add_argument("--rebar", action="store_true", help="test real ReBAR policy reads and fallible memory-map access without a GPU")
     args = parser.parse_args()
     if not args.qemu:
         parser.error("qemu-system-x86_64 not found")
@@ -334,7 +364,7 @@ def main():
     variables = firmware(args.ovmf_vars, "OVMF_VARS.4m.fd")
     binaries = [args.image_dir / name for name in ("cmp40-readonly.efi", "cmp40-fixture-windows.efi",
                                                   "cmp40-fixture-parent.efi")]
-    if args.cpu_rm or args.adapters or args.raw or any(case.startswith(("cpu-", "entrycheck")) or case in ("logging", "failed-parent", "logcheck") for case in (args.case or [])):
+    if args.cpu_rm or args.adapters or args.raw or args.rebar or any(case.startswith(("cpu-", "entrycheck", "rebar-")) or case in ("logging", "failed-parent", "logcheck") for case in (args.case or [])):
         binaries += [args.image_dir / name for name in ("cmp40-cpu-rm-full.efi", "cmp40-cpu-rm-zero.efi")]
     if args.adapters or any(case in ("logging", "failed-parent", "logcheck") for case in (args.case or [])):
         binaries += [args.image_dir / name for name in ("cmp40-fixture-log.efi", "cmp40-fixture-failed-parent.efi")]
@@ -343,6 +373,8 @@ def main():
         binaries += [args.image_dir / "cmp40-fixture-raw.efi"]
     if any(case.startswith("entrycheck") for case in (args.case or [])):
         binaries += [args.image_dir / "cmp40-entrycheck.efi"]
+    if args.rebar or any(case.startswith("rebar-") for case in (args.case or [])):
+        binaries += [args.image_dir / "cmp40-fixture-rebar-policy.efi"]
     hashes = {str(path): check_efi(path) for path in binaries}
     output = WORKSPACE / "target/qemu-smoke"
     output.mkdir(parents=True, exist_ok=True)
@@ -356,6 +388,8 @@ def main():
         cases += ["logging", "failed-parent", "logcheck"]
     if args.raw and not args.case:
         cases += ["raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc"]
+    if args.rebar and not args.case:
+        cases += ["rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume"]
     try:
         for case in cases:
             result = run_case(case, artifacts, binaries, args.qemu, code, variables, args.timeout)

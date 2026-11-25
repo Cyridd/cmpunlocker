@@ -1,12 +1,15 @@
 # CMP40HX Rust EFI port
 
 The port builds a read-only EFI carrier, separate experimental FULL/ZERO CPU-RM
-EFI images, and an independent library for the existing Windows CPU-RM contract.
+EFI images with opt-in ReBAR relocation, and an independent library for the
+existing Windows CPU-RM contract.
 The library compares its results with functions compiled from this repository's
 C EFI source. The frozen carrier-r1 FULL/ZERO pair has
 [Windows acceptance](tests/evidence/stage4c/README.md), and FULL has
 [Limine/Linux acceptance](tests/evidence/stage4d/README.md) with proprietary
 NVIDIA 620.70.06, GSP OFF. The shipped installer still uses the C EFI.
+ReBAR-r1 now has [FULL/ZERO hardware acceptance](tests/evidence/stage5/README.md),
+including `norebar` precedence, OS-visible 8 GiB BAR1 and retained FULL compute.
 
 `core/` is `no_std`, uses no allocator or third-party dependencies, and forbids
 unsafe Rust. It provides:
@@ -26,6 +29,8 @@ unsafe Rust. It provides:
   sequence validation, bounded regions and cyclic-directory refusal.
 - Primary MBR FAT partition and GPT ESP parsing, native 512/4096-byte blocks,
   header/table CRC checks and checked partition bounds.
+- The C EFI's 8 GiB BAR1/BAR3 relocation, upstream-bridge window changes,
+  memory-map and bridge conflict checks, sizing/readback and rollback.
 
 ## Experimental FULL/ZERO images
 
@@ -55,7 +60,8 @@ loading. No generated firmware or EFI binary is added to source control.
 The experimental adapter preserves RootBridgeIo standard/compact addressing
 and segment-zero CF8 fallback, assigned BAR0 below 4 GiB, high reserved slots
 with the existing low fallback, identity DMA and WBINVD. It does not disconnect
-GOP, establish IOMMU mappings or relocate PCI resources. Reserved pages are
+GOP or establish IOMMU mappings. PCI resources stay assigned unless ReBAR is
+explicitly enabled after native completion. Reserved pages are
 retained on success and failure; allocation and copying follow the accepted
 memory-r1 sequence, constructing the zero image directly in radix leaves.
 Page padding is initialized before Rust slices are made.
@@ -99,6 +105,52 @@ before GPU mutation. Failures perform no GPU cleanup or retry. Booter failures
 print `BOOTER_FAILURE` with the exact gate/register/observed/expected value,
 using existing reads. Incompatible handoff options are refused. Use the
 [physical test guide](tests/CPU_RM_HARDWARE.md) for changed GPU variants.
+
+## Experimental ReBAR
+
+FULL and ZERO cache `EFI/40HX/REBAR.CFG` from their own image volume before GPU
+mutation, using the same exact LF-terminated policy as the C EFI. A missing or
+invalid file supplies no opt-in. `--experimental-rebar` also enables the path;
+`norebar` overrides both sources. ReBAR starts only after native CPU-RM
+completion and does not change the firmware transaction or BAR0.
+
+The allocator preserves the C sizing, 12-candidate placement and rollback
+sequence. It searches above the EFI memory-map top and excludes mapped ranges
+and other bridges' live prefetchable windows. RootBridge `Configuration()`
+apertures are diagnostic. Bridge discovery uses the GPU's encoding and PCI
+segment; CF8 remains segment zero. Malformed memory-map arithmetic refuses
+placement. These checks do not establish an ACPI `_CRS` grant or root routing
+on every topology. A failed ReBAR check attempts the C rollback and continues
+handoff; a failed CPU-RM transaction never enters ReBAR.
+
+For a separate FULL/ZERO test USB, build and package an isolated variant:
+
+```bash
+cargo build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/rebar-r1 -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
+python3 tests/qemu_smoke.py --image-dir target/rebar-r1/x86_64-unknown-uefi/release --cpu-rm --adapters --raw --rebar
+python3 tests/package_cpu_rm.py --rebar --image-dir target/rebar-r1/x86_64-unknown-uefi/release --output-dir target/rebar-r1
+```
+
+The archive contains both images, FULL at the USB fallback path, an enabled
+policy, checksums and the [physical test guide](tests/REBAR_HARDWARE.md).
+It preserves existing archives and excludes QEMU fixtures and the installer.
+Cold-boot with `norebar` first, then compare ZERO and FULL with relocation
+enabled. The [ReBAR-r1 acceptance record](tests/evidence/stage5/README.md)
+covers all four controls on the tested configuration: the supplied logs verify
+native completion and relocation, and my OS tests confirmed 8192 MB BAR1
+with `nvidia-smi -q`/GPU-Z and compute unlock in both FULL runs. I observed
+about 10% higher game FPS than with stock 64 MB BAR1. Physical rollback and
+ReBAR parent/Linux handoff remain untested; the FPS observation is specific
+to these tests.
+
+`core/tests/c_rebar_reference.py` compiles actual C placement, sizing and
+rollback functions against synthetic hardware boundaries. The two VRAM loads
+become model reads; diagnostic Print arguments still execute. Tests compare
+every PCI/MMIO read and write, including rollback order, and separately compare
+ACPI descriptors and policy bytes. QEMU exercises actual policy-file loading,
+literal opt-in, opt-out and unrelated-volume refusal without a GPU. ReBAR
+checkpoints and a separate buffered trace are appended to `RF*.LOG`/`RZ*.LOG`;
+a hard stall can leave only the pre-ReBAR checkpoint.
 
 ## Local checks
 
@@ -237,4 +289,5 @@ under `target/baseline-carrier-gpu-fe02bf7/`. FULL parent/Linux compute handoff
 also has [acceptance](tests/evidence/stage4d/README.md) with proprietary driver
 620.70.06, GSP OFF and no independent Linux unlocker. Bounded production
 logging and Go checker/uninstaller support are still required before changing
-the shipped installer image.
+the shipped installer image. ReBAR-r1 FULL/ZERO with and without `norebar`
+is accepted on the tested configuration in [stage 5](tests/evidence/stage5/README.md).

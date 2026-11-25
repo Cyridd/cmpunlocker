@@ -81,7 +81,7 @@ jobs:
       - name: Install QEMU and OVMF
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
       - name: Boot EFI and verify persisted logs and parked failure in QEMU
-        run: python3 tests/qemu_smoke.py --cpu-rm --adapters --raw
+        run: python3 tests/qemu_smoke.py --cpu-rm --adapters --raw --rebar
       - name: Check early logs and unstarted candidate images
         working-directory: windows/efi-rust
         run: python3 tests/qemu_smoke.py --case entrycheck --case entrycheck-invalid

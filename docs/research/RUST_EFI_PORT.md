@@ -362,12 +362,40 @@ post-return menu/driver/compute behavior is a reported observation. This does
 not extend acceptance to GSP ON, other drivers/boards, repeated-boot statistics
 or suspend/resume. Original carrier-r1 GPU images remain frozen unchanged.
 
+## Stage 5: accepted ReBAR-r1 FULL/ZERO
+
+I tested both controls with the enabled policy file, first with `norebar`
+and then with an empty command line, and noticed no errors. Compute unlock
+survived OS handoff in both FULL runs. In both ReBAR-enabled controls,
+`nvidia-smi -q` and GPU-Z showed 8192 MB BAR1. I observed about 10% higher
+game FPS than with the stock 64 MB BAR1. These are reported observations;
+no game names, raw FPS samples, driver version or OS version were supplied.
+
+Verified: inspection of all four complete logs confirms native FULL/ZERO,
+`RawBuffer` Windows preload with `parent=false`, 99 ms of extra FWSEC waiting,
+and zero trace drops. All 256 metadata bytes per run match the actual C
+builder; input manifests match the pinned sources and derived runtime bytes.
+Same-control CPU-RM traces differ only at two PTIMER writes. The enabled
+ZERO/FULL ReBAR traces are identical across all 111 records: 8 GiB BAR1,
+32 MiB BAR3, placement at attempt 0, matching readback and two zero VRAM
+samples. Both `norebar` logs skip ReBAR despite the reported enabled file.
+
+The [stage-5 record](../../windows/efi-rust/tests/evidence/stage5/README.md)
+contains redacted checkpoint excerpts and a report separating inspected EFI
+results from my OS observations. This accepts ReBAR-r1 on the tested
+configuration. The delivered archive and pair were preserved locally with
+their original hashes, without rebuilding or changing runtime code. Physical
+rollback and ReBAR parent/Linux handoff are outside these four runs; the FPS
+observation does not establish a general performance gain.
+
 ## Remaining work and validation
 
-1. **Experimental ReBAR:** implement and validate a resource planner and EFI
-   backend with real routing, GCD reservation, decode-off extended configuration
-   and consistent firmware/OS resource descriptions. Retain explicit opt-in/`norebar`, verify rollback and OS/NVIDIA BAR size
-   on tested platforms. Preserve the accepted carrier-r1 and memory-r1 pairs.
+1. **Experimental ReBAR:** the [ReBAR-r1 C allocator port](../../windows/efi-rust/README.md#experimental-rebar)
+   has FULL/ZERO OS acceptance with explicit opt-in/`norebar`. Physical
+   rollback and parent/Linux handoff with ReBAR still need validation.
+   A resource planner and EFI backend with real routing, GCD reservation,
+   decode-off extended configuration and consistent firmware/OS resource
+   descriptions remain later work. Preserve the accepted carrier-r1 and memory-r1 pairs.
 2. **Production logging:** replace unbounded per-boot diagnostic files with
    compact success summaries, failure/opt-in traces and a bounded retention
    budget. The [proposal](../../windows/efi-rust/LOGGING_POLICY.md) targets 8 MiB

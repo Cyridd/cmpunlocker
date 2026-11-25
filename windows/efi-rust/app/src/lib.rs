@@ -18,4 +18,6 @@ pub mod output;
 pub mod policy;
 pub mod raw;
 #[cfg(feature = "cpu-rm")]
+pub mod rebar;
+#[cfg(feature = "cpu-rm")]
 pub mod terminal;

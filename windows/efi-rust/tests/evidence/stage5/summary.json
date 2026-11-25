@@ -1,0 +1,19 @@
+{
+  "variant": "rebar-r1",
+  "hardware_acceptance": "accepted_zero_full_rebar_and_norebar_on_tested_configuration",
+  "hardware_report": "hardware-report.json",
+  "hardware_report_sha256": "f51be0f675f751fd0f3166bdd415adfd01b97db36fd1ca2507a7afd6b472182c",
+  "run_count": 4,
+  "metadata_c_comparisons": 4,
+  "metadata_bytes_per_run": 256,
+  "rebar_trace_records_per_enabled_run": 111,
+  "rebar_zero_full_traces_identical": true,
+  "cpu_traces_same_control_differ_only_at_ptimer": true,
+  "local_candidate_archive_sha256": "613fd6c17dd5963f114566b48dac76656de6f7d606ee894509774f7bb2b3a46e",
+  "local_candidate_efi_sha256": {
+    "full": "50b8974e4af13630e98b91c1008fa8e3b8dfe2a548a5edb83f06d0ad549f6473",
+    "zero": "b5d0657194fc1f86f590d86a88f38c5bf8dce9e9f6bbc01bd96cea2217dddd1b"
+  },
+  "checkpoint_excerpts_are_not_full_traces": true,
+  "device_topology_omitted": true
+}
