@@ -17,6 +17,7 @@ import tempfile
 import time
 from fat16_fixture import Fat16, CLUSTER_BYTES
 from fat32_fixture import Fat32
+from trace_log import transform
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 GEN2_CASES = [f"gen2-{mode}-{control}" for mode in ("prepare", "targets", "retrain")
@@ -99,7 +100,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
         fixture = next(path for path in binaries if path.name == "cmp40-fixture-rebar-policy.efi")
         copy(fixture, esp, "EFI/BOOT/BOOTX64.EFI")
         copy(binaries[3], esp, "EFI/CMP40/FULL.EFI")
-        (esp / "MODE.TXT").write_bytes(b"optout" if case == "rebar-optout" else b"literal" if case == "rebar-literal" else b"")
+        (esp / "MODE.TXT").write_bytes(b"optout" if case == "rebar-optout" else b"literal" if case == "rebar-literal" else b"trace" if case == "rebar-trace" else b"")
         policies = {"rebar-enabled": b"CMP40HX_REBAR_V1=1\n",
                     "rebar-disabled": b"CMP40HX_REBAR_V1=0\n",
                     "rebar-invalid": b"CMP40HX_REBAR_V1=1\nextra",
@@ -120,6 +121,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                     "START_REBAR_POLICY_CHILD", "CMP40-CPU-RM: BEGIN",
                     f"requested={expected}", "GPU_NOT_FOUND NOT_FOUND GPU_WRITES=0",
                     "REBAR_POLICY_CHILD_RETURNED NOT_FOUND GPU_WRITES=0"]
+        required.insert(3, f"LOG_MODE trace={'true' if case == 'rebar-trace' else 'false'} GPU_WRITES=0")
         forbidden = ["REBAR_POLICY_FAILED", "CMP40-REBAR: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY", "WINDOWS_PREPARED"]
     elif entry_case:
         checker = next(path for path in binaries if path.name == "cmp40-entrycheck.efi")
@@ -359,6 +361,47 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             if actual != expected:
                 raise RuntimeError(f"{case}: persisted {name} differs from written content")
             (root / name).write_bytes(actual)
+        if case != "logcheck":
+            for index, (name, requested, failed, diagnostic) in enumerate([
+                    ("SUMMARY", False, False, False), ("EXPLICIT", True, False, False),
+                    ("LATE_FAILURE", False, True, False), ("ROLLBACK", False, False, True)], 3):
+                filename = f"RZ{index:06}.LOG"
+                actual = fat.read_root_file(filename).decode()
+                full = requested or failed or diagnostic
+                mode = "trace" if full else "summary"
+                flag = lambda value: str(value).lower()
+                expected = (f"LOG_FIXTURE_MODE {name}\nLOG_DETAIL mode={mode} "
+                            f"requested={flag(requested)} failed={flag(failed)} diagnostic={flag(diagnostic)}\n")
+                if full:
+                    expected += ("TRACE_BEGIN version=2 phase=CPU_RM records=20002 encoded_records=5 "
+                                 "operations=20003 omitted_data_ports=2 dropped=0\n"
+                                 "R 001100f4 00000000 count=1\nS 00000000 00000064 count=1\n"
+                                 "REPEAT_PAIR additional=9999\nR 001100f4 00000001 count=1\n"
+                                 "C 00000000 00000000 count=2\nTRACE_END\n"
+                                 "TRACE_BEGIN version=2 phase=REBAR records=1 encoded_records=1 "
+                                 "operations=1 omitted_data_ports=0 dropped=0\n"
+                                 "W 00088050 00000006 count=1\nTRACE_END\n")
+                    expanded, reports = transform(actual)
+                    if len(reports) != 2 or expanded.count("S 00000000 00000064 count=1\n") != 10000:
+                        raise RuntimeError(f"{case}: lossless expansion failed")
+                else:
+                    expected += ("TRACE_SUMMARY version=2 phase=CPU_RM records=20002 operations=20003 "
+                                 "omitted_data_ports=2 dropped=0\n"
+                                 "TRACE_SUMMARY version=2 phase=REBAR records=1 operations=1 "
+                                 "omitted_data_ports=0 dropped=0\n")
+                expected += "LOG_FIXTURE_MODE_DONE\n"
+                if actual != expected:
+                    raise RuntimeError(f"{case}: persisted {filename} has incorrect logging mode or bytes")
+                (root / filename).write_text(actual)
+            actual = fat.read_root_file("RZ000007.LOG").decode()
+            expected = ("LOG_DETAIL mode=trace requested=false failed=false diagnostic=true\n"
+                        "TRACE_BEGIN version=2 phase=CPU_RM records=131072 encoded_records=3 "
+                        "operations=131072 omitted_data_ports=0 dropped=1\n"
+                        "R 001100f4 00000000 count=1\nS 00000000 00000064 count=1\n"
+                        "REPEAT_PAIR additional=65535\nTRACE_END\n")
+            if actual != expected or transform(actual)[1][0]["records"] != 131072:
+                raise RuntimeError(f"{case}: trace overflow was not promoted or preserved")
+            (root / "RZ000007.LOG").write_text(actual)
     return {"case": case, "passed": passed, "seconds": round(time.monotonic() - started, 2),
             "serial_log": str(serial), "qemu_command": command}
 
@@ -374,7 +417,7 @@ def main():
                         "no-windows", "invalid-windows", "ambiguous-windows", "self-windows",
                         "cpu-full-no-gpu", "cpu-zero-no-gpu", "logging", "failed-parent", "logcheck", "entrycheck", "entrycheck-invalid",
                         "raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc",
-                        "rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume"] + GEN2_CASES)
+                        "rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume", "rebar-trace"] + GEN2_CASES)
     parser.add_argument("--cpu-rm", action="store_true", help="also boot FULL/ZERO no-GPU paths")
     parser.add_argument("--adapters", action="store_true", help="test persistent logs and parked failure")
     parser.add_argument("--raw", action="store_true", help="test BlockIo loading with failing SFS")
@@ -415,7 +458,7 @@ def main():
     if args.raw and not args.case:
         cases += ["raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc"]
     if args.rebar and not args.case:
-        cases += ["rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume"]
+        cases += ["rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume", "rebar-trace"]
     if args.gen2 and not args.case:
         cases += GEN2_CASES
     try:

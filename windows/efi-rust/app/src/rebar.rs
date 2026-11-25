@@ -201,10 +201,11 @@ pub fn execute(pci: &mut Pci, mmio: &mut Mmio, output: &mut Output) -> Result<()
     let (roots, trace) = match prepared {
         Ok(prepared) => prepared,
         Err(status) => {
+            output.diagnostic();
             return output.checkpoint(format_args!(
                 "CMP40-REBAR: SKIPPED preparation={:?} REBAR_WRITES=0\n",
                 status
-            ))
+            ));
         }
     };
     output.checkpoint(format_args!(
@@ -219,7 +220,10 @@ pub fn execute(pci: &mut Pci, mmio: &mut Mmio, output: &mut Output) -> Result<()
         trace,
     };
     let report = rebar::relocate(&mut backend, bus);
-    backend.trace.dump(output)?;
+    if report.outcome != rebar::Outcome::Active {
+        output.diagnostic();
+    }
+    output.retain_trace("REBAR", backend.trace)?;
     if let Some(saved) = report.saved {
         output.write(format_args!("REBAR_SAVED XVE={:08x?} CMD={:08x} BARS={:08x?} BRIDGE={:?} BR_CMD={:08x} WINDOW={:08x?}\n",
             saved.xve, saved.command, saved.bars, saved.bridge, saved.bridge_command, saved.window))?;

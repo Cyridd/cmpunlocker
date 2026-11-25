@@ -2,6 +2,7 @@
 //! Preopened log on the image volume; transaction tracing never calls firmware.
 use crate::image::protocol;
 use alloc::{format, vec::Vec};
+use cmp40_efi_core::trace::{self, Event, Record};
 use core::fmt::{self, Write};
 use uefi::boot;
 use uefi::proto::device_path::{DevicePath, DeviceSubType, DeviceType};
@@ -16,6 +17,9 @@ pub struct Output {
     name: CString16,
     length: u64,
     checksum: u64,
+    traces: [Option<(&'static str, Trace)>; 3],
+    trace_requested: bool,
+    diagnostic: bool,
 }
 impl Output {
     /// Preserve previous logs. A physical run requires a writable image volume.
@@ -74,6 +78,9 @@ impl Output {
                 name,
                 length: 0,
                 checksum: 0xcbf29ce484222325,
+                traces: [None, None, None],
+                trace_requested: false,
+                diagnostic: false,
             });
         }
         Err(Status::OUT_OF_RESOURCES)
@@ -114,6 +121,46 @@ impl Output {
     pub fn seal(mut self) -> Result<(), Status> {
         self.verify_and_reopen()
         // RegularFile closes on Drop, before StartImage or parent return.
+    }
+
+    pub fn request_trace(&mut self, requested: bool) {
+        self.trace_requested = requested;
+    }
+    pub fn diagnostic(&mut self) {
+        self.diagnostic = true;
+    }
+    /// Fixed slots retain every phase until the overall result is known.
+    pub fn retain_trace(&mut self, phase: &'static str, trace: Trace) -> Result<(), Status> {
+        self.diagnostic |= trace.dropped != 0;
+        let slot = self
+            .traces
+            .iter_mut()
+            .find(|slot| slot.is_none())
+            .ok_or(Status::OUT_OF_RESOURCES)?;
+        *slot = Some((phase, trace));
+        Ok(())
+    }
+    pub fn finish_traces(&mut self, failed: bool) -> Result<(), Status> {
+        let (requested, diagnostic) = (self.trace_requested, self.diagnostic);
+        let full = trace::full_log(requested, failed, diagnostic);
+        self.write(format_args!(
+            "LOG_DETAIL mode={} requested={} failed={} diagnostic={}\n",
+            if full { "trace" } else { "summary" },
+            requested,
+            failed,
+            diagnostic
+        ))?;
+        // Take one slot at a time: output IO cannot alias retained trace RAM.
+        for index in 0..self.traces.len() {
+            if let Some((phase, trace)) = self.traces[index].take() {
+                if full {
+                    trace.dump(self, phase)?;
+                } else {
+                    trace.summary(self, phase)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn verify_and_reopen(&mut self) -> Result<(), Status> {
@@ -177,13 +224,6 @@ impl Write for Line {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Event {
-    kind: u8,
-    offset: u32,
-    value: u32,
-    count: u32,
-}
 pub struct Trace {
     events: Vec<Event>,
     omitted_ports: u64,
@@ -231,18 +271,35 @@ impl Trace {
             count: 1,
         });
     }
-    pub fn dump(&self, output: &mut Output) -> Result<(), Status> {
+    fn operations(&self) -> u64 {
+        self.events.iter().map(|event| u64::from(event.count)).sum()
+    }
+    pub fn summary(&self, output: &mut Output, phase: &str) -> Result<(), Status> {
         output.write(format_args!(
-            "TRACE_BEGIN records={} omitted_data_ports={} dropped={}\n",
+            "TRACE_SUMMARY version=2 phase={} records={} operations={} omitted_data_ports={} dropped={}\n",
+            phase,
             self.events.len(),
+            self.operations(),
             self.omitted_ports,
             self.dropped
+        ))
+    }
+    pub fn dump(&self, output: &mut Output, phase: &str) -> Result<(), Status> {
+        output.write(format_args!(
+            "TRACE_BEGIN version=2 phase={} records={} encoded_records={} operations={} omitted_data_ports={} dropped={}\n",
+            phase, self.events.len(), trace::encode(&self.events).count(),
+            self.operations(), self.omitted_ports, self.dropped
         ))?;
-        for event in &self.events {
-            output.write(format_args!(
-                "{} {:08x} {:08x} count={}\n",
-                event.kind as char, event.offset, event.value, event.count
-            ))?;
+        for record in trace::encode(&self.events) {
+            match record {
+                Record::Event(event) => output.write(format_args!(
+                    "{} {:08x} {:08x} count={}\n",
+                    event.kind as char, event.offset, event.value, event.count
+                ))?,
+                Record::RepeatPair { additional } => {
+                    output.write(format_args!("REPEAT_PAIR additional={}\n", additional))?
+                }
+            }
         }
         output.write(format_args!("TRACE_END\n"))
     }

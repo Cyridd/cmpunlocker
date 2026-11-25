@@ -2,7 +2,11 @@
 //! Test-only logging and terminal refusal; never reads or writes a GPU.
 #![no_std]
 #![no_main]
-use cmp40_efi::{image::protocol, output::Output, terminal};
+use cmp40_efi::{
+    image::protocol,
+    output::{Output, Trace},
+    terminal,
+};
 use cmp40_efi_core::options::has_load_option;
 use uefi::{boot, prelude::*, proto::loaded_image::LoadedImage};
 
@@ -46,5 +50,49 @@ fn log_test() -> Result<(), Status> {
     first.seal()?;
     let mut second = Output::open("zero")?;
     second.checkpoint(format_args!("LOG_FIXTURE_SECOND\n"))?;
-    second.seal()
+    second.seal()?;
+    for (name, requested, failed, diagnostic) in [
+        ("SUMMARY", false, false, false),
+        ("EXPLICIT", true, false, false),
+        ("LATE_FAILURE", false, true, false),
+        ("ROLLBACK", false, false, true),
+    ] {
+        let mut output = Output::open("zero")?;
+        output.request_trace(requested);
+        output.checkpoint(format_args!("LOG_FIXTURE_MODE {}\n", name))?;
+        let mut native = Trace::new()?;
+        for _ in 0..10000 {
+            native.record(b'R', 0x1100f4, 0);
+            native.record(b'S', 0, 100);
+        }
+        native.record(b'R', 0x1100f4, 1);
+        native.record(b'C', 0, 0);
+        native.record(b'C', 0, 0);
+        native.record(b'R', 0x110184, 123);
+        native.record(b'W', 0x1101c4, 456);
+        if native.last_read(0x1100f4) != Some(1) {
+            return Err(Status::DEVICE_ERROR);
+        }
+        output.retain_trace("CPU_RM", native)?;
+        let mut tail = Trace::new()?;
+        tail.record(b'W', 0x88050, 6);
+        output.retain_trace("REBAR", tail)?;
+        // Simulate a later phase's handled failure or best-effort rollback.
+        if diagnostic {
+            output.diagnostic();
+        }
+        output.finish_traces(failed)?;
+        output.checkpoint(format_args!("LOG_FIXTURE_MODE_DONE\n"))?;
+        output.seal()?;
+    }
+    let mut output = Output::open("zero")?;
+    let mut trace = Trace::new()?;
+    for _ in 0..65536 {
+        trace.record(b'R', 0x1100f4, 0);
+        trace.record(b'S', 0, 100);
+    }
+    trace.record(b'W', 0x88050, 6);
+    output.retain_trace("CPU_RM", trace)?;
+    output.finish_traces(false)?;
+    output.seal()
 }

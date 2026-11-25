@@ -17,6 +17,7 @@ pub mod rebar;
 pub mod sha256;
 pub mod state;
 pub mod timer;
+pub mod trace;
 pub mod transaction;
 
 const DMA_LIMIT: u64 = 1 << 49;

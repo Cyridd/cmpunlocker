@@ -152,6 +152,7 @@ pub fn execute(
     let roots = match RebarRoots::collect(pci) {
         Ok(roots) => roots,
         Err(status) => {
+            output.diagnostic();
             output.checkpoint(format_args!(
                 "CMP40-GEN2: SKIPPED roots={:?} GEN2_WRITES=0\n",
                 status
@@ -171,7 +172,10 @@ pub fn execute(
         trace,
     };
     let report = gen2::run(&mut backend, action);
-    backend.trace.dump(output)?;
+    if report.result.is_err() {
+        output.diagnostic();
+    }
+    output.retain_trace("GEN2", backend.trace)?;
     if let Some(port) = report.port {
         output.write(format_args!("GEN2_PORT {:?}\n", port))?;
     }

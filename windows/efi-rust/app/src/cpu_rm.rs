@@ -95,6 +95,10 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
             return status;
         }
     };
+    uefi::println!(
+        "CMP40-CPU-RM: LOG_MODE trace={} GPU_WRITES=0",
+        options.trace
+    );
     // Cache the policy on this image's volume before any GPU mutation.
     let rebar_requested = policy::rebar_requested();
     #[cfg(feature = "gen2-experiment")]
@@ -136,6 +140,7 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
             return status;
         }
     };
+    output.request_trace(options.boot.trace);
     let mut windows = None;
     let mut gpu_attempted = false;
     let result = run(
@@ -148,6 +153,15 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
         rebar_requested,
     );
     let mut status = result.err().unwrap_or(Status::SUCCESS);
+    if let Err(error) = output.finish_traces(status.is_error()) {
+        uefi::println!(
+            "CMP40-CPU-RM: LOG_DETAIL_FAILED {:?}; handoff refused",
+            error
+        );
+        if !status.is_error() {
+            status = error;
+        }
+    }
     if status.is_error() {
         let _ = output.checkpoint(format_args!(
             "CMP40-CPU-RM: ABORT {:?}; no retry; power off before another attempt\n",
@@ -185,6 +199,11 @@ fn run(
     rebar_requested: bool,
 ) -> Result<(), Status> {
     output.checkpoint(format_args!("CMP40-CPU-RM: BEGIN {:?}; FLR=off\n", control))?;
+    output.write(format_args!(
+        "LOG_FORMAT version=2 image_version={} trace_requested={}\n",
+        env!("CARGO_PKG_VERSION"),
+        options.boot.trace
+    ))?;
     output.write(format_args!(
         "CMP40-REBAR: POLICY requested={}\n",
         rebar_requested
@@ -224,37 +243,39 @@ fn run(
         fwsec_result: None,
     };
     let mut txn = Transaction::new();
-    let result = prepare_and_execute(&mut io, &mut txn, output, control);
-    if let Some(fwsec) = io.fwsec_result {
+    // Retain even a preparation/checkpoint failure's captured observations.
+    let native_result = (|| {
+        let result = prepare_and_execute(&mut io, &mut txn, output, control);
+        if let Some(fwsec) = io.fwsec_result {
+            output.checkpoint(format_args!(
+                "FWSEC_COMPLETION CPUCTL={:08x} waited_us={} registers={:08x?}\n",
+                fwsec.cpuctl, fwsec.waited_us, fwsec.registers
+            ))?;
+        }
+        if let Some(failure) = io.booter_failure {
+            // This detail remains visible even if dumping or sealing the log fails.
+            output.checkpoint(format_args!(
+                "BOOTER_FAILURE check={:?} reg={:08x} observed={:08x} expected={:08x}\n",
+                failure.check, failure.register, failure.observed, failure.expected
+            ))?;
+        }
         output.checkpoint(format_args!(
-            "FWSEC_COMPLETION CPUCTL={:08x} waited_us={} registers={:08x?}\n",
-            fwsec.cpuctl, fwsec.waited_us, fwsec.registers
+            "CMP40-CPU-RM: TRANSACTION {:?} failed_at={:?} result={:?}\n",
+            txn.phase(),
+            txn.failed_at(),
+            result
         ))?;
-    }
-    if let Some(failure) = io.booter_failure {
-        // This detail remains visible even if dumping or sealing the log fails.
-        output.checkpoint(format_args!(
-            "BOOTER_FAILURE check={:?} reg={:08x} observed={:08x} expected={:08x}\n",
-            failure.check, failure.register, failure.observed, failure.expected
-        ))?;
-    }
-    // Preserve the native trace before the separate, opt-in ReBAR tail.
-    let trace_result = io.trace.dump(output);
-    output.checkpoint(format_args!(
-        "CMP40-CPU-RM: TRANSACTION {:?} failed_at={:?} result={:?}\n",
-        txn.phase(),
-        txn.failed_at(),
-        result
-    ))?;
-    result?;
-    trace_result?;
-    output.write(format_args!(
+        result?;
+        output.write(format_args!(
         "NATIVE_STATE SS0={:08x?} SS1={:08x?} WPR2_HI={:08x?} WPR2_LO={:08x?} PLM={:08x?} SEC2_CPU={:08x?} MBOX0={:08x?} GSP_CPU={:08x?}\n",
         io.trace.last_read(reg::SS0), io.trace.last_read(reg::SS1),
         io.trace.last_read(reg::WPR_HI), io.trace.last_read(reg::WPR_LO),
         io.trace.last_read(reg::FEAT_PLM), io.trace.last_read(reg::SEC2 + reg::CPU),
         io.trace.last_read(reg::SEC2 + reg::MBOX0), io.trace.last_read(reg::GSP + reg::CPU),
-    ))?;
+    ))
+    })();
+    output.retain_trace("CPU_RM", io.trace)?;
+    native_result?;
     output.checkpoint(format_args!("CMP40-CPU-RM: NATIVE_READY {:?}\n", control))?;
     #[cfg(feature = "gen2-experiment")]
     let gen2_watch = crate::gen2::execute(pci, &mut io.mmio, output, options.gen2)?;

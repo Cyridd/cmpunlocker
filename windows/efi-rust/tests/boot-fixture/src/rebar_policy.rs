@@ -50,6 +50,7 @@ fn run() -> Result<(), Status> {
         b"literal" => cstr16!("--experimental-rebar"),
         b"optout" => cstr16!("--experimental-rebar norebar"),
         b"no-gen2" => cstr16!("--no-gen2"),
+        b"trace" => cstr16!("--trace norebar"),
         _ => cstr16!(""),
     };
     let child = load_from_volume(volume, cstr16!("\\EFI\\CMP40\\FULL.EFI"))?;

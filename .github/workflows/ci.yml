@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           cargo +"$RUST_TOOLCHAIN" test --locked --offline -p cmp40-efi-core
           python3 tests/test_assets.py
+          python3 -m unittest discover -s tests -p 'test_trace_log.py' -v
       - name: Check the core for the Windows target
         run: cargo +"$RUST_TOOLCHAIN" check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
       - name: Build the read-only EFI and test boot targets

@@ -47,6 +47,7 @@ pub enum OptionsError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CpuRmOptions {
     pub return_to_bootloader: bool,
+    pub trace: bool,
 }
 
 impl CpuRmOptions {
@@ -61,6 +62,7 @@ impl CpuRmOptions {
             return Err(OptionsError::IncompatibleHandoff);
         }
         Ok(Self {
+            trace: has("--trace"),
             return_to_bootloader: [
                 "--return-to-bootloader",
                 "--return-to-grub",

@@ -87,17 +87,26 @@ bytes with a streaming checksum and checks EOF. The log volume/partition is
 printed to the console. Verification happens before firmware transaction entry
 and after return, never inside the transaction.
 The file records input hashes, target/access route, buffer addresses, all
-metadata bytes and register observations. The core transaction records into
-preallocated RAM; no console/filesystem call occurs during it. IMEM/DMEM data
-port contents are omitted and counted. Other reads/writes, delays and cache
-barriers are ordered, with consecutive identical events compressed. `A` records
-the FWSEC address as high/low DWORDs. Trace overflow is reported with `dropped`.
-After native completion, the trace is written and the log closes before handoff.
-A hard firmware stall can therefore leave only the pre-transaction checkpoint.
-The current logger retains diagnostic detail on every run. Before installer integration,
-the [production logging proposal](LOGGING_POLICY.md) calls for compact successful
-summaries, failure/opt-in traces and a bounded retention budget (proposed 8 MiB).
-The carrier port does not delete old logs or change transaction tracing.
+metadata bytes and register observations. Successful runs use compact logs
+with phase trace counters by default. The accepted logging-r1 FULL/ReBAR runs
+produced a 3662-byte summary (3.6 KiB) and a 15422-byte diagnostic log (15.1 KiB).
+I reported successful testing with no observed issues; the supplied pair
+confirms native FULL completion, active 8 GiB ReBAR and zero trace drops in
+both modes. See the [logging acceptance](LOGGING_POLICY.md#logging-r1-acceptance)
+for the verified counters and scope. `--trace`, handled errors
+before handoff, ReBAR refusal/rollback and capture overflow select full
+compressed traces. Completed phase buffers remain available until the overall
+result is known, so a late error retains earlier observations.
+The core transaction records into preallocated RAM; no console/filesystem
+call occurs during it. IMEM/DMEM data ports are omitted and counted. Other
+operations retain their order and single-event counts. Serialization compresses
+identical adjacent MMIO read/stall pairs using version 2 `REPEAT_PAIR` records.
+`A` records the FWSEC address as high/low DWORDs; `dropped` reports capture loss.
+Traces are appended after the final result and the log closes before handoff.
+A hard firmware stall can leave only the last verified checkpoint.
+The [logging policy and test procedure](LOGGING_POLICY.md) describe the format,
+bounded host decoder and separate `--logging` USB package. Existing logs are
+preserved; the proposed 8 MiB retention budget remains a later change.
 
 Only native completion permits Windows StartImage or parent return. After a
 failed attempt that could have modified the GPU, the application parks at
@@ -275,6 +284,7 @@ cargo fmt --all -- --check
 cargo test --locked --offline -p cmp40-efi-core
 cargo clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
 cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
+python3 -m unittest discover -s tests -p 'test_trace_log.py' -v
 ```
 
 The Windows command checks the library; it does not run Windows test binaries
