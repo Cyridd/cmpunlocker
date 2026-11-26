@@ -8,6 +8,8 @@ pub mod allocation;
 pub mod fat;
 pub mod gen2;
 pub mod image_path;
+pub mod log_store;
+pub mod log_write;
 pub mod metadata;
 pub mod options;
 pub mod partition;

@@ -121,3 +121,20 @@ pub fn release(image: Handle) {
         uefi::println!("CMP40-READONLY: IMAGE_UNLOAD_FAILED {:?}", error.status());
     }
 }
+
+/// A StartImage error after GPU mutation must not reach a parent's fallback.
+#[cfg(feature = "cpu-rm")]
+pub fn start_prepared(image: Handle, gpu_attempted: bool) -> Status {
+    match boot::start_image(image) {
+        Ok(()) => Status::SUCCESS,
+        Err(error) => {
+            let status = error.status();
+            uefi::println!(
+                "CMP40: START_IMAGE_FAILED {:?} GPU_ATTEMPTED={}",
+                status,
+                gpu_attempted
+            );
+            crate::terminal::failure(status, gpu_attempted)
+        }
+    }
+}

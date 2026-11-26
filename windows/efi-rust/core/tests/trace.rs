@@ -118,3 +118,23 @@ fn trace_option_is_exact_and_independent_of_handoff_and_rebar() {
         assert_eq!(CpuRmOptions::parse(&bytes).unwrap().trace, expected);
     }
 }
+
+#[test]
+fn phase_capacities_cover_the_conservative_topology_bounds() {
+    use cmp40_efi_core::trace::{phase_capacity, MAX_EVENTS};
+    for roots in 0..=8 {
+        for bus in 0..=255 {
+            let slots = roots * usize::from(bus) * 256;
+            assert_eq!(
+                phase_capacity(true, roots, bus),
+                (512 + slots * 75).min(MAX_EVENTS)
+            );
+            assert_eq!(
+                phase_capacity(false, roots, bus),
+                (16384 + slots * 3).min(MAX_EVENTS)
+            );
+        }
+    }
+    assert!(phase_capacity(false, 1, 16) < MAX_EVENTS);
+    assert!(phase_capacity(true, 1, 1) < MAX_EVENTS);
+}

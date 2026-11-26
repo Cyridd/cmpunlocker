@@ -8,6 +8,10 @@ use cmp40_efi::{
     terminal,
 };
 use cmp40_efi_core::options::has_load_option;
+use uefi::proto::media::{
+    file::{File, FileAttribute, FileMode},
+    fs::SimpleFileSystem,
+};
 use uefi::{boot, prelude::*, proto::loaded_image::LoadedImage};
 
 #[entry]
@@ -18,7 +22,23 @@ fn main() -> Status {
     if let Err(error) = boot::set_watchdog_timer(0, 0x10000, None) {
         return error.status();
     }
-    if let Err(status) = log_test() {
+    let rotate = (|| {
+        let volume = protocol::<LoadedImage>(boot::image_handle())?
+            .device()
+            .ok_or(Status::NOT_FOUND)?;
+        let mut fs = protocol::<SimpleFileSystem>(volume)?;
+        let mut root = fs.open_volume().map_err(|e| e.status())?;
+        Ok::<_, Status>(
+            root.open(
+                cstr16!("\\ROTATE.TXT"),
+                FileMode::Read,
+                FileAttribute::empty(),
+            )
+            .is_ok(),
+        )
+    })()
+    .unwrap_or(false);
+    if let Err(status) = if rotate { retention_test() } else { log_test() } {
         uefi::println!("CMP40-FIXTURE: LOG_TEST_FAILED {:?}", status);
         return status;
     }
@@ -46,7 +66,21 @@ fn log_test() -> Result<(), Status> {
     for index in 0..160 {
         first.write(format_args!("line={index:03} abcdefghijklmnopqrstuvwxyz\n"))?;
     }
+    let mut metadata = [0; 256];
+    for (index, byte) in metadata.iter_mut().enumerate() {
+        *byte = index as u8;
+    }
+    for (index, bytes) in metadata.chunks(32).enumerate() {
+        first.hex_line(format_args!("META {:02x} ", index * 32), bytes)?;
+    }
     first.checkpoint(format_args!("LOG_FIXTURE_TAIL\n"))?;
+    if first.physical_writes() > 4 {
+        return Err(Status::DEVICE_ERROR);
+    }
+    uefi::println!(
+        "CMP40-FIXTURE: LOG_BATCH_WRITES={}",
+        first.physical_writes()
+    );
     first.seal()?;
     let mut second = Output::open("zero")?;
     second.checkpoint(format_args!("LOG_FIXTURE_SECOND\n"))?;
@@ -95,4 +129,36 @@ fn log_test() -> Result<(), Status> {
     output.retain_trace("CPU_RM", trace)?;
     output.finish_traces(false)?;
     output.seal()
+}
+
+fn retention_test() -> Result<(), Status> {
+    // More than the retained summary count; every file is independently sealed.
+    for index in 0..40 {
+        let mut output = Output::open("full")?;
+        output.write(format_args!("RETENTION_SUMMARY {}\n", index))?;
+        for _ in 0..20 {
+            output.write(format_args!("small summary padding\n"))?;
+        }
+        output.seal()?;
+    }
+    // Trace count and byte quota compete; three 2.5 MiB traces fit, four do not.
+    for index in 0..6 {
+        let mut output = Output::open("full")?;
+        output.request_trace(true);
+        output.write(format_args!("RETENTION_TRACE {}\n", index))?;
+        for _ in 0..81920 {
+            output.write(format_args!("0123456789abcdef0123456789abcde\n"))?;
+        }
+        output.finish_traces(false)?;
+        output.seal()?;
+    }
+    // A hard stop after a checkpoint has ownership but no completion footer.
+    let mut output = Output::open("full")?;
+    output.checkpoint(format_args!("RETENTION_INTERRUPTED\n"))?;
+    drop(output);
+    let mut output = Output::open("full")?;
+    output.write(format_args!("RETENTION_AFTER_INTERRUPT\n"))?;
+    output.seal()?;
+    uefi::println!("CMP40-FIXTURE: RETENTION_READY GPU_WRITES=0");
+    Ok(())
 }

@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: MIT
 //! Preopened log on the image volume; transaction tracing never calls firmware.
-use crate::image::protocol;
-use alloc::{format, vec::Vec};
-use cmp40_efi_core::trace::{self, Event, Record};
+use crate::{
+    image::protocol,
+    log_store::{self, Store},
+};
+use alloc::vec::Vec;
+use cmp40_efi_core::log_write::{self, Sink};
+use cmp40_efi_core::{
+    log_store::{checksum, Kind, FNV_INITIAL, FOOTER_LEN},
+    trace::{self, Event, Record},
+};
 use core::fmt::{self, Write};
 use uefi::boot;
 use uefi::proto::device_path::{DevicePath, DeviceSubType, DeviceType};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode, RegularFile};
-use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::{CString16, Handle, Status};
 
 pub struct Output {
@@ -17,6 +23,13 @@ pub struct Output {
     name: CString16,
     length: u64,
     checksum: u64,
+    store: Store,
+    pending: [u8; 4096],
+    pending_used: usize,
+    writer: log_write::State<Status>,
+    full: bool,
+    detail_decided: bool,
+    sealing: bool,
     traces: [Option<(&'static str, Trace)>; 3],
     trace_requested: bool,
     diagnostic: bool,
@@ -27,63 +40,64 @@ impl Output {
         let volume = protocol::<LoadedImage>(boot::image_handle())?
             .device()
             .ok_or(Status::NOT_FOUND)?;
-        let mut fs = protocol::<SimpleFileSystem>(volume)?;
-        let mut root = fs.open_volume().map_err(|e| e.status())?;
-        let prefix = match control {
-            "full" => "RF",
-            "zero" => "RZ",
-            "logcheck" => "RL",
-            "entrycheck" => "RE",
-            _ => return Err(Status::INVALID_PARAMETER),
-        };
-        for index in 1..=999 {
-            // Use 8.3 names on the older FAT firmware used by the C reference.
-            let name = CString16::try_from(format!("\\{prefix}{index:06}.LOG").as_str())
-                .map_err(|_| Status::INVALID_PARAMETER)?;
-            match root.open(&name, FileMode::Read, FileAttribute::empty()) {
-                Ok(_) => continue,
-                Err(error) if error.status() == Status::NOT_FOUND => (),
-                Err(error) => return Err(error.status()),
-            }
-            let mut file = root
-                .open(&name, FileMode::CreateReadWrite, FileAttribute::empty())
-                .map_err(|e| e.status())?
-                .into_regular_file()
-                .ok_or(Status::UNSUPPORTED)?;
-            uefi::println!("CMP40-CPU-RM: LOG {:?}", name);
-            uefi::println!("CMP40-CPU-RM: LOG_VOLUME handle={:?}", volume);
-            if let Ok(path) = protocol::<DevicePath>(volume) {
-                for node in path.node_iter() {
-                    let bytes = node.data();
-                    if bytes.len() == 38
-                        && node.full_type() == (DeviceType::MEDIA, DeviceSubType::MEDIA_HARD_DRIVE)
-                    {
-                        let partition = u32::from_le_bytes(bytes[..4].try_into().unwrap());
-                        let start = u64::from_le_bytes(bytes[4..12].try_into().unwrap());
-                        uefi::println!(
-                            "CMP40-CPU-RM: LOG_PARTITION number={} start_lba={} signature={:02x?}",
-                            partition,
-                            start,
-                            &bytes[20..36]
-                        );
-                    }
+        if !matches!(control, "full" | "zero" | "logcheck" | "entrycheck") {
+            return Err(Status::INVALID_PARAMETER);
+        }
+        let store = Store::open(volume)?;
+        let name = log_store::name(store.generation)?;
+        let mut root = log_store::directory(volume, false)?;
+        match root.open(&name, FileMode::Read, FileAttribute::empty()) {
+            Err(error) if error.status() == Status::NOT_FOUND => (),
+            _ => return Err(Status::DEVICE_ERROR),
+        }
+        let file = root
+            .open(&name, FileMode::CreateReadWrite, FileAttribute::empty())
+            .map_err(|e| e.status())?
+            .into_regular_file()
+            .ok_or(Status::UNSUPPORTED)?;
+        uefi::println!("CMP40-CPU-RM: LOG \\EFI\\40HX\\LOGS\\{}", name);
+        uefi::println!("CMP40-CPU-RM: LOG_VOLUME handle={:?}", volume);
+        if let Ok(path) = protocol::<DevicePath>(volume) {
+            for node in path.node_iter() {
+                let bytes = node.data();
+                if bytes.len() == 38
+                    && node.full_type() == (DeviceType::MEDIA, DeviceSubType::MEDIA_HARD_DRIVE)
+                {
+                    let partition = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+                    let start = u64::from_le_bytes(bytes[4..12].try_into().unwrap());
+                    uefi::println!(
+                        "CMP40-CPU-RM: LOG_PARTITION number={} start_lba={} signature={:02x?}",
+                        partition,
+                        start,
+                        &bytes[20..36]
+                    );
                 }
             }
-            if file.get_position().map_err(|e| e.status())? != 0 {
-                return Err(Status::DEVICE_ERROR);
-            }
-            return Ok(Self {
-                file: Some(file),
-                volume,
-                name,
-                length: 0,
-                checksum: 0xcbf29ce484222325,
-                traces: [None, None, None],
-                trace_requested: false,
-                diagnostic: false,
-            });
         }
-        Err(Status::OUT_OF_RESOURCES)
+        let generation = store.generation;
+        let mut output = Self {
+            file: Some(file),
+            volume,
+            name,
+            length: 0,
+            checksum: FNV_INITIAL,
+            store,
+            pending: [0; 4096],
+            pending_used: 0,
+            writer: log_write::State::new(),
+            full: false,
+            detail_decided: false,
+            sealing: false,
+            traces: [None, None, None],
+            trace_requested: false,
+            diagnostic: false,
+        };
+        output.write(format_args!(
+            "CMP40_LOG_V3 generation={:07} control={}\n",
+            generation, control
+        ))?;
+        output.verify_and_reopen()?;
+        Ok(output)
     }
     pub fn write(&mut self, args: fmt::Arguments<'_>) -> Result<(), Status> {
         let mut line = Line {
@@ -91,21 +105,71 @@ impl Output {
             used: 0,
         };
         line.write_fmt(args).map_err(|_| Status::BAD_BUFFER_SIZE)?;
-        let file = self.file.as_mut().ok_or(Status::NOT_READY)?;
-        let expected = self
-            .length
-            .checked_add(line.used as u64)
-            .ok_or(Status::VOLUME_FULL)?;
-        file.write(&line.bytes[..line.used])
-            .map_err(|_| Status::DEVICE_ERROR)?;
-        // uefi-rs 0.41's write wrapper discards the actual success byte count.
-        // A short successful firmware write must not count as a saved log.
-        if file.get_position().map_err(|e| e.status())? != expected {
-            return Err(Status::DEVICE_ERROR);
+        self.append(&line.bytes[..line.used])
+    }
+    pub fn hex_line(&mut self, prefix: fmt::Arguments<'_>, bytes: &[u8]) -> Result<(), Status> {
+        let mut line = Line {
+            bytes: [0; 1024],
+            used: 0,
+        };
+        line.write_fmt(prefix)
+            .map_err(|_| Status::BAD_BUFFER_SIZE)?;
+        for byte in bytes {
+            write!(line, "{:02x}", byte).map_err(|_| Status::BAD_BUFFER_SIZE)?;
         }
-        self.length = expected;
-        self.checksum = checksum(self.checksum, &line.bytes[..line.used]);
+        line.write_str("\n").map_err(|_| Status::BAD_BUFFER_SIZE)?;
+        self.append(&line.bytes[..line.used])
+    }
+    fn append(&mut self, mut bytes: &[u8]) -> Result<(), Status> {
+        if let Some(error) = self.writer.failure() {
+            return Err(write_status(error));
+        }
+        let projected = self
+            .length
+            .checked_add(bytes.len() as u64)
+            .and_then(|n| n.checked_add(if self.sealing { 0 } else { FOOTER_LEN as u64 }))
+            .ok_or(Status::VOLUME_FULL)?;
+        let kind = if self.full || self.trace_requested || self.diagnostic {
+            Some(Kind::Trace)
+        } else if self.detail_decided || self.sealing {
+            Some(Kind::Summary)
+        } else {
+            None
+        };
+        if let Err(status) = self.store.room(projected, kind) {
+            self.writer.poison(log_write::Error::Io(status));
+            return Err(status);
+        }
+        while !bytes.is_empty() {
+            let take = bytes.len().min(self.pending.len() - self.pending_used);
+            self.pending[self.pending_used..self.pending_used + take]
+                .copy_from_slice(&bytes[..take]);
+            self.pending_used += take;
+            self.length += take as u64;
+            self.checksum = checksum(self.checksum, &bytes[..take]);
+            bytes = &bytes[take..];
+            if self.pending_used == self.pending.len() {
+                self.flush_pending()?;
+            }
+        }
         Ok(())
+    }
+    fn flush_pending(&mut self) -> Result<(), Status> {
+        if let Some(error) = self.writer.failure() {
+            return Err(write_status(error));
+        }
+        if self.pending_used == 0 {
+            return Ok(());
+        }
+        let file = self.file.as_mut().ok_or(Status::NOT_READY)?;
+        self.writer
+            .commit(&mut FileSink(file), &self.pending[..self.pending_used])
+            .map_err(write_status)?;
+        self.pending_used = 0;
+        Ok(())
+    }
+    pub fn physical_writes(&self) -> u64 {
+        self.writer.batches()
     }
     pub fn checkpoint(&mut self, args: fmt::Arguments<'_>) -> Result<(), Status> {
         uefi::print!("{}", args);
@@ -119,8 +183,19 @@ impl Output {
         Ok(())
     }
     pub fn seal(mut self) -> Result<(), Status> {
-        self.verify_and_reopen()
-        // RegularFile closes on Drop, before StartImage or parent return.
+        let (length, digest) = (self.length, self.checksum);
+        let full = self.full || self.diagnostic || self.trace_requested;
+        self.sealing = true;
+        self.write(format_args!(
+            "CMP40_END_V3 kind={} bytes={:020} fnv={:016x}\n",
+            if full { 'T' } else { 'S' },
+            length,
+            digest
+        ))?;
+        self.verify_and_reopen()?;
+        drop(self.file.take());
+        self.store
+            .finish(self.length, if full { Kind::Trace } else { Kind::Summary })
     }
 
     pub fn request_trace(&mut self, requested: bool) {
@@ -143,6 +218,8 @@ impl Output {
     pub fn finish_traces(&mut self, failed: bool) -> Result<(), Status> {
         let (requested, diagnostic) = (self.trace_requested, self.diagnostic);
         let full = trace::full_log(requested, failed, diagnostic);
+        self.full = full;
+        self.detail_decided = true;
         self.write(format_args!(
             "LOG_DETAIL mode={} requested={} failed={} diagnostic={}\n",
             if full { "trace" } else { "summary" },
@@ -164,14 +241,21 @@ impl Output {
     }
 
     fn verify_and_reopen(&mut self) -> Result<(), Status> {
+        let result = self.verify_inner();
+        if let Err(status) = result {
+            self.writer.poison(log_write::Error::Io(status));
+        }
+        result
+    }
+    fn verify_inner(&mut self) -> Result<(), Status> {
+        self.flush_pending()?;
         self.file
             .as_mut()
             .ok_or(Status::NOT_READY)?
             .flush()
             .map_err(|e| e.status())?;
         drop(self.file.take());
-        let mut fs = protocol::<SimpleFileSystem>(self.volume)?;
-        let mut root = fs.open_volume().map_err(|e| e.status())?;
+        let mut root = log_store::directory(self.volume, false)?;
         let file = root
             .open(&self.name, FileMode::ReadWrite, FileAttribute::empty())
             .map_err(|e| e.status())?
@@ -201,12 +285,24 @@ impl Output {
     }
 }
 
-fn checksum(mut digest: u64, bytes: &[u8]) -> u64 {
-    for byte in bytes {
-        digest = (digest ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+struct FileSink<'a>(&'a mut RegularFile);
+impl Sink for FileSink<'_> {
+    type Error = Status;
+    fn write(&mut self, bytes: &[u8]) -> Result<(), Status> {
+        self.0.write(bytes).map_err(|e| e.status())
     }
-    digest
+    fn position(&mut self) -> Result<u64, Status> {
+        self.0.get_position().map_err(|e| e.status())
+    }
 }
+fn write_status(error: log_write::Error<Status>) -> Status {
+    match error {
+        log_write::Error::Io(status) => status,
+        log_write::Error::ShortWrite => Status::DEVICE_ERROR,
+        log_write::Error::Overflow => Status::VOLUME_FULL,
+    }
+}
+
 struct Line {
     bytes: [u8; 1024],
     used: usize,
@@ -226,17 +322,25 @@ impl Write for Line {
 
 pub struct Trace {
     events: Vec<Event>,
+    capacity: usize,
     omitted_ports: u64,
     dropped: u64,
 }
 impl Trace {
     pub fn new() -> Result<Self, Status> {
+        Self::with_capacity(trace::MAX_EVENTS)
+    }
+    pub fn with_capacity(capacity: usize) -> Result<Self, Status> {
+        if capacity == 0 || capacity > trace::MAX_EVENTS {
+            return Err(Status::INVALID_PARAMETER);
+        }
         let mut events = Vec::new();
         events
-            .try_reserve_exact(131072)
+            .try_reserve_exact(capacity)
             .map_err(|_| Status::OUT_OF_RESOURCES)?;
         Ok(Self {
             events,
+            capacity,
             omitted_ports: 0,
             dropped: 0,
         })
@@ -260,7 +364,7 @@ impl Trace {
                 return;
             }
         }
-        if self.events.len() == self.events.capacity() {
+        if self.events.len() == self.capacity {
             self.dropped += 1;
             return;
         }

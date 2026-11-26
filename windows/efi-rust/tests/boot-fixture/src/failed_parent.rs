@@ -2,6 +2,10 @@
 #![no_std]
 #![no_main]
 use cmp40_efi::image::{load_from_volume, protocol};
+use uefi::proto::media::{
+    file::{File, FileAttribute, FileMode},
+    fs::SimpleFileSystem,
+};
 use uefi::{boot, prelude::*, proto::loaded_image::LoadedImage};
 
 #[entry]
@@ -22,6 +26,24 @@ fn run() -> Result<(), Status> {
     let volume = protocol::<LoadedImage>(boot::image_handle())?
         .device()
         .ok_or(Status::NOT_FOUND)?;
+    let mut fs = protocol::<SimpleFileSystem>(volume)?;
+    let mut root = fs.open_volume().map_err(|e| e.status())?;
+    if root
+        .open(
+            cstr16!("\\STARTERR.TXT"),
+            FileMode::Read,
+            FileAttribute::empty(),
+        )
+        .is_ok()
+    {
+        let child = load_from_volume(volume, cstr16!("\\EFI\\CMP40\\FAILRET.EFI"))?;
+        drop(root);
+        drop(fs);
+        uefi::println!("CMP40-FIXTURE: START_ERROR_CHILD GPU_WRITES=0");
+        let _ = cmp40_efi::handoff::start_prepared(child, true);
+        uefi::println!("CMP40-FIXTURE: PARENT_RESUMED_AFTER_FAILURE");
+        return Err(Status::DEVICE_ERROR);
+    }
     let image = load_from_volume(volume, cstr16!("\\EFI\\CMP40\\FAILED.EFI"))?;
     let options = cstr16!("--park-after-failure");
     {

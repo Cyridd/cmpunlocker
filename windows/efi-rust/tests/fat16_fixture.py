@@ -118,17 +118,39 @@ class Fat16:
         short, long_name = names(parts[-1])
         self.entry(self.directories[parts[:-1]], short, cluster, len(payload), 0x20, long_name)
 
+    def directory_entries(self, path=""):
+        parts = path.upper().split("/") if path else []
+        blocks = [bytes(self.data[ROOT_SECTOR * SECTOR:(ROOT_SECTOR + 32) * SECTOR])]
+        for part in parts:
+            entry = next((item for block in blocks for item in (block[i:i+32] for i in range(0, len(block), 32))
+                          if item[:11] == short_name(part) and item[11] & 0x10), None)
+            if entry is None: raise FileNotFoundError(path)
+            cluster = struct.unpack_from("<H", entry, 26)[0]
+            blocks, seen = [], set()
+            while cluster < 0xfff8:
+                if cluster < 2 or cluster in seen: raise ValueError("invalid directory chain")
+                seen.add(cluster)
+                offset = self.cluster_offset(cluster)
+                blocks.append(bytes(self.data[offset:offset + CLUSTER_BYTES]))
+                cluster = self.fat(cluster)
+        result = []
+        for block in blocks:
+            for i in range(0, len(block), 32):
+                entry = block[i:i+32]
+                if entry[0] == 0: return result
+                if entry[0] != 0xe5 and entry[11] != 0x0f:
+                    result.append(entry)
+        return result
+
     def read_root_file(self, filename):
-        expected = short_name(filename)
-        start = ROOT_SECTOR * SECTOR
-        for index in range(512):
-            offset = start + index * 32
-            if self.data[offset] == 0:
-                break
-            if self.data[offset:offset + 11] != expected:
-                continue
-            cluster = struct.unpack_from("<H", self.data, offset + 26)[0]
-            size = struct.unpack_from("<I", self.data, offset + 28)[0]
+        return self.read_file(filename)
+
+    def read_file(self, filename):
+        directory, _, basename = filename.rpartition("/")
+        for entry in self.directory_entries(directory):
+            if entry[:11] != short_name(basename): continue
+            cluster = struct.unpack_from("<H", entry, 26)[0]
+            size = struct.unpack_from("<I", entry, 28)[0]
             content, seen = bytearray(), set()
             while len(content) < size:
                 if cluster < 2 or cluster >= 0xfff8 or cluster in seen:

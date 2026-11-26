@@ -348,15 +348,35 @@ impl Volume {
         cluster = entry.cluster;
         let mut done = 0;
         while done < output.len() {
-            let take = (self.cluster_bytes as usize).min(output.len() - done);
+            let first = cluster;
+            let mut take = (self.cluster_bytes as usize).min(output.len() - done);
+            let mut next = if done + take < output.len() {
+                self.next(io, cluster)?
+            } else {
+                None
+            };
+            // The complete chain was validated above. Coalesce only adjacent
+            // live clusters, cap a run at 64 KiB, and preserve the partial tail.
+            while done + take < output.len()
+                && take + self.cluster_bytes as usize <= 65536
+                && next == cluster.checked_add(1)
+            {
+                cluster = next.ok_or(Error::Corrupt)?;
+                take += (self.cluster_bytes as usize).min(output.len() - done - take);
+                next = if done + take < output.len() {
+                    self.next(io, cluster)?
+                } else {
+                    None
+                };
+            }
             self.region.read(
                 io,
-                self.cluster_offset::<R::Error>(cluster)?,
+                self.cluster_offset::<R::Error>(first)?,
                 &mut output[done..done + take],
             )?;
             done += take;
             if done < output.len() {
-                cluster = self.next(io, cluster)?.ok_or(Error::Corrupt)?;
+                cluster = next.ok_or(Error::Corrupt)?;
             }
         }
         Ok(())

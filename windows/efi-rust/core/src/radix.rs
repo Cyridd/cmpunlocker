@@ -81,6 +81,22 @@ impl RadixPlan {
     /// separate source allocation. Validate before stores; clear all unused
     /// entries and leaf padding while preserving bytes beyond this plan.
     pub fn write_zero_image(self, buffer: &mut [u8], dma_base: u64) -> Result<(), RadixError> {
+        self.validate(buffer, dma_base)?;
+        buffer[..self.total_bytes].fill(0);
+        self.populate_tables(buffer, dma_base);
+        Ok(())
+    }
+
+    /// Build tables while preserving initialized image leaves. The EFI caller
+    /// supplies a freshly zeroed DMA allocation for the zero-image path.
+    pub fn write_tables(self, buffer: &mut [u8], dma_base: u64) -> Result<(), RadixError> {
+        self.validate(buffer, dma_base)?;
+        buffer[..self.table_bytes()].fill(0);
+        self.populate_tables(buffer, dma_base);
+        Ok(())
+    }
+
+    fn validate(self, buffer: &[u8], dma_base: u64) -> Result<(), RadixError> {
         if buffer.len() < self.total_bytes {
             return Err(RadixError::BufferTooSmall);
         }
@@ -88,8 +104,9 @@ impl RadixPlan {
             return Err(RadixError::InvalidDmaAddress);
         }
 
-        let buffer = &mut buffer[..self.total_bytes];
-        buffer.fill(0);
+        Ok(())
+    }
+    fn populate_tables(self, buffer: &mut [u8], dma_base: u64) {
         put_address(buffer, 0, dma_base + PAGE_BYTES as u64);
         for index in 0..self.l2_pages {
             put_address(
@@ -105,7 +122,6 @@ impl RadixPlan {
                 dma_base + (self.table_bytes() + index * PAGE_BYTES) as u64,
             );
         }
-        Ok(())
     }
 }
 

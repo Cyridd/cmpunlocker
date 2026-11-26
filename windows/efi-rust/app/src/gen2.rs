@@ -160,7 +160,8 @@ pub fn execute(
             return Ok(None);
         }
     };
-    let trace = Trace::new()?;
+    let capacity = cmp40_efi_core::trace::phase_capacity(false, roots.count(), pci.bdf.bus);
+    let trace = Trace::with_capacity(capacity)?;
     output.checkpoint(format_args!(
         "CMP40-GEN2: BEGIN mode={:?}; trace buffered; no resets\n",
         action

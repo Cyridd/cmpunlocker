@@ -49,7 +49,8 @@ The additional QEMU cases execute FULL/ZERO discovery/refusal without NVIDIA,
 verify actual FAT log bytes after VM termination, and verify that a simulated
 failed GPU attempt cannot return to its parent. `cmp40-logcheck.efi` is a
 physical filesystem diagnostic using the same log code with no PCI/MMIO access.
-It creates `RL000001.LOG` and reports `LOG_CHECK_READY` after verification.
+It creates a managed log in `EFI/40HX/LOGS/` and reports `LOG_CHECK_READY`
+after verification.
 The test-only fixture binaries remain for QEMU; do not deploy them to hardware.
 
 `app/prepare_assets.py` verifies complete source sizes/SHA-256 before publishing
@@ -79,9 +80,10 @@ cover delayed HALT, timeout and invalid FRTS/window results. Two subsequent FULL
 Both needed 99 ms of additional completion waiting. See the
 [acceptance record](tests/evidence/stage3e/README.md) for observations and limits.
 
-Each image requires a writable image volume for a new numbered
-`RF000001.LOG` or `RZ000001.LOG` (incremented for later runs). These 8.3 names
-avoid long-name handling in older firmware. Old logs are preserved. Each
+Each image requires a writable image volume. Optimization-r1 stores managed
+8.3 logs at `EFI/40HX/LOGS/L0000001.LOG` and subsequent generations, retaining
+up to 32 summaries and four diagnostics within an 8 MiB file-byte budget.
+Legacy root `RF`/`RZ` logs and unrelated files are preserved. Each
 checkpoint checks write position, flushes/closes/reopens the file, verifies all
 bytes with a streaming checksum and checks EOF. The log volume/partition is
 printed to the console. Verification happens before firmware transaction entry
@@ -105,8 +107,18 @@ identical adjacent MMIO read/stall pairs using version 2 `REPEAT_PAIR` records.
 Traces are appended after the final result and the log closes before handoff.
 A hard firmware stall can leave only the last verified checkpoint.
 The [logging policy and test procedure](LOGGING_POLICY.md) describe the format,
-bounded host decoder and separate `--logging` USB package. Existing logs are
-preserved; the proposed 8 MiB retention budget remains a later change.
+bounded host decoder, managed ownership/completion records and separate
+`--optimize` USB package with a frozen logging-r1 FULL control. Buffered 4 KiB
+writes preserve checkpoint verification, and a failed batch is never replayed.
+Gen2/ReBAR trace capacities follow conservative topology bounds; CPU-RM keeps
+its previous capture limit. Radix tables are built on already initialized DMA
+leaves, avoiding a duplicate 28 MiB zero pass. Raw loading batches aligned
+reads and adjacent FAT clusters without bypassing chain checks.
+Both FULL and ZERO completed the
+[optimization-r1 hardware trials](LOGGING_POLICY.md#optimization-r1-hardware-acceptance)
+with stock BARs under `norebar` and active 8 GiB BAR1 with ReBAR enabled.
+Physical speedup for this variant remains unmeasured. `StartImage` errors
+after GPU mutation now enter the parked failure path.
 
 Only native completion permits Windows StartImage or parent return. After a
 failed attempt that could have modified the GPU, the application parks at
@@ -160,7 +172,7 @@ become model reads; diagnostic Print arguments still execute. Tests compare
 every PCI/MMIO read and write, including rollback order, and separately compare
 ACPI descriptors and policy bytes. QEMU exercises actual policy-file loading,
 literal opt-in, opt-out and unrelated-volume refusal without a GPU. ReBAR
-checkpoints and a separate buffered trace are appended to `RF*.LOG`/`RZ*.LOG`;
+checkpoints and a separate buffered trace are appended to the managed log;
 a hard stall can leave only the pre-ReBAR checkpoint.
 
 ## Experimental pre-driver Gen2
@@ -407,7 +419,7 @@ has [Windows acceptance](tests/evidence/stage4c/README.md), including verified
 raw logs and confirmation of FULL compute unlock. The original pair is frozen
 under `target/baseline-carrier-gpu-fe02bf7/`. FULL parent/Linux compute handoff
 also has [acceptance](tests/evidence/stage4d/README.md) with proprietary driver
-620.70.06, GSP OFF and no independent Linux unlocker. Bounded production
-logging and Go checker/uninstaller support are still required before changing
-the shipped installer image. ReBAR-r1 FULL/ZERO with and without `norebar`
+620.70.06, GSP OFF and no independent Linux unlocker. The Go checker and
+uninstaller still need managed-log support before the installer can ship
+the Rust image. ReBAR-r1 FULL/ZERO with and without `norebar`
 is accepted on the tested configuration in [stage 5](tests/evidence/stage5/README.md).

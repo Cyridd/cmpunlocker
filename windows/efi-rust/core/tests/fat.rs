@@ -10,6 +10,7 @@ struct Disk {
     bytes: u64,
     fail: Option<u64>,
     failures: usize,
+    reads: Vec<(u64, usize)>,
 }
 impl Disk {
     fn write(&mut self, offset: u64, bytes: &[u8]) {
@@ -25,6 +26,7 @@ impl ReadAt for Disk {
         self.bytes
     }
     fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> Result<(), u8> {
+        self.reads.push((offset, bytes.len()));
         assert!(
             offset
                 .checked_add(bytes.len() as u64)
@@ -225,6 +227,54 @@ fn fat16_and_fat32_read_fragmented_windows_path_with_lfn_and_partial_tail() {
             .read_file(&mut fixture.disk, file, &mut output)
             .unwrap();
         assert_eq!(output, expected);
+    }
+}
+
+#[test]
+fn contiguous_clusters_batch_data_and_stop_at_a_failed_batch() {
+    for (kind, sector) in [(Kind::Fat16, 512), (Kind::Fat32, 512), (Kind::Fat32, 4096)] {
+        let mut fixture = Fat::new(kind, sector, 4096);
+        let payload: Vec<_> = (0..70013).map(|i| (i % 251) as u8).collect();
+        fixture.entry(
+            fixture.root,
+            b"TEST    EFI",
+            10,
+            payload.len() as u32,
+            false,
+        );
+        let count = payload.len().div_ceil(sector as usize);
+        for (i, bytes) in payload.chunks(sector as usize).enumerate() {
+            let cluster = 10 + i as u32;
+            fixture.link(cluster, (i + 1 < count).then_some(cluster + 1));
+            fixture.disk.write(fixture.cluster(cluster), bytes);
+        }
+        let volume = Volume::mount(&mut fixture.disk, fixture.region).unwrap();
+        let entry = volume.lookup(&mut fixture.disk, &["TEST.EFI"]).unwrap();
+        let first = fixture.cluster(10);
+        fixture.disk.reads.clear();
+        let mut output = vec![0xa5; payload.len()];
+        volume
+            .read_file(&mut fixture.disk, entry, &mut output)
+            .unwrap();
+        assert_eq!(output, payload);
+        let data_reads: Vec<_> = fixture
+            .disk
+            .reads
+            .iter()
+            .filter(|(offset, _)| *offset >= first)
+            .collect();
+        assert_eq!(data_reads.len(), 2);
+        assert_eq!(data_reads[0].1, 65536);
+        fixture.disk.fail = Some(first + 65536);
+        fixture.disk.failures = 0;
+        output.fill(0xa5);
+        assert_eq!(
+            volume.read_file(&mut fixture.disk, entry, &mut output),
+            Err(Error::Io(7))
+        );
+        assert_eq!(fixture.disk.failures, 1);
+        assert_eq!(&output[..65536], &payload[..65536]);
+        assert!(output[65536..].iter().all(|&byte| byte == 0xa5));
     }
 }
 

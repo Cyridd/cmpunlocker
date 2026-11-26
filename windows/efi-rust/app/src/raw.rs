@@ -23,6 +23,8 @@ struct Reader {
     cache: Vec<u8>,
     aligned: usize,
     cached: Option<u64>,
+    calls: u64,
+    blocks_read: u64,
 }
 impl Reader {
     fn open(handle: Handle) -> Result<Self, Status> {
@@ -48,9 +50,9 @@ impl Reader {
         let media = media.media_id();
         let mut cache = Vec::new();
         cache
-            .try_reserve_exact(block + alignment - 1)
+            .try_reserve_exact(65536 + alignment - 1)
             .map_err(|_| Status::OUT_OF_RESOURCES)?;
-        cache.resize(block + alignment - 1, 0);
+        cache.resize(65536 + alignment - 1, 0);
         let aligned = (alignment - (cache.as_ptr() as usize & (alignment - 1))) & (alignment - 1);
         Ok(Self {
             io,
@@ -60,6 +62,8 @@ impl Reader {
             cache,
             aligned,
             cached: None,
+            calls: 0,
+            blocks_read: 0,
         })
     }
 }
@@ -78,6 +82,23 @@ impl ReadAt for Reader {
         while !bytes.is_empty() {
             let lba = offset / self.block as u64;
             let within = offset as usize % self.block;
+            if within == 0 && bytes.len() >= self.block * 2 {
+                let take = (bytes.len().min(65536) / self.block) * self.block;
+                self.cached = None;
+                self.io
+                    .read_blocks(
+                        self.media,
+                        lba,
+                        &mut self.cache[self.aligned..self.aligned + take],
+                    )
+                    .map_err(|e| e.status())?;
+                self.calls += 1;
+                self.blocks_read += (take / self.block) as u64;
+                bytes[..take].copy_from_slice(&self.cache[self.aligned..self.aligned + take]);
+                bytes = &mut bytes[take..];
+                offset += take as u64;
+                continue;
+            }
             if self.cached != Some(lba) {
                 self.cached = None;
                 self.io
@@ -88,6 +109,8 @@ impl ReadAt for Reader {
                     )
                     .map_err(|e| e.status())?;
                 self.cached = Some(lba);
+                self.calls += 1;
+                self.blocks_read += 1;
             }
             let take = (self.block - within).min(bytes.len());
             bytes[..take]
@@ -145,10 +168,10 @@ impl Source {
             .read_file(&mut reader, file, &mut bytes)
             .map_err(status)?;
         uefi::println!(
-            "CMP40: RAW_FILE_READ bytes={} FAT={:?} block_bytes={} SFS_CALLS=0",
+            "CMP40: RAW_FILE_READ bytes={} FAT={:?} block_bytes={} SFS_CALLS=0 io_calls={} blocks_read={}",
             bytes.len(),
             volume.kind,
-            reader.block
+            reader.block, reader.calls, reader.blocks_read
         );
         Ok(bytes)
     }

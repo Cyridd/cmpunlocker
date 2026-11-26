@@ -152,14 +152,23 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
         control,
         rebar_requested,
     );
-    let mut status = result.err().unwrap_or(Status::SUCCESS);
+    let mut status = result.err().map_or(Status::SUCCESS, failure_status);
     if let Err(error) = output.finish_traces(status.is_error()) {
         uefi::println!(
             "CMP40-CPU-RM: LOG_DETAIL_FAILED {:?}; handoff refused",
             error
         );
         if !status.is_error() {
-            status = error;
+            status = failure_status(error);
+        }
+    }
+    if !status.is_error() {
+        let batches = output.physical_writes();
+        if let Err(error) = output.write(format_args!(
+            "LOG_IO batches_before_seal={} buffer_bytes=4096\n",
+            batches
+        )) {
+            status = failure_status(error);
         }
     }
     if status.is_error() {
@@ -171,7 +180,7 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     if let Err(error) = output.seal() {
         uefi::println!("CMP40-CPU-RM: LOG_SEAL_FAILED {:?}; handoff refused", error);
         if !status.is_error() {
-            status = error;
+            status = failure_status(error);
         }
     }
     if status.is_error() {
@@ -183,7 +192,7 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     if let Some(image) = windows {
         // Logs and scoped hardware protocols are closed before entering Windows.
         drop(pci);
-        boot::start_image(image).map_or_else(|error| error.status(), |()| Status::SUCCESS)
+        handoff::start_prepared(image, gpu_attempted)
     } else {
         Status::SUCCESS
     }
@@ -347,7 +356,9 @@ fn prepare_and_execute(
     let plan = RadixPlan::new(metadata::IMAGE_BYTES).map_err(|_| Status::INVALID_PARAMETER)?;
     let mut radix = Dma::allocate(&mut slots, plan.total_bytes())?;
     let radix_address = radix.address();
-    plan.write_zero_image(radix.bytes_mut(), radix_address)
+    // Dma::allocate initialized every byte before exposing the slice. Only
+    // tables need rebuilding; clearing the image leaves again is redundant.
+    plan.write_tables(radix.bytes_mut(), radix_address)
         .map_err(|_| Status::INVALID_PARAMETER)?;
     io.flush();
     let mut meta = Dma::allocate(&mut slots, metadata::METADATA_BYTES)?;
@@ -376,11 +387,7 @@ fn prepare_and_execute(
         meta.address()
     ))?;
     for (index, chunk) in wire.as_bytes().chunks(32).enumerate() {
-        output.write(format_args!("META {:02x} ", index * 32))?;
-        for byte in chunk {
-            output.write(format_args!("{:02x}", byte))?;
-        }
-        output.write(format_args!("\n"))?;
+        output.hex_line(format_args!("META {:02x} ", index * 32), chunk)?;
     }
     output.checkpoint(format_args!(
         "CMP40-CPU-RM: TRANSACTION_BEGIN; trace buffered until completion\n"
@@ -422,5 +429,15 @@ fn status(error: transaction::Error) -> Status {
         transaction::Error::Timeout => Status::TIMEOUT,
         transaction::Error::InvalidInput => Status::INVALID_PARAMETER,
         transaction::Error::NotReady | transaction::Error::AlreadyAttempted => Status::NOT_READY,
+    }
+}
+
+fn failure_status(status: Status) -> Status {
+    // Result::Err includes UEFI warnings such as WARN_DELETE_FAILURE. They
+    // must not bypass the failure tail after a required logging operation.
+    if status.is_error() {
+        status
+    } else {
+        Status::DEVICE_ERROR
     }
 }

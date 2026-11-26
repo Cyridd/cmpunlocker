@@ -16,6 +16,8 @@ pub mod handoff;
 pub mod hardware;
 pub mod image;
 #[cfg(feature = "cpu-rm")]
+mod log_store;
+#[cfg(feature = "cpu-rm")]
 pub mod output;
 pub mod policy;
 pub mod raw;

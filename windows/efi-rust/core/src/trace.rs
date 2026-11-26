@@ -58,3 +58,20 @@ pub fn encode(events: &[Event]) -> impl Iterator<Item = Record> + '_ {
 pub fn full_log(requested: bool, failed: bool, diagnostic: bool) -> bool {
     requested || failed || diagnostic
 }
+
+pub const MAX_EVENTS: usize = 131072;
+
+/// Bound all possible live functions, not just the successful board's trace.
+/// ReBAR: one three-read scan plus twelve six-read conflict scans per slot.
+/// Gen2: three-read discovery plus generous headroom for capability walks,
+/// leaf-bus rechecks, 200 link polls and target restoration. Clamp to the
+/// existing capture limit; larger topologies retain its overflow reporting.
+pub fn phase_capacity(rebar: bool, roots: usize, target_bus: u8) -> usize {
+    let slots = roots.min(8) * usize::from(target_bus) * 32 * 8;
+    let bound = if rebar {
+        512 + slots * 75
+    } else {
+        16384 + slots * 3
+    };
+    bound.min(MAX_EVENTS)
+}

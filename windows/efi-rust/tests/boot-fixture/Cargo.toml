@@ -56,3 +56,10 @@ bench = false
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
+
+[[bin]]
+name = "cmp40-fixture-return-error"
+path = "src/return_error.rs"
+required-features = ["adapters"]
+test = false
+bench = false

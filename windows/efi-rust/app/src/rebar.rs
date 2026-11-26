@@ -197,7 +197,10 @@ fn key(bridge: Bridge, offset: u8) -> u32 {
 
 pub fn execute(pci: &mut Pci, mmio: &mut Mmio, output: &mut Output) -> Result<(), Status> {
     // Allocation/discovery failure here skips ReBAR without touching XVE/BARs.
-    let prepared = RebarRoots::collect(pci).and_then(|roots| Ok((roots, Trace::new()?)));
+    let prepared = RebarRoots::collect(pci).and_then(|roots| {
+        let capacity = cmp40_efi_core::trace::phase_capacity(true, roots.count(), pci.bdf.bus);
+        Ok((roots, Trace::with_capacity(capacity)?))
+    });
     let (roots, trace) = match prepared {
         Ok(prepared) => prepared,
         Err(status) => {

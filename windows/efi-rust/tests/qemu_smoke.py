@@ -15,9 +15,9 @@ import struct
 import subprocess
 import tempfile
 import time
-from fat16_fixture import Fat16, CLUSTER_BYTES
+from fat16_fixture import Fat16, CLUSTER_BYTES, SECTORS, DATA_SECTOR
 from fat32_fixture import Fat32
-from trace_log import transform
+from trace_log import transform, managed_payload
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 GEN2_CASES = [f"gen2-{mode}-{control}" for mode in ("prepare", "targets", "retrain")
@@ -74,7 +74,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
     rebar_case = case.startswith("rebar-")
     gen2_case = case.startswith("gen2-")
     cpu_rm = case in ("cpu-full-no-gpu", "cpu-zero-no-gpu") or rebar_case or gen2_case
-    adapter_case = case in ("logging", "failed-parent", "logcheck")
+    adapter_case = case in ("logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full")
     raw_case = case.startswith("raw-")
     entry_case = case.startswith("entrycheck")
     disk_image = None
@@ -212,9 +212,17 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             copy(binaries[7], esp, "EFI/BOOT/BOOTX64.EFI")
             required = ["CMP40-LOGCHECK: BEGIN GPU_WRITES=0", "LOG_VERIFIED",
                         "CMP40-LOGCHECK: LOG_CHECK_READY GPU_WRITES=0"]
-        elif case == "logging":
+        elif case in ("logging", "retention", "volume-full"):
+            if case == "retention":
+                (esp / "ROTATE.TXT").write_bytes(b"1")
             copy(binaries[5], esp, "EFI/BOOT/BOOTX64.EFI")
             required = ["LOG_VERIFIED", "CMP40-FIXTURE: LOG_TEST_READY GPU_WRITES=0"]
+        elif case == "failed-start":
+            copy(binaries[6], esp, "EFI/BOOT/BOOTX64.EFI")
+            child = next(path for path in binaries if path.name == "cmp40-fixture-return-error.efi")
+            copy(child, esp, "EFI/CMP40/FAILRET.EFI")
+            (esp / "STARTERR.TXT").write_bytes(b"1")
+            required = ["START_ERROR_CHILD", "RETURN_DEVICE_ERROR", "START_IMAGE_FAILED DEVICE_ERROR", "FAILURE_PARKED DEVICE_ERROR GPU_ATTEMPTED=1"]
         else:
             copy(binaries[6], esp, "EFI/BOOT/BOOTX64.EFI")
             copy(binaries[5], esp, "EFI/CMP40/FAILED.EFI")
@@ -225,6 +233,19 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
         for file in esp.rglob("*"):
             if file.is_file():
                 fat.add(file.relative_to(esp).as_posix(), file.read_bytes())
+        if case == "retention":
+            fat.add("RF000999.LOG", b"legacy preserved")
+            fat.add("EFI/40HX/LOGS/L0001000.LOG", b"foreign preserved")
+            fat.add("EFI/40HX/LOGS/KEEP.TXT", b"unrelated preserved")
+            required.insert(1, "RETENTION_READY GPU_WRITES=0")
+        if case == "volume-full":
+            fat.add("RF000999.LOG", b"legacy preserved")
+            fat.add("EFI/40HX/LOGS/KEEP.TXT", b"unrelated preserved")
+            remaining = (SECTORS - DATA_SECTOR) // 4 - (fat.next_cluster - 2)
+            fat.add("FILLER.BIN", b"x" * (remaining * CLUSTER_BYTES))
+            required = ["LOG_TEST_FAILED VOLUME_FULL"]
+            forbidden.remove("LOG_TEST_FAILED")
+            forbidden += ["LOG_TEST_READY", "FAILURE_PARKED"]
         disk_image = root / "esp.img"
         disk_image.write_bytes(fat.data)
     elif cpu_rm:
@@ -320,7 +341,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                     if case == "invalid-windows" and not re.search(
                             r"WINDOWS_PREPARE_FAILED (?:LOAD_ERROR|UNSUPPORTED) GPU_WRITES=0", text):
                         raise RuntimeError(f"{case}: unexpected rejection status; inspect {serial}")
-                    if case == "failed-parent":
+                    if case in ("failed-parent", "failed-start"):
                         if ready_since is None:
                             ready_since = time.monotonic()
                         if time.monotonic() - ready_since < 1:
@@ -341,8 +362,8 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                 process.kill()
                 process.wait()
     if entry_case:
-        actual = Fat16(disk_image.read_bytes()).read_root_file("RE000001.LOG")
-        text = actual.decode()
+        actual = Fat16(disk_image.read_bytes()).read_file("EFI/40HX/LOGS/L0000001.LOG")
+        text = managed_payload(actual.decode())
         for marker in required[1:-1]:
             if marker not in text:
                 raise RuntimeError(f"{case}: persisted early log is missing {marker}")
@@ -351,13 +372,44 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
         (root / "RE000001.LOG").write_bytes(actual)
     elif adapter_case:
         fat = Fat16(disk_image.read_bytes())
+        if case == "volume-full":
+            assert fat.read_root_file("RF000999.LOG") == b"legacy preserved"
+            assert fat.read_file("EFI/40HX/LOGS/KEEP.TXT") == b"unrelated preserved"
+            print("Full FAT refused logging before any GPU access; unrelated files preserved", flush=True)
+        if case in ("failed-start", "volume-full"):
+            return {"case": case, "passed": passed, "seconds": round(time.monotonic() - started, 2), "serial_log": str(serial), "qemu_command": command}
+        if case == "retention":
+            assert fat.read_root_file("RF000999.LOG") == b"legacy preserved"
+            assert fat.read_file("EFI/40HX/LOGS/L0001000.LOG") == b"foreign preserved"
+            assert fat.read_file("EFI/40HX/LOGS/KEEP.TXT") == b"unrelated preserved"
+            summaries, traces, total, interrupted, latest = 0, 0, 0, False, False
+            for entry in fat.directory_entries("EFI/40HX/LOGS"):
+                stem = entry[:8].decode().strip()
+                if not re.fullmatch(r"L[0-9]{7}", stem) or stem == "L0001000": continue
+                data = fat.read_file(f"EFI/40HX/LOGS/{stem}.LOG")
+                total += len(data)
+                if b"RETENTION_INTERRUPTED" in data:
+                    assert b"CMP40_END_V3" not in data
+                    interrupted = True
+                    traces += 1
+                else:
+                    payload = managed_payload(data.decode())
+                    latest |= "RETENTION_AFTER_INTERRUPT" in payload
+                    if b"CMP40_END_V3 kind=T" in data: traces += 1
+                    else: summaries += 1
+            assert summaries == 32 and traces <= 4 and total <= 8 * 1024 * 1024
+            assert interrupted and latest
+            print(f"Retained summaries={summaries} traces={traces} bytes={total}; old/foreign files preserved", flush=True)
+            return {"case": case, "passed": passed, "seconds": round(time.monotonic() - started, 2), "serial_log": str(serial), "qemu_command": command}
+
         first = (b"LOG_FIXTURE_FIRST\n" + b"".join(
             f"line={index:03} abcdefghijklmnopqrstuvwxyz\n".encode() for index in range(160))
+            + b"".join(f"META {index:02x} {bytes(range(index,index+32)).hex()}\n".encode() for index in range(0,256,32))
             + b"LOG_FIXTURE_TAIL\n")
         expected_logs = (("RL000001.LOG", b"CMP40-LOGCHECK: FILE_WRITE_TEST GPU_WRITES=0\nCMP40-LOGCHECK: READY GPU_WRITES=0\n"),) if case == "logcheck" else (
             ("RZ000001.LOG", first), ("RZ000002.LOG", b"LOG_FIXTURE_SECOND\n"))
         for name, expected in expected_logs:
-            actual = fat.read_root_file(name)
+            actual = managed_payload(fat.read_file("EFI/40HX/LOGS/L0000001.LOG" if case == "logcheck" else "EFI/40HX/LOGS/L0000001.LOG" if name == "RZ000001.LOG" else "EFI/40HX/LOGS/L0000002.LOG").decode()).encode()
             if actual != expected:
                 raise RuntimeError(f"{case}: persisted {name} differs from written content")
             (root / name).write_bytes(actual)
@@ -366,7 +418,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                     ("SUMMARY", False, False, False), ("EXPLICIT", True, False, False),
                     ("LATE_FAILURE", False, True, False), ("ROLLBACK", False, False, True)], 3):
                 filename = f"RZ{index:06}.LOG"
-                actual = fat.read_root_file(filename).decode()
+                actual = managed_payload(fat.read_file(f"EFI/40HX/LOGS/L{index:07}.LOG").decode())
                 full = requested or failed or diagnostic
                 mode = "trace" if full else "summary"
                 flag = lambda value: str(value).lower()
@@ -393,7 +445,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                 if actual != expected:
                     raise RuntimeError(f"{case}: persisted {filename} has incorrect logging mode or bytes")
                 (root / filename).write_text(actual)
-            actual = fat.read_root_file("RZ000007.LOG").decode()
+            actual = managed_payload(fat.read_file("EFI/40HX/LOGS/L0000007.LOG").decode())
             expected = ("LOG_DETAIL mode=trace requested=false failed=false diagnostic=true\n"
                         "TRACE_BEGIN version=2 phase=CPU_RM records=131072 encoded_records=3 "
                         "operations=131072 omitted_data_ports=0 dropped=1\n"
@@ -415,7 +467,7 @@ def main():
     parser.add_argument("--image-dir", type=Path, default=WORKSPACE / "target/x86_64-unknown-uefi/release")
     parser.add_argument("--case", action="append", choices=["windows", "unique-windows", "parent",
                         "no-windows", "invalid-windows", "ambiguous-windows", "self-windows",
-                        "cpu-full-no-gpu", "cpu-zero-no-gpu", "logging", "failed-parent", "logcheck", "entrycheck", "entrycheck-invalid",
+                        "cpu-full-no-gpu", "cpu-zero-no-gpu", "logging", "failed-parent", "failed-start", "retention", "volume-full", "logcheck", "entrycheck", "entrycheck-invalid",
                         "raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc",
                         "rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume", "rebar-trace"] + GEN2_CASES)
     parser.add_argument("--cpu-rm", action="store_true", help="also boot FULL/ZERO no-GPU paths")
@@ -431,11 +483,11 @@ def main():
     variables = firmware(args.ovmf_vars, "OVMF_VARS.4m.fd")
     binaries = [args.image_dir / name for name in ("cmp40-readonly.efi", "cmp40-fixture-windows.efi",
                                                   "cmp40-fixture-parent.efi")]
-    if args.cpu_rm or args.adapters or args.raw or args.rebar or args.gen2 or any(case.startswith(("cpu-", "entrycheck", "rebar-", "gen2-")) or case in ("logging", "failed-parent", "logcheck") for case in (args.case or [])):
+    if args.cpu_rm or args.adapters or args.raw or args.rebar or args.gen2 or any(case.startswith(("cpu-", "entrycheck", "rebar-", "gen2-")) or case in ("logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full") for case in (args.case or [])):
         binaries += [args.image_dir / name for name in ("cmp40-cpu-rm-full.efi", "cmp40-cpu-rm-zero.efi")]
-    if args.adapters or any(case in ("logging", "failed-parent", "logcheck") for case in (args.case or [])):
+    if args.adapters or any(case in ("logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full") for case in (args.case or [])):
         binaries += [args.image_dir / name for name in ("cmp40-fixture-log.efi", "cmp40-fixture-failed-parent.efi")]
-        binaries += [args.image_dir / "cmp40-logcheck.efi"]
+        binaries += [args.image_dir / "cmp40-logcheck.efi", args.image_dir / "cmp40-fixture-return-error.efi"]
     if args.raw or any(case.startswith("raw-") for case in (args.case or [])):
         binaries += [args.image_dir / "cmp40-fixture-raw.efi"]
     if any(case.startswith("entrycheck") for case in (args.case or [])):
@@ -454,7 +506,7 @@ def main():
     if args.cpu_rm and not args.case:
         cases += ["cpu-full-no-gpu", "cpu-zero-no-gpu"]
     if args.adapters and not args.case:
-        cases += ["logging", "failed-parent", "logcheck"]
+        cases += ["logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full"]
     if args.raw and not args.case:
         cases += ["raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc"]
     if args.rebar and not args.case:
