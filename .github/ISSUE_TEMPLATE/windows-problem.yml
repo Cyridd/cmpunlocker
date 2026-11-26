@@ -22,13 +22,13 @@ body:
     attributes:
       label: Before reporting
       options:
-        - label: The installation is UEFI/GPT (not MBR/Legacy)
+        - label: My installation is UEFI/GPT (not MBR/Legacy)
           required: true
         - label: "**Above 4G Decoding** is enabled in firmware setup"
           required: true
         - label: "**Secure Boot** and **CSM** are disabled — the EFI application is unsigned and will be skipped otherwise"
           required: true
-        - label: The tool was run as Administrator
+        - label: I ran the tool as Administrator
           required: true
         - label: I searched existing issues and this isn't a duplicate or already-fixed problem
           required: true

@@ -15,11 +15,11 @@ body:
     attributes:
       label: Prerequisites
       options:
-        - label: All packages listed in docs/linux-install.md for the distribution are installed (build-essential/base-devel, matching kernel headers, bc, flex, bison, libelf-dev, libssl-dev, etc.)
+        - label: I installed all packages listed in docs/linux-install.md for my distro (build-essential/base-devel, matching kernel headers, bc, flex, bison, libelf-dev, libssl-dev, etc.)
           required: true
-        - label: NVIDIA userspace/firmware matches the selected supported version (620.70.06 by default, or 615.78.08 / 610.57.04 / 580.173.02)
+        - label: My NVIDIA userspace/firmware matches the selected supported version (615.78.08 by default, or 610.57.04 / 580.173.02)
           required: true
-        - label: Existing issues have been searched; no duplicate was found
+        - label: I searched existing issues and this isn't a duplicate
           required: true
 
   - type: input
