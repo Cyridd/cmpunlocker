@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! The existing Windows CPU-RM profile, serialized explicitly in little
+//! The existing Windows compute unlock profile, serialized explicitly in little
 //! endian. This is a boot argument block, never a native Rust ABI structure.
 
 use crate::valid_dma_region;
@@ -9,7 +9,7 @@ pub const FRAMEBUFFER_BYTES: u64 = 0x2_0000_0000;
 pub const IMAGE_BYTES: usize = 0x1bf_adc8;
 pub const BOOTLOADER_BYTES: usize = 0x6000;
 pub const PAYLOAD_BYTES: usize = 0xfa00;
-pub const CPU_RM_HEAP_BYTES: u64 = 0xf0000;
+pub const SMALL_WPR_HEAP_BYTES: u64 = 0xf0000;
 const MIB: u64 = 0x10_0000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,9 +45,9 @@ pub enum MetadataError {
 pub struct WprMetadata([u8; METADATA_BYTES]);
 
 impl WprMetadata {
-    /// Build only the validated 8 GiB CMP40HX Windows CPU-RM profile. The
+    /// Build only the validated 8 GiB CMP40HX Windows compute unlock profile. The
     /// small heap, image size, bootloader offsets and flags match the C EFI.
-    pub fn cpu_rm(
+    pub fn small_wpr(
         addresses: DmaAddresses,
         signature: SignatureKind,
     ) -> Result<Self, MetadataError> {
@@ -63,7 +63,7 @@ impl WprMetadata {
         let frts_start = wpr_end - MIB;
         let boot_start = (frts_start - BOOTLOADER_BYTES as u64) & !0xfff;
         let image_start = (boot_start - IMAGE_BYTES as u64) & !0xffff;
-        let heap_start = (image_start - CPU_RM_HEAP_BYTES) & !(MIB - 1);
+        let heap_start = (image_start - SMALL_WPR_HEAP_BYTES) & !(MIB - 1);
         let wpr_start = heap_start - MIB;
         let non_wpr_start = wpr_start - MIB;
 
@@ -84,7 +84,7 @@ impl WprMetadata {
             (0x68, MIB),
             (0x70, wpr_start),
             (0x78, heap_start),
-            (0x80, CPU_RM_HEAP_BYTES),
+            (0x80, SMALL_WPR_HEAP_BYTES),
             (0x88, image_start),
             (0x90, boot_start),
             (0x98, frts_start),

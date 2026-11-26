@@ -59,13 +59,13 @@ def encoded(events):
 
 def managed_payload(text):
     """Validate the managed envelope and return its payload; accept old logs."""
-    if not text.startswith("CMP40_LOG_V3 "):
+    if not text.startswith(("CMPUNLOCKER_LOG_V3 ", "CMP40_LOG_V3 ")):
         return text
     header, rest = text.split("\n", 1)
-    parsed = re.fullmatch(r"CMP40_LOG_V3 generation=([0-9]{7}) control=(full|zero|logcheck|entrycheck)", header)
-    if not parsed or int(parsed[1]) == 0:
+    parsed = re.fullmatch(r"(CMPUNLOCKER|CMP40)_LOG_V3 generation=([0-9]{7}) control=(full|zero|logcheck|entrycheck)", header)
+    if not parsed or int(parsed[2]) == 0:
         raise ValueError("invalid managed header")
-    match = re.search(r"CMP40_END_V3 kind=([ST]) bytes=([0-9]{20}) fnv=([0-9a-f]{16})\n\Z", rest)
+    match = re.search(parsed[1] + r"_END_V3 kind=([ST]) bytes=([0-9]{20}) fnv=([0-9a-f]{16})\n\Z", rest)
     if not match:
         raise ValueError("incomplete managed log")
     body = (header + "\n" + rest[:match.start()]).encode()
@@ -89,9 +89,9 @@ def transform(text, compress=False):
     result, reports = _transform(content, compress)
     if content != text:
         header = text.split("\n", 1)[0] + "\n"
-        kind = re.search(r"CMP40_END_V3 kind=([ST])", text)[1]
+        footer_tag_and_kind = text[len(header) + len(content):].split(" bytes=", 1)[0]
         body = header + result
-        result = body + f"CMP40_END_V3 kind={kind} bytes={len(body.encode()):020} fnv={fnv(body.encode()):016x}\n"
+        result = body + f"{footer_tag_and_kind} bytes={len(body.encode()):020} fnv={fnv(body.encode()):016x}\n"
         if len(result.encode()) > MAX_OUTPUT_BYTES:
             raise ValueError("expanded output exceeds byte limit")
     return result, reports

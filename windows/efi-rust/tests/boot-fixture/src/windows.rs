@@ -27,10 +27,10 @@ fn main() -> Status {
         Ok::<_, Status>(())
     })();
     if let Err(status) = valid {
-        uefi::println!("CMP40-FIXTURE: WINDOWS_VOLUME_INVALID {:?}", status);
+        uefi::println!("CMPUNLOCKER-FIXTURE: WINDOWS_VOLUME_INVALID {:?}", status);
         return status;
     }
-    uefi::println!("CMP40-FIXTURE: WINDOWS_VOLUME_OK");
-    uefi::println!("CMP40-FIXTURE: WINDOWS_CHAIN_REACHED");
+    uefi::println!("CMPUNLOCKER-FIXTURE: WINDOWS_VOLUME_OK");
+    uefi::println!("CMPUNLOCKER-FIXTURE: WINDOWS_CHAIN_REACHED");
     Status::SUCCESS
 }

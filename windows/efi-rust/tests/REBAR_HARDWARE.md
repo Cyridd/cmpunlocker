@@ -1,6 +1,8 @@
 # Rust ReBAR-r1 physical test
 
-The package contains experimental FULL/ZERO CPU-RM images with the C EFI's
+Current builds log `CMPUNLOCKER-REBAR:`. The examples from the earlier images use `CMP40-REBAR:`.
+
+The package contains experimental FULL/ZERO compute unlock images with the C EFI's
 8 GiB BAR1 relocation. Host comparisons cover PCI/MMIO decisions and rollback;
 QEMU checks policy loading, memory-map access and boot refusal without a GPU.
 ReBAR-r1 now has hardware acceptance: the supplied four logs confirm ZERO/FULL
@@ -35,7 +37,7 @@ using the existing working path syntax. An empty command line uses direct
 Windows handoff and the file policy.
 
 Before testing relocation, cold-boot each new image with `norebar` to compare
-its CPU-RM and Windows behavior with the accepted pair. This token overrides
+its compute unlock and Windows behavior with the accepted pair. This token overrides
 both the file policy and `--experimental-rebar`. For a USB fallback entry
 without load options, set the file to `CMP40HX_REBAR_V1=0` followed by LF for
 this baseline check, then restore the enabled file for the relocation tests.
@@ -83,7 +85,7 @@ unlocker, since those can change what survives from EFI. A literal
 
 `SKIPPED` retains stock BARs. `RESULT XveRejected`, `Bar1SizeRejected`,
 `Bar3SizeRejected`, `NoWindow` or `ApertureRejected` means the C rollback path
-was attempted; boot continues after native CPU-RM completion. Preserve the
+was attempted; boot continues after native compute unlock completion. Preserve the
 log and check the resulting BAR1 size instead of treating that run as success.
 
 The allocator keeps the C algorithm: up to 12 candidates, 8 GiB alignment,
@@ -96,7 +98,7 @@ malformed memory-map arithmetic. It never relocates BAR0.
 Logging checkpoints precede ReBAR entry and follow return. PCI/MMIO operations
 are buffered in RAM; a stalled firmware or VRAM access can leave only the
 pre-ReBAR checkpoint. On a stall, black screen or `FAILURE_PARKED`, fully power
-off before another attempt. Failed CPU-RM completion never enters ReBAR.
+off before another attempt. Failed compute unlock completion never enters ReBAR.
 Existing numbered logs are preserved.
 
 The second `TRACE_BEGIN` block belongs to ReBAR. `P/Q` are GPU config

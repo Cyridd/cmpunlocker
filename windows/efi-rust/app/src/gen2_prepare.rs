@@ -4,5 +4,5 @@
 use uefi::prelude::*;
 #[entry]
 fn main() -> Status {
-    cmp40_efi::cpu_rm::gen2_entry(cmp40_efi_core::gen2::Action::Prepare)
+    cmp40_efi::unlock::gen2_entry(cmp40_efi_core::gen2::Action::Prepare)
 }

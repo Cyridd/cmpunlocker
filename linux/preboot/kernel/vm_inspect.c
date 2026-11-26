@@ -52,7 +52,7 @@ static int vm_dump_target(struct vm_view *v, const char *name, u64 addr,
 	u32 at;
 	int ret = vm_read_target(v, addr, out, size, target);
 
-	pci_info(v->pdev, "cmp40_preboot: SEC2_VM_BLOB %s addr=%#llx size=%#x status=%d\n",
+	pci_info(v->pdev, "CMPUNLOCKER: SEC2_VM_BLOB %s addr=%#llx size=%#x status=%d\n",
 		name, (unsigned long long)addr, size, ret);
 	if (ret)
 		return ret;
@@ -64,10 +64,10 @@ static int vm_dump_target(struct vm_view *v, const char *name, u64 addr,
 		u8 *p = (u8 *)out + at;
 
 		if (bytes > 64)
-			pci_info(v->pdev, "cmp40_preboot: SEC2_VM_HEX %s %04x: %*phN%*phN\n",
+			pci_info(v->pdev, "CMPUNLOCKER: SEC2_VM_HEX %s %04x: %*phN%*phN\n",
 				name, at, 64, p, bytes - 64, p + 64);
 		else
-			pci_info(v->pdev, "cmp40_preboot: SEC2_VM_HEX %s %04x: %*phN\n",
+			pci_info(v->pdev, "CMPUNLOCKER: SEC2_VM_HEX %s %04x: %*phN\n",
 				name, at, bytes, p);
 	}
 	return 0;
@@ -109,7 +109,7 @@ static int vm_range(struct vm_view *v, const char *name, u32 va, u32 size,
 		bytes = min(bytes, page_size - (page_va & (page_size - 1)));
 		addr = vm_entry_addr(entry) + (page_va & (page_size - 1));
 		snprintf(label, sizeof(label), "%s_%04x", name, at);
-		pci_info(v->pdev, "cmp40_preboot: SEC2_VM_MAP %s offset=%#x va=%#x pte=%08x:%08x phys=%#llx size=%#x\n",
+		pci_info(v->pdev, "CMPUNLOCKER: SEC2_VM_MAP %s offset=%#x va=%#x pte=%08x:%08x phys=%#llx size=%#x\n",
 			name, at, page_va, (u32)(entry >> 32), (u32)entry,
 			(unsigned long long)addr, bytes);
 		ret = vm_dump(v, label, addr, buf, bytes);
@@ -139,7 +139,7 @@ static int vm_walk(struct vm_view *v, u32 *buf)
 	lo = buf[128];
 	hi = buf[129];
 	addr = ((u64)hi << 32) | (lo & 0xfffff000u);
-	pci_info(v->pdev, "cmp40_preboot: SEC2_VM_PDB record=%08x:%08x addr=%#llx new_pt=%u target=%u\n",
+	pci_info(v->pdev, "CMPUNLOCKER: SEC2_VM_PDB record=%08x:%08x addr=%#llx new_pt=%u target=%u\n",
 		hi, lo, (unsigned long long)addr, !!(lo & (1u << 10)), lo & 3);
 	if (!(lo & (1u << 10)) || (lo & 3) || !addr || addr >= VM_FB_SIZE)
 		return -EOPNOTSUPP;
@@ -203,7 +203,7 @@ static int vm_fault(struct vm_view *v, u32 *buf)
 	get = readl(v->bar + base + 0x3008);
 	put = readl(v->bar + base + 0x300c);
 	size = readl(v->bar + base + 0x3010);
-	pci_info(v->pdev, "cmp40_preboot: SEC2_VM_FAULT_BEGIN bar2=%08x buffer=%08x:%08x get=%08x put=%08x size=%08x\n",
+	pci_info(v->pdev, "CMPUNLOCKER: SEC2_VM_FAULT_BEGIN bar2=%08x buffer=%08x:%08x get=%08x put=%08x size=%08x\n",
 		bar2, hi, lo, get, put, size);
 	/* Buffer bases are BAR2 virtual addresses, not physical FB addresses:
 	 * kgmmuEnableFaultBuffer_GV100 writes bar2FaultBufferAddr. Follow the
@@ -257,7 +257,7 @@ static int vm_fault(struct vm_view *v, u32 *buf)
 		return -EOPNOTSUPP;
 	addr = target ? ((entry >> 8) & 0x3fffffffffffull) << 12 : vm_entry_addr(entry);
 	addr += va & (small ? 0xfff : 0xffff);
-	pci_info(v->pdev, "cmp40_preboot: SEC2_VM_FAULT_MAP va=%#llx pte=%08x:%08x target=%u phys=%#llx\n",
+	pci_info(v->pdev, "CMPUNLOCKER: SEC2_VM_FAULT_MAP va=%#llx pte=%08x:%08x target=%u phys=%#llx\n",
 		(unsigned long long)va, (u32)(entry >> 32), (u32)entry,
 		target, (unsigned long long)addr);
 	ret = vm_dump_target(v, "FAULT_RECORD", addr, buf, 32, target);
@@ -300,17 +300,17 @@ int cmp40_sec2_vm(struct pci_dev *pdev)
 	if (v.saved_window == ~0u || (v.saved_window & 0xffff0000u) == 0xbadf0000u)
 		goto out;
 	instance_before = readl(v.bar + 0x840620);
-	pci_info(pdev, "cmp40_preboot: SEC2_VM_BEGIN window=%08x INSTBLK=%08x CHANNEL_CUR=%08x CHANNEL_NEXT=%08x STATUS_PAUSE=%08x\n",
+	pci_info(pdev, "CMPUNLOCKER: SEC2_VM_BEGIN window=%08x INSTBLK=%08x CHANNEL_CUR=%08x CHANNEL_NEXT=%08x STATUS_PAUSE=%08x\n",
 		v.saved_window, instance_before, readl(v.bar + 0x840050),
 		readl(v.bar + 0x840054), readl(v.bar + 0x84005c));
 	walk_status = vm_walk(&v, buf);
 	fault_status = vm_fault(&v, buf);
-	pci_info(pdev, "cmp40_preboot: SEC2_VM_FAULT_END status=%d\n", fault_status);
+	pci_info(pdev, "CMPUNLOCKER: SEC2_VM_FAULT_END status=%d\n", fault_status);
 	writel(v.saved_window, v.bar + VM_WINDOW);
 	ret = (readl(v.bar + VM_WINDOW) == v.saved_window &&
 	       readl(v.bar + 0x840620) == instance_before && readl(v.bar + 0x840100) == 0 &&
 	       readl(v.bar + 0x840040) == 0xfe) ? 0 : -EAGAIN;
-	pci_info(pdev, "cmp40_preboot: SEC2_VM_END window_restored=%u stable=%u walk_status=%d\n",
+	pci_info(pdev, "CMPUNLOCKER: SEC2_VM_END window_restored=%u stable=%u walk_status=%d\n",
 		readl(v.bar + VM_WINDOW) == v.saved_window, !ret, walk_status);
 out:
 	iounmap(v.bar);

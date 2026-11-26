@@ -1,6 +1,8 @@
 # Physical checks for Rust carrier-r1
 
-The `CARRIER1.EFI` image is the default build without the `cpu-rm` feature.
+Current builds log `CMPUNLOCKER-READONLY:`. The examples from the earlier images use `CMP40-READONLY:`.
+
+The `CARRIER1.EFI` image is the default build without the `unlock` feature.
 It inventories PCI devices and discovers the CMP40HX through the same
 RootBridgeIo Standard/Compact and CF8 paths as FULL/ZERO. It does not enable
 BARs or run a GPU transaction. Source-buffer loading and boot-option parsing
@@ -65,7 +67,7 @@ The separately packaged pair now has a standalone
 The accepted carrier-r1 pair is frozen at `target/baseline-carrier-gpu-fe02bf7/`.
 Its Windows logs identify
 `HANDOFF_PREPARED parent=false source=Some(RawBuffer)`. Use the
-[CPU-RM procedure](CPU_RM_HARDWARE.md) and compare the normal native state and compute
+[compute unlock procedure](UNLOCK_HARDWARE.md) and compare the normal native state and compute
 behavior. FWSEC/Booter, image geometry and DMA allocation code are unchanged.
 
 Physical FULL-to-Limine-to-Linux also passes on the tested configuration

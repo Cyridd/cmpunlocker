@@ -1,6 +1,6 @@
 # CI for the CMP 40HX unlock project.
 #
-# Independent Windows/UEFI and Linux CPU-RM gates:
+# Independent Windows/UEFI and Linux pre-driver gates:
 #
 #   1. go-tools — builds every Go module, vets it, and runs the unit tests
 #      that can only execute on Windows (40hxcore imports
@@ -15,7 +15,7 @@
 #      embed/40HXUNLK.EFI. The build is byte-for-byte reproducible, so a
 #      mismatch means the committed payload and its source have drifted.
 #
-# The CPU-RM job builds without loading a module and exercises the firmware
+# The Linux pre-driver job builds without loading a module and exercises the firmware
 # parsers/layout offline. The open-module patch series has its separate CI.
 
 name: CI
@@ -25,13 +25,13 @@ on:
     branches: [main, port/rust]
     paths:
       - 'windows/**'
-      - 'linux/cpu-rm/**'
+      - 'linux/preboot/**'
       - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'windows/**'
-      - 'linux/cpu-rm/**'
+      - 'linux/preboot/**'
       - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
@@ -64,7 +64,7 @@ jobs:
           cargo +"$RUST_TOOLCHAIN" fmt --all -- --check
           cargo +"$RUST_TOOLCHAIN" clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
           cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture -- -D warnings
-          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi --features cpu-rm -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi --features unlock -- -D warnings
           cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi-boot-fixture --features adapters -- -D warnings
           cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters -- -D warnings
       - name: Compare Rust boot data and firmware operations with the actual C EFI functions
@@ -79,12 +79,12 @@ jobs:
         run: |
           set -euo pipefail
           cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture
-          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
+          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features unlock,adapters
           cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters
       - name: Install QEMU and OVMF
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
       - name: Boot EFI and verify persisted logs and parked failure in QEMU
-        run: python3 tests/qemu_smoke.py --cpu-rm --adapters --raw --rebar --gen2
+        run: python3 tests/qemu_smoke.py --unlock --adapters --raw --rebar --gen2
       - name: Check early logs and unstarted candidate images
         working-directory: windows/efi-rust
         run: python3 tests/qemu_smoke.py --case entrycheck --case entrycheck-invalid
@@ -100,8 +100,8 @@ jobs:
             windows/efi-rust/target/qemu-smoke/**/R*.LOG
           if-no-files-found: ignore
 
-  linux-cpu-rm:
-    name: Linux CPU-RM module and offline firmware checks
+  linux-unlock:
+    name: Linux pre-driver module and offline firmware checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,14 +112,14 @@ jobs:
           set -euo pipefail
           kdir=$(find /lib/modules -maxdepth 2 -name build | sort | tail -n1)
           test -n "$kdir"
-          make -C linux/cpu-rm/kernel KDIR="$kdir" W=1 -j2
+          make -C linux/preboot/kernel KDIR="$kdir" W=1 -j2
       - name: Verify firmware preparation and parsers
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s linux/cpu-rm/firmware -p 'test_*.py' -v
-          python3 linux/cpu-rm/firmware/prepare.py
-          make -C linux/cpu-rm offline-test
-          bash -n linux/cpu-rm/unlock.sh linux/cpu-rm/gen2.sh linux/cpu-rm/common.sh linux/cpu-rm/mkinitcpio/cmp40-unlock
+          python3 -m unittest discover -s linux/preboot/firmware -p 'test_*.py' -v
+          python3 linux/preboot/firmware/prepare.py
+          make -C linux/preboot offline-test
+          bash -n linux/preboot/unlock.sh linux/preboot/gen2.sh linux/preboot/common.sh linux/preboot/mkinitcpio/cmp40-unlock
 
   go-tools:
     name: Go tools (${{ matrix.name }})

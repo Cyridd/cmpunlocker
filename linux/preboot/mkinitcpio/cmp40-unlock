@@ -100,8 +100,8 @@ modprobe -n cmp40_preboot >/dev/null 2>&1 || skip "cmp40_preboot is not availabl
 
 # Leave the guard installed if modprobe, the wrapper or the service is interrupted.
 block_drivers || fail "could not install the driver block; unlock was not attempted"
-msg 6 "unlocking $gpu (CPU-RM, stock handoff, small WPR heap)"
-modprobe cmp40_preboot target="$gpu" mode=unlock cpu_rm_handoff=1 stock_handoff=1 small_wpr_heap=1 \
+msg 6 "unlocking $gpu (stock handoff, small WPR heap)"
+modprobe cmp40_preboot target="$gpu" mode=unlock driver_handoff=1 stock_handoff=1 small_wpr_heap=1 \
     gen2=off gen2_policy=rmw || fail "modprobe cmp40_preboot failed for $gpu"
 
 p=/sys/module/cmp40_preboot/parameters
@@ -114,7 +114,7 @@ SCRIPT
 
     add_file - /usr/lib/systemd/system/cmp40-unlock.service 644 <<'UNIT' || return 1
 [Unit]
-Description=CMP 40HX CPU-RM pre-driver unlock
+Description=CMP 40HX pre-driver unlock
 DefaultDependencies=no
 ConditionKernelCommandLine=!cmp40.skip
 Before=systemd-modules-load.service systemd-udevd.service systemd-udev-trigger.service sysinit.target
@@ -133,7 +133,7 @@ UNIT
 
 help() {
     cat <<'HELPEOF'
-Runs the CMP 40HX CPU-RM compute unlock before systemd loads modules or starts
+Runs the CMP 40HX compute unlock before systemd loads modules or starts
 udev. Requires base and systemd; place it after modconf and after autodetect
 when autodetect is present. Do not list cmp40_preboot in MODULES.
 

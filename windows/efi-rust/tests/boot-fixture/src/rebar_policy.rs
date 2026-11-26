@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Test-only parent for the real CPU-RM policy reader, without a GPU.
+//! Test-only parent for the real compute unlock policy reader, without a GPU.
 #![no_std]
 #![no_main]
 use cmp40_efi::image::{load_from_volume, protocol};
@@ -22,7 +22,7 @@ fn main() -> Status {
     }
     run().map_or_else(
         |status| {
-            uefi::println!("CMP40-FIXTURE: REBAR_POLICY_FAILED {:?}", status);
+            uefi::println!("CMPUNLOCKER-FIXTURE: REBAR_POLICY_FAILED {:?}", status);
             status
         },
         |()| Status::SUCCESS,
@@ -61,8 +61,8 @@ fn run() -> Result<(), Status> {
     }
     // Exercise the fallible memory-map boundary on OVMF before child entry.
     cmp40_efi::rebar::check_memory_map()?;
-    uefi::println!("CMP40-FIXTURE: REBAR_MEMORY_MAP_OK GPU_WRITES=0");
-    uefi::println!("CMP40-FIXTURE: START_REBAR_POLICY_CHILD");
+    uefi::println!("CMPUNLOCKER-FIXTURE: REBAR_MEMORY_MAP_OK GPU_WRITES=0");
+    uefi::println!("CMPUNLOCKER-FIXTURE: START_REBAR_POLICY_CHILD");
     let status = boot::start_image(child)
         .err()
         .map_or(Status::SUCCESS, |e| e.status());
@@ -72,6 +72,6 @@ fn run() -> Result<(), Status> {
         }
         return Err(Status::DEVICE_ERROR);
     }
-    uefi::println!("CMP40-FIXTURE: REBAR_POLICY_CHILD_RETURNED NOT_FOUND GPU_WRITES=0");
+    uefi::println!("CMPUNLOCKER-FIXTURE: REBAR_POLICY_CHILD_RETURNED NOT_FOUND GPU_WRITES=0");
     Ok(())
 }

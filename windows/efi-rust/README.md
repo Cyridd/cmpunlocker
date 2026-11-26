@@ -1,13 +1,14 @@
 # CMP40HX Rust EFI port
 
-The port builds a read-only EFI carrier, separate experimental FULL/ZERO CPU-RM
-EFI images with opt-in ReBAR relocation, and an independent library for the
-existing Windows CPU-RM contract.
+The port builds a read-only EFI carrier and separate FULL and ZERO images
+with opt-in ReBAR relocation. A shared library implements the unlock transaction.
 The library compares its results with functions compiled from this repository's
 C EFI source. The frozen carrier-r1 FULL/ZERO pair has
 [Windows acceptance](tests/evidence/stage4c/README.md), and FULL has
 [Limine/Linux acceptance](tests/evidence/stage4d/README.md) with proprietary
-NVIDIA 620.70.06, GSP OFF. The shipped installer still uses the C EFI.
+NVIDIA 620.70.06, GSP OFF. I also confirmed FULL compute unlock in Windows
+with GSP enabled. See the [GSP test results](../../docs/results.md#gsp-enabled-on-linux-and-windows).
+The shipped installer still uses the C EFI.
 ReBAR-r1 now has [FULL/ZERO hardware acceptance](tests/evidence/stage5/README.md),
 including `norebar` precedence, OS-visible 8 GiB BAR1 and retained FULL compute.
 
@@ -39,11 +40,14 @@ unsafe Rust. It provides:
 Build in this directory using the pinned inputs already used by the C loader:
 
 ```bash
-cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
+cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features unlock,adapters
 python3 tests/test_assets.py
-python3 tests/qemu_smoke.py --cpu-rm --adapters --raw
-python3 tests/package_cpu_rm.py
+python3 tests/qemu_smoke.py --unlock --adapters --raw
+python3 tests/package_unlock.py
 ```
+
+The `unlock` feature produces `cmp40-unlock-full.efi` and
+`cmp40-unlock-zero.efi`. Frozen baselines retain their original filenames.
 
 The additional QEMU cases execute FULL/ZERO discovery/refusal without NVIDIA,
 verify actual FAT log bytes after VM termination, and verify that a simulated
@@ -110,7 +114,7 @@ The [logging policy and test procedure](LOGGING_POLICY.md) describe the format,
 bounded host decoder, managed ownership/completion records and separate
 `--optimize` USB package with a frozen logging-r1 FULL control. Buffered 4 KiB
 writes preserve checkpoint verification, and a failed batch is never replayed.
-Gen2/ReBAR trace capacities follow conservative topology bounds; CPU-RM keeps
+Gen2/ReBAR trace capacities follow conservative topology bounds; compute unlock keeps
 its previous capture limit. Radix tables are built on already initialized DMA
 leaves, avoiding a duplicate 28 MiB zero pass. Raw loading batches aligned
 reads and adjacent FAT clusters without bypassing chain checks.
@@ -127,14 +131,14 @@ Returning an error alone allows a parent/firmware boot fallback; it is used only
 before GPU mutation. Failures perform no GPU cleanup or retry. Booter failures
 print `BOOTER_FAILURE` with the exact gate/register/observed/expected value,
 using existing reads. Incompatible handoff options are refused. Use the
-[physical test guide](tests/CPU_RM_HARDWARE.md) for changed GPU variants.
+[physical test guide](tests/UNLOCK_HARDWARE.md) for changed GPU variants.
 
 ## Experimental ReBAR
 
 FULL and ZERO cache `EFI/40HX/REBAR.CFG` from their own image volume before GPU
 mutation, using the same exact LF-terminated policy as the C EFI. A missing or
 invalid file supplies no opt-in. `--experimental-rebar` also enables the path;
-`norebar` overrides both sources. ReBAR starts only after native CPU-RM
+`norebar` overrides both sources. ReBAR starts only after native compute unlock
 completion and does not change the firmware transaction or BAR0.
 
 The allocator preserves the C sizing, 12-candidate placement and rollback
@@ -144,14 +148,14 @@ apertures are diagnostic. Bridge discovery uses the GPU's encoding and PCI
 segment; CF8 remains segment zero. Malformed memory-map arithmetic refuses
 placement. These checks do not establish an ACPI `_CRS` grant or root routing
 on every topology. A failed ReBAR check attempts the C rollback and continues
-handoff; a failed CPU-RM transaction never enters ReBAR.
+handoff; a failed compute unlock transaction never enters ReBAR.
 
 For a separate FULL/ZERO test USB, build and package an isolated variant:
 
 ```bash
-cargo build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/rebar-r1 -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
-python3 tests/qemu_smoke.py --image-dir target/rebar-r1/x86_64-unknown-uefi/release --cpu-rm --adapters --raw --rebar
-python3 tests/package_cpu_rm.py --rebar --image-dir target/rebar-r1/x86_64-unknown-uefi/release --output-dir target/rebar-r1
+cargo build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/rebar-r1 -p cmp40-efi -p cmp40-efi-boot-fixture --features unlock,adapters
+python3 tests/qemu_smoke.py --image-dir target/rebar-r1/x86_64-unknown-uefi/release --unlock --adapters --raw --rebar
+python3 tests/package_unlock.py --rebar --image-dir target/rebar-r1/x86_64-unknown-uefi/release --output-dir target/rebar-r1
 ```
 
 The archive contains both images, FULL at the USB fallback path, an enabled
@@ -185,7 +189,7 @@ Normal FULL/ZERO entries keep Gen2 off. `--no-gen2` disables the experiment
 in all three new entries.
 
 The policy uses the register masks documented in the
-[Linux CPU-RM Gen2 research](../../docs/research/CPU_RM_PCIE_GEN2.md), with
+[Linux pre-driver Gen2 research](../../docs/research/CPU_RM_PCIE_GEN2.md), with
 XP3G extensions excluded for this first EFI test. PCIe v2 fields are accessed
 only after the live version becomes 2. Policy is applied even if Gen2
 capability was retained, while OVR=6 is written last only when adoption is
@@ -203,8 +207,8 @@ Build the r2 diagnostic separately from the accepted ReBAR-r1 and Gen2-r1 binari
 
 ```bash
 cargo build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/gen2-r2 -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters
-python3 tests/qemu_smoke.py --image-dir target/gen2-r2/x86_64-unknown-uefi/release --cpu-rm --adapters --raw --rebar --gen2
-python3 tests/package_cpu_rm.py --gen2 --gen2-revision r2 --image-dir target/gen2-r2/x86_64-unknown-uefi/release --baseline-full target/baseline-rebar-r1/cmp40-cpu-rm-full.efi --output-dir target/gen2-r2
+python3 tests/qemu_smoke.py --image-dir target/gen2-r2/x86_64-unknown-uefi/release --unlock --adapters --raw --rebar --gen2
+python3 tests/package_unlock.py --gen2 --gen2-revision r2 --image-dir target/gen2-r2/x86_64-unknown-uefi/release --baseline-full target/baseline-rebar-r1/cmp40-cpu-rm-full.efi --output-dir target/gen2-r2
 ```
 
 The package includes the three experimental images, the frozen accepted FULL
@@ -215,7 +219,7 @@ trial. The installer writes the Run entry under HKCU; check HKLM and custom
 startup sources too. Existing installer behavior is unchanged.
 
 `core/tests/gen2.rs` checks policy writes against actual C functions extracted
-from `linux/cpu-rm/kernel/gen2_core.h` on 128 synthetic inputs, and models
+from `linux/preboot/kernel/gen2_core.h` on 128 synthetic inputs, and models
 capability adoption, topology changes, target restoration and failed links.
 The extracted GPL C runs only in the host reference harness and is not linked
 into EFI. QEMU checks all three real image entries and `--no-gen2` without a
@@ -270,7 +274,7 @@ initialization; the current EFI observer cannot collect them.
 For reproduction, package it from the frozen inputs without rebuilding EFI:
 
 ```bash
-python3 tests/package_cpu_rm.py --gen2 --gen2-revision r2 --gen2-registry --image-dir target/gen2-r2/x86_64-unknown-uefi/release --baseline-full target/baseline-rebar-r1/cmp40-cpu-rm-full.efi --output-dir target/gen2-registry-r1/usb
+python3 tests/package_unlock.py --gen2 --gen2-revision r2 --gen2-registry --image-dir target/gen2-r2/x86_64-unknown-uefi/release --baseline-full target/baseline-rebar-r1/cmp40-cpu-rm-full.efi --output-dir target/gen2-registry-r1/usb
 ```
 
 The packager checks the frozen image hashes, includes `WINDOWS/gen2_registry.ps1`
@@ -326,7 +330,7 @@ PCI inventory uses a small read-only standard PciIo ABI adapter, with layout
 assertions and no callable write/DMA methods. It does not access GPU BARs,
 disconnect controllers, modify PCI configuration or NVRAM, or launch firmware.
 It also exercises the shared RootBridgeIo Standard/Compact and CF8 finder and
-reports `TARGET_ROUTE`. The no-CPU-RM build exposes no callable RootBridge write
+reports `TARGET_ROUTE`. The read-only build exposes no callable RootBridge write
 function or MMIO transaction. CF8 address selection is followed by config reads.
 
 By default it prepares Windows from its own volume, or a single other volume
@@ -342,7 +346,7 @@ Multiple candidates on other volumes cause `WINDOWS_AMBIGUOUS` and `NO_MAPPING`;
 it does not guess a boot disk. Corrupt/security-rejected images stop the search.
 `--return-to-bootloader`, `--return-to-grub` and `--return-to-limine` return
 success to the parent instead. Follow the [carrier hardware procedure](tests/CARRIER_HARDWARE.md)
-before accepting this changed loading path. A separate no-CPU-RM archive can be
+before accepting this changed loading path. A separate read-only archive can be
 prepared with `python3 tests/package_carrier.py`; its default input is the
 isolated `target/carrier-r1/readonly/` build. It includes only the carrier and
 hardware guide, without QEMU fixture images.
@@ -411,7 +415,7 @@ in the [acceptance record](tests/evidence/stage3f/README.md), which includes
 the verified FULL log. ZERO success is reported without a raw log.
 The provided pair is frozen under `target/baseline-memory-e1422c1/`; the earlier
 pair remains under `target/baseline-9f0882b/`. Future variants should follow the
-[physical procedure](tests/CPU_RM_HARDWARE.md). Carrier-r1 implements raw loading,
+[physical procedure](tests/UNLOCK_HARDWARE.md). Carrier-r1 implements raw loading,
 boot-option parsing and shared discovery; see [stage 4a](tests/evidence/stage4a/README.md).
 Read-only Windows/NVIDIA preload, return to Limine and subsequent Linux boot
 are confirmed. The separately packaged carrier-r1 ZERO/FULL pair now

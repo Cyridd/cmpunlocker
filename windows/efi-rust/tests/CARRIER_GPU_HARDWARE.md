@@ -1,7 +1,7 @@
 # Physical comparison: carrier-r1 ZERO/FULL
 
-These packages contain the CPU-RM images built at `fe02bf7`, with the new
-BlockIo/FAT Windows preload path. The no-CPU-RM carrier has
+These packages contain the FULL/ZERO images built at `fe02bf7`, with the new
+BlockIo/FAT Windows preload path. The read-only carrier has
 reported physical acceptance on the project's CMP40HX TU106 `10de:1f0b`, 8 GiB:
 Windows/NVIDIA starts, return to Limine works, and Linux then starts.
 The combined carrier-r1 GPU Windows path has verified FULL/ZERO logs and

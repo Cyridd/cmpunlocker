@@ -3,12 +3,12 @@
 #define TURING_UNLOCK_DIAGNOSTIC_H
 #ifdef __KERNEL__
 #include <linux/printk.h>
-#define GU_NOTE(fmt, ...) pr_info("cmp40_preboot: " fmt, ##__VA_ARGS__)
-#define GU_ERROR(fmt, ...) pr_err("cmp40_preboot: " fmt, ##__VA_ARGS__)
+#define GU_NOTE(fmt, ...) pr_info("CMPUNLOCKER: " fmt, ##__VA_ARGS__)
+#define GU_ERROR(fmt, ...) pr_err("CMPUNLOCKER: " fmt, ##__VA_ARGS__)
 #else
 #include <stdio.h>
-#define GU_NOTE(fmt, ...) fprintf(stderr, "cmp40_preboot: " fmt, ##__VA_ARGS__)
-#define GU_ERROR(fmt, ...) fprintf(stderr, "cmp40_preboot: " fmt, ##__VA_ARGS__)
+#define GU_NOTE(fmt, ...) fprintf(stderr, "CMPUNLOCKER: " fmt, ##__VA_ARGS__)
+#define GU_ERROR(fmt, ...) fprintf(stderr, "CMPUNLOCKER: " fmt, ##__VA_ARGS__)
 #endif
 
 /* No extra device reads. Preserve the errno and identify the exact guard in

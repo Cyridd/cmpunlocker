@@ -7,7 +7,7 @@ use crate::{
 use alloc::vec::Vec;
 use cmp40_efi_core::log_write::{self, Sink};
 use cmp40_efi_core::{
-    log_store::{checksum, Kind, FNV_INITIAL, FOOTER_LEN},
+    log_store::{checksum, Kind, FNV_INITIAL, FOOTER_LEN, FOOTER_TAG, HEADER_TAG},
     trace::{self, Event, Record},
 };
 use core::fmt::{self, Write};
@@ -55,8 +55,8 @@ impl Output {
             .map_err(|e| e.status())?
             .into_regular_file()
             .ok_or(Status::UNSUPPORTED)?;
-        uefi::println!("CMP40-CPU-RM: LOG \\EFI\\40HX\\LOGS\\{}", name);
-        uefi::println!("CMP40-CPU-RM: LOG_VOLUME handle={:?}", volume);
+        uefi::println!("CMPUNLOCKER: LOG \\EFI\\40HX\\LOGS\\{}", name);
+        uefi::println!("CMPUNLOCKER: LOG_VOLUME handle={:?}", volume);
         if let Ok(path) = protocol::<DevicePath>(volume) {
             for node in path.node_iter() {
                 let bytes = node.data();
@@ -66,7 +66,7 @@ impl Output {
                     let partition = u32::from_le_bytes(bytes[..4].try_into().unwrap());
                     let start = u64::from_le_bytes(bytes[4..12].try_into().unwrap());
                     uefi::println!(
-                        "CMP40-CPU-RM: LOG_PARTITION number={} start_lba={} signature={:02x?}",
+                        "CMPUNLOCKER: LOG_PARTITION number={} start_lba={} signature={:02x?}",
                         partition,
                         start,
                         &bytes[20..36]
@@ -93,7 +93,7 @@ impl Output {
             diagnostic: false,
         };
         output.write(format_args!(
-            "CMP40_LOG_V3 generation={:07} control={}\n",
+            "{HEADER_TAG} generation={:07} control={}\n",
             generation, control
         ))?;
         output.verify_and_reopen()?;
@@ -176,7 +176,7 @@ impl Output {
         self.write(args)?;
         self.verify_and_reopen()?;
         uefi::println!(
-            "CMP40-CPU-RM: LOG_VERIFIED {:?} bytes={}",
+            "CMPUNLOCKER: LOG_VERIFIED {:?} bytes={}",
             self.name,
             self.length
         );
@@ -187,7 +187,7 @@ impl Output {
         let full = self.full || self.diagnostic || self.trace_requested;
         self.sealing = true;
         self.write(format_args!(
-            "CMP40_END_V3 kind={} bytes={:020} fnv={:016x}\n",
+            "{FOOTER_TAG} kind={} bytes={:020} fnv={:016x}\n",
             if full { 'T' } else { 'S' },
             length,
             digest

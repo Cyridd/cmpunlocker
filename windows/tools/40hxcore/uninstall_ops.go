@@ -152,23 +152,6 @@ func UninstallDriverFiles() {
 	os.Remove(os.Getenv("SystemRoot") + "\\System32\\WinRing0x64.dll")
 }
 
-// UninstallGspKey: 删 EnableGpuFirmware(恢复 GSP 默认关), 返回是否删除过
-func UninstallGspKey() bool {
-	key := FindGpuClassKey()
-	if key == "" {
-		return false
-	}
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, key, registry.SET_VALUE)
-	if err != nil {
-		return false
-	}
-	defer k.Close()
-	if err := k.DeleteValue("EnableGpuFirmware"); err != nil {
-		return false
-	}
-	return true
-}
-
 // UninstallProgramData: 清 ProgramData\40HXUnlock (gen2_status 历史缓存 + 驱动备份)。
 // gen2_status.txt 必须删 — 诊断工具会把它当"上次结果"显示, 残留 ✅ 会误导用户。
 func UninstallProgramData() {

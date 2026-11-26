@@ -186,7 +186,7 @@ def program(mode):
         if "__asm" in body:
             raise RuntimeError("unadapted assembly in C execution reference")
         if declaration == "static EFI_STATUS u40x_finish_stage(":
-            # Compare native CPU-RM completion and terminal handoff only.
+            # Compare native unlock completion and terminal handoff only.
             # Exclude the optional post-completion extension in the C source.
             body, count = re.subn(
                 r"#ifdef CPU_RM_HANDOFF\n    [^\n]+\(u40x_cpu_rm_parent\);\n.*?\n#endif(?=\n    u40x_seal_output\(\);)",

@@ -17,7 +17,7 @@ import tempfile
 import time
 from fat16_fixture import Fat16, CLUSTER_BYTES, SECTORS, DATA_SECTOR
 from fat32_fixture import Fat32
-from trace_log import transform, managed_payload
+from trace_log import transform, managed_payload, fnv
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 GEN2_CASES = [f"gen2-{mode}-{control}" for mode in ("prepare", "targets", "retrain")
@@ -73,7 +73,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
     volumes = [esp]
     rebar_case = case.startswith("rebar-")
     gen2_case = case.startswith("gen2-")
-    cpu_rm = case in ("cpu-full-no-gpu", "cpu-zero-no-gpu") or rebar_case or gen2_case
+    unlock = case in ("cpu-full-no-gpu", "cpu-zero-no-gpu") or rebar_case or gen2_case
     adapter_case = case in ("logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full")
     raw_case = case.startswith("raw-")
     entry_case = case.startswith("entrycheck")
@@ -82,10 +82,10 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
     if gen2_case:
         mode = case.split("-")[1]
         image = next(path for path in binaries if path.name == f"cmp40-gen2-{mode}.efi")
-        required = ["CMP40-CPU-RM: BEGIN control=full",
-                    f"CMP40-GEN2: MODE {'Off' if case.endswith('optout') else {'prepare': 'Prepare', 'targets': 'Targets', 'retrain': 'Retrain'}[mode]} GPU_WRITES=0",
+        required = ["CMPUNLOCKER: BEGIN control=full",
+                    f"CMPUNLOCKER-GEN2: MODE {'Off' if case.endswith('optout') else {'prepare': 'Prepare', 'targets': 'Targets', 'retrain': 'Retrain'}[mode]} GPU_WRITES=0",
                     "GPU_NOT_FOUND NOT_FOUND GPU_WRITES=0"]
-        forbidden = ["CMP40-GEN2: BEGIN", "CMP40-GEN2: FINAL_BEGIN", "CMP40-REBAR: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY", "WINDOWS_PREPARED"]
+        forbidden = ["CMPUNLOCKER-GEN2: BEGIN", "CMPUNLOCKER-GEN2: FINAL_BEGIN", "CMPUNLOCKER-REBAR: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY", "WINDOWS_PREPARED"]
         if case.endswith("optout"):
             fixture = next(path for path in binaries if path.name == "cmp40-fixture-rebar-policy.efi")
             copy(fixture, esp, "EFI/BOOT/BOOTX64.EFI")
@@ -117,12 +117,12 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             policy.write_bytes(b"CMP40HX_REBAR_V1=1\n")
             volumes.append(other)
         expected = "true" if case in ("rebar-enabled", "rebar-literal") else "false"
-        required = ["CMP40-FIXTURE: REBAR_MEMORY_MAP_OK GPU_WRITES=0",
-                    "START_REBAR_POLICY_CHILD", "CMP40-CPU-RM: BEGIN",
+        required = ["CMPUNLOCKER-FIXTURE: REBAR_MEMORY_MAP_OK GPU_WRITES=0",
+                    "START_REBAR_POLICY_CHILD", "CMPUNLOCKER: BEGIN",
                     f"requested={expected}", "GPU_NOT_FOUND NOT_FOUND GPU_WRITES=0",
                     "REBAR_POLICY_CHILD_RETURNED NOT_FOUND GPU_WRITES=0"]
         required.insert(3, f"LOG_MODE trace={'true' if case == 'rebar-trace' else 'false'} GPU_WRITES=0")
-        forbidden = ["REBAR_POLICY_FAILED", "CMP40-REBAR: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY", "WINDOWS_PREPARED"]
+        forbidden = ["REBAR_POLICY_FAILED", "CMPUNLOCKER-REBAR: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY", "WINDOWS_PREPARED"]
     elif entry_case:
         checker = next(path for path in binaries if path.name == "cmp40-entrycheck.efi")
         copy(checker, esp, "EFI/BOOT/BOOTX64.EFI")
@@ -138,17 +138,17 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
         disk_image = root / "esp.img"
         disk_image.write_bytes(fat.data)
         zero_marker = "LOAD_REFUSED" if case == "entrycheck-invalid" else "LOAD_OK"
-        required = ["CMP40-ENTRYCHECK: ENTERED GPU_WRITES=0 CHILD_STARTS=0",
-                    "CMP40-ENTRYCHECK: BEGIN", "POLICY_OK parent=false",
+        required = ["CMPUNLOCKER-ENTRYCHECK: ENTERED GPU_WRITES=0 CHILD_STARTS=0",
+                    "CMPUNLOCKER-ENTRYCHECK: BEGIN", "POLICY_OK parent=false",
                     "PCI_RESULT NOT_FOUND GPU_WRITES=0",
                     f"{zero_marker} ZERO route=Firmware", f"{zero_marker} ZERO route=RawBuffer",
                     "LOAD_OK FULL route=Firmware", "LOAD_OK FULL route=RawBuffer",
-                    "CMP40-ENTRYCHECK: WINDOWS_PREPARED source=RawBuffer CHILD_STARTS=0",
-                    "CMP40-ENTRYCHECK: READY GPU_WRITES=0 CHILD_STARTS=0",
-                    "CMP40-ENTRYCHECK: FINISHED SUCCESS GPU_WRITES=0 CHILD_STARTS=0"]
-        forbidden = ["CMP40-CPU-RM: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY",
+                    "CMPUNLOCKER-ENTRYCHECK: WINDOWS_PREPARED source=RawBuffer CHILD_STARTS=0",
+                    "CMPUNLOCKER-ENTRYCHECK: READY GPU_WRITES=0 CHILD_STARTS=0",
+                    "CMPUNLOCKER-ENTRYCHECK: FINISHED SUCCESS GPU_WRITES=0 CHILD_STARTS=0"]
+        forbidden = ["CMPUNLOCKER: BEGIN", "TRANSACTION_BEGIN", "NATIVE_READY",
                      "WINDOWS_CHAIN_REACHED", "START_WINDOWS", "LOG_OPEN_FAILED",
-                     "CMP40-ENTRYCHECK: FAILED"]
+                     "CMPUNLOCKER-ENTRYCHECK: FAILED"]
     elif raw_case:
         raw_parent = next(path for path in binaries if path.name == "cmp40-fixture-raw.efi")
         copy(raw_parent, esp, "EFI/BOOT/BOOTX64.EFI")
@@ -210,13 +210,13 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
     elif adapter_case:
         if case == "logcheck":
             copy(binaries[7], esp, "EFI/BOOT/BOOTX64.EFI")
-            required = ["CMP40-LOGCHECK: BEGIN GPU_WRITES=0", "LOG_VERIFIED",
-                        "CMP40-LOGCHECK: LOG_CHECK_READY GPU_WRITES=0"]
+            required = ["CMPUNLOCKER-LOGCHECK: BEGIN GPU_WRITES=0", "LOG_VERIFIED",
+                        "CMPUNLOCKER-LOGCHECK: LOG_CHECK_READY GPU_WRITES=0"]
         elif case in ("logging", "retention", "volume-full"):
             if case == "retention":
                 (esp / "ROTATE.TXT").write_bytes(b"1")
             copy(binaries[5], esp, "EFI/BOOT/BOOTX64.EFI")
-            required = ["LOG_VERIFIED", "CMP40-FIXTURE: LOG_TEST_READY GPU_WRITES=0"]
+            required = ["LOG_VERIFIED", "CMPUNLOCKER-FIXTURE: LOG_TEST_READY GPU_WRITES=0"]
         elif case == "failed-start":
             copy(binaries[6], esp, "EFI/BOOT/BOOTX64.EFI")
             child = next(path for path in binaries if path.name == "cmp40-fixture-return-error.efi")
@@ -228,7 +228,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             copy(binaries[5], esp, "EFI/CMP40/FAILED.EFI")
             required = ["START_FAILURE_CHILD", "LOG_TEST_READY GPU_WRITES=0",
                         "SIMULATED_POST_MUTATION_FAILURE", "FAILURE_PARKED DEVICE_ERROR GPU_ATTEMPTED=1"]
-        forbidden = ["LOG_TEST_FAILED", "CMP40-LOGCHECK: FAILED", "PARENT_RESUMED_AFTER_FAILURE", "WINDOWS_CHAIN_REACHED", "FAILED_PARENT_ERROR"]
+        forbidden = ["LOG_TEST_FAILED", "CMPUNLOCKER-LOGCHECK: FAILED", "PARENT_RESUMED_AFTER_FAILURE", "WINDOWS_CHAIN_REACHED", "FAILED_PARENT_ERROR"]
         fat = Fat16()
         for file in esp.rglob("*"):
             if file.is_file():
@@ -237,6 +237,10 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             fat.add("RF000999.LOG", b"legacy preserved")
             fat.add("EFI/40HX/LOGS/L0001000.LOG", b"foreign preserved")
             fat.add("EFI/40HX/LOGS/KEEP.TXT", b"unrelated preserved")
+            # This valid old summary must count towards the same rotation quota.
+            body = b"CMP40_LOG_V3 generation=0000999 control=full\nold summary\n"
+            footer = f"CMP40_END_V3 kind=S bytes={len(body):020} fnv={fnv(body):016x}\n"
+            fat.add("EFI/40HX/LOGS/L0000999.LOG", body + footer.encode())
             required.insert(1, "RETENTION_READY GPU_WRITES=0")
         if case == "volume-full":
             fat.add("RF000999.LOG", b"legacy preserved")
@@ -248,19 +252,19 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             forbidden += ["LOG_TEST_READY", "FAILURE_PARKED"]
         disk_image = root / "esp.img"
         disk_image.write_bytes(fat.data)
-    elif cpu_rm:
+    elif unlock:
         app = binaries[3 if case == "cpu-full-no-gpu" else 4]
         copy(app, esp, "EFI/BOOT/BOOTX64.EFI")
-        required = ["CMP40-CPU-RM: BEGIN", "GPU_NOT_FOUND NOT_FOUND GPU_WRITES=0"]
+        required = ["CMPUNLOCKER: BEGIN", "GPU_NOT_FOUND NOT_FOUND GPU_WRITES=0"]
         if any(path.name == "cmp40-gen2-prepare.efi" for path in binaries):
-            required.insert(1, "CMP40-GEN2: MODE Off GPU_WRITES=0")
+            required.insert(1, "CMPUNLOCKER-GEN2: MODE Off GPU_WRITES=0")
         forbidden = ["HANDOFF_PREPARED", "TRANSACTION_BEGIN", "NATIVE_READY", "WINDOWS_PREPARED"]
-        forbidden += ["CMP40-GEN2: BEGIN", "CMP40-GEN2: FINAL_BEGIN"]
+        forbidden += ["CMPUNLOCKER-GEN2: BEGIN", "CMPUNLOCKER-GEN2: FINAL_BEGIN"]
     elif case == "parent":
         copy(parent, esp, "EFI/BOOT/BOOTX64.EFI")
         copy(app, esp, "EFI/CMP40/READONLY.EFI")
-        required = ["CMP40-FIXTURE: START_READONLY_AS_CHILD", "RETURN_PARENT GPU_WRITES=0",
-                    "CMP40-FIXTURE: PARENT_RESUMED"]
+        required = ["CMPUNLOCKER-FIXTURE: START_READONLY_AS_CHILD", "RETURN_PARENT GPU_WRITES=0",
+                    "CMPUNLOCKER-FIXTURE: PARENT_RESUMED"]
         forbidden = ["START_WINDOWS", "WINDOWS_CHAIN_REACHED", "PARENT_FAILED"]
     else:
         copy(app, esp, "EFI/BOOT/BOOTX64.EFI")
@@ -268,14 +272,14 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
         if case == "windows":
             copy(windows, esp, "EFI/Microsoft/Boot/bootmgfw.efi")
             required = ["WINDOWS_PREPARED own-volume", "START_WINDOWS GPU_WRITES=0",
-                        "CMP40-FIXTURE: WINDOWS_CHAIN_REACHED", "WINDOWS_RETURNED SUCCESS"]
+                        "CMPUNLOCKER-FIXTURE: WINDOWS_CHAIN_REACHED", "WINDOWS_RETURNED SUCCESS"]
         elif case == "unique-windows":
             volume = root / "windows-esp"
             volume.mkdir()
             copy(windows, volume, "EFI/Microsoft/Boot/bootmgfw.efi")
             volumes.append(volume)
             required = ["WINDOWS_PREPARED unique-volume", "START_WINDOWS GPU_WRITES=0",
-                        "CMP40-FIXTURE: WINDOWS_CHAIN_REACHED", "WINDOWS_RETURNED SUCCESS"]
+                        "CMPUNLOCKER-FIXTURE: WINDOWS_CHAIN_REACHED", "WINDOWS_RETURNED SUCCESS"]
         elif case == "no-windows":
             required = ["WINDOWS_PREPARE_FAILED NOT_FOUND GPU_WRITES=0"]
             forbidden += ["START_WINDOWS", "WINDOWS_CHAIN_REACHED"]
@@ -329,7 +333,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                 if any(marker in text for marker in forbidden):
                     raise RuntimeError(f"{case}: forbidden boot action; inspect {serial}")
                 pci = re.search(r"PCI_HANDLES=(\d+) TARGETS=0 READ_ERRORS=0", text)
-                inventory_ok = cpu_rm or adapter_case or entry_case or (pci and int(pci[1]) > 0
+                inventory_ok = unlock or adapter_case or entry_case or (pci and int(pci[1]) > 0
                                           and "INVENTORY_DONE GPU_WRITES=0" in text)
                 if (inventory_ok
                         and all(marker in text for marker in required)):
@@ -386,16 +390,18 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             for entry in fat.directory_entries("EFI/40HX/LOGS"):
                 stem = entry[:8].decode().strip()
                 if not re.fullmatch(r"L[0-9]{7}", stem) or stem == "L0001000": continue
+                assert stem != "L0000999", "old-format summary was not rotated"
                 data = fat.read_file(f"EFI/40HX/LOGS/{stem}.LOG")
+                assert data.startswith(b"CMPUNLOCKER_LOG_V3 ")
                 total += len(data)
                 if b"RETENTION_INTERRUPTED" in data:
-                    assert b"CMP40_END_V3" not in data
+                    assert b"CMPUNLOCKER_END_V3" not in data
                     interrupted = True
                     traces += 1
                 else:
                     payload = managed_payload(data.decode())
                     latest |= "RETENTION_AFTER_INTERRUPT" in payload
-                    if b"CMP40_END_V3 kind=T" in data: traces += 1
+                    if b"CMPUNLOCKER_END_V3 kind=T" in data: traces += 1
                     else: summaries += 1
             assert summaries == 32 and traces <= 4 and total <= 8 * 1024 * 1024
             assert interrupted and latest
@@ -406,7 +412,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             f"line={index:03} abcdefghijklmnopqrstuvwxyz\n".encode() for index in range(160))
             + b"".join(f"META {index:02x} {bytes(range(index,index+32)).hex()}\n".encode() for index in range(0,256,32))
             + b"LOG_FIXTURE_TAIL\n")
-        expected_logs = (("RL000001.LOG", b"CMP40-LOGCHECK: FILE_WRITE_TEST GPU_WRITES=0\nCMP40-LOGCHECK: READY GPU_WRITES=0\n"),) if case == "logcheck" else (
+        expected_logs = (("RL000001.LOG", b"CMPUNLOCKER-LOGCHECK: FILE_WRITE_TEST GPU_WRITES=0\nCMPUNLOCKER-LOGCHECK: READY GPU_WRITES=0\n"),) if case == "logcheck" else (
             ("RZ000001.LOG", first), ("RZ000002.LOG", b"LOG_FIXTURE_SECOND\n"))
         for name, expected in expected_logs:
             actual = managed_payload(fat.read_file("EFI/40HX/LOGS/L0000001.LOG" if case == "logcheck" else "EFI/40HX/LOGS/L0000001.LOG" if name == "RZ000001.LOG" else "EFI/40HX/LOGS/L0000002.LOG").decode()).encode()
@@ -425,7 +431,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                 expected = (f"LOG_FIXTURE_MODE {name}\nLOG_DETAIL mode={mode} "
                             f"requested={flag(requested)} failed={flag(failed)} diagnostic={flag(diagnostic)}\n")
                 if full:
-                    expected += ("TRACE_BEGIN version=2 phase=CPU_RM records=20002 encoded_records=5 "
+                    expected += ("TRACE_BEGIN version=2 phase=UNLOCK records=20002 encoded_records=5 "
                                  "operations=20003 omitted_data_ports=2 dropped=0\n"
                                  "R 001100f4 00000000 count=1\nS 00000000 00000064 count=1\n"
                                  "REPEAT_PAIR additional=9999\nR 001100f4 00000001 count=1\n"
@@ -437,7 +443,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                     if len(reports) != 2 or expanded.count("S 00000000 00000064 count=1\n") != 10000:
                         raise RuntimeError(f"{case}: lossless expansion failed")
                 else:
-                    expected += ("TRACE_SUMMARY version=2 phase=CPU_RM records=20002 operations=20003 "
+                    expected += ("TRACE_SUMMARY version=2 phase=UNLOCK records=20002 operations=20003 "
                                  "omitted_data_ports=2 dropped=0\n"
                                  "TRACE_SUMMARY version=2 phase=REBAR records=1 operations=1 "
                                  "omitted_data_ports=0 dropped=0\n")
@@ -447,7 +453,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
                 (root / filename).write_text(actual)
             actual = managed_payload(fat.read_file("EFI/40HX/LOGS/L0000007.LOG").decode())
             expected = ("LOG_DETAIL mode=trace requested=false failed=false diagnostic=true\n"
-                        "TRACE_BEGIN version=2 phase=CPU_RM records=131072 encoded_records=3 "
+                        "TRACE_BEGIN version=2 phase=UNLOCK records=131072 encoded_records=3 "
                         "operations=131072 omitted_data_ports=0 dropped=1\n"
                         "R 001100f4 00000000 count=1\nS 00000000 00000064 count=1\n"
                         "REPEAT_PAIR additional=65535\nTRACE_END\n")
@@ -470,7 +476,7 @@ def main():
                         "cpu-full-no-gpu", "cpu-zero-no-gpu", "logging", "failed-parent", "failed-start", "retention", "volume-full", "logcheck", "entrycheck", "entrycheck-invalid",
                         "raw-windows", "raw-corrupt-chain", "raw-ambiguous", "raw-parent", "raw-gpt-windows", "raw-gpt-4k", "raw-gpt-bad-crc",
                         "rebar-enabled", "rebar-disabled", "rebar-invalid", "rebar-literal", "rebar-optout", "rebar-other-volume", "rebar-trace"] + GEN2_CASES)
-    parser.add_argument("--cpu-rm", action="store_true", help="also boot FULL/ZERO no-GPU paths")
+    parser.add_argument("--unlock", action="store_true", help="also boot FULL/ZERO no-GPU paths")
     parser.add_argument("--adapters", action="store_true", help="test persistent logs and parked failure")
     parser.add_argument("--raw", action="store_true", help="test BlockIo loading with failing SFS")
     parser.add_argument("--rebar", action="store_true", help="test real ReBAR policy reads and fallible memory-map access without a GPU")
@@ -483,8 +489,8 @@ def main():
     variables = firmware(args.ovmf_vars, "OVMF_VARS.4m.fd")
     binaries = [args.image_dir / name for name in ("cmp40-readonly.efi", "cmp40-fixture-windows.efi",
                                                   "cmp40-fixture-parent.efi")]
-    if args.cpu_rm or args.adapters or args.raw or args.rebar or args.gen2 or any(case.startswith(("cpu-", "entrycheck", "rebar-", "gen2-")) or case in ("logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full") for case in (args.case or [])):
-        binaries += [args.image_dir / name for name in ("cmp40-cpu-rm-full.efi", "cmp40-cpu-rm-zero.efi")]
+    if args.unlock or args.adapters or args.raw or args.rebar or args.gen2 or any(case.startswith(("cpu-", "entrycheck", "rebar-", "gen2-")) or case in ("logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full") for case in (args.case or [])):
+        binaries += [args.image_dir / name for name in ("cmp40-unlock-full.efi", "cmp40-unlock-zero.efi")]
     if args.adapters or any(case in ("logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full") for case in (args.case or [])):
         binaries += [args.image_dir / name for name in ("cmp40-fixture-log.efi", "cmp40-fixture-failed-parent.efi")]
         binaries += [args.image_dir / "cmp40-logcheck.efi", args.image_dir / "cmp40-fixture-return-error.efi"]
@@ -503,7 +509,7 @@ def main():
     results = []
     cases = args.case or ["windows", "unique-windows", "parent", "no-windows",
                          "invalid-windows", "ambiguous-windows", "self-windows"]
-    if args.cpu_rm and not args.case:
+    if args.unlock and not args.case:
         cases += ["cpu-full-no-gpu", "cpu-zero-no-gpu"]
     if args.adapters and not args.case:
         cases += ["logging", "failed-parent", "logcheck", "failed-start", "retention", "volume-full"]

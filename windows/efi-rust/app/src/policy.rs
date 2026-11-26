@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! Parse bounded UTF-16LE load options before GPU mutation.
 use crate::image::protocol;
-use cmp40_efi_core::options::CpuRmOptions;
+use cmp40_efi_core::options::UnlockOptions;
 use uefi::{boot, proto::loaded_image::LoadedImage, Status};
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 use uefi::{
     cstr16,
     proto::media::{
@@ -12,7 +12,7 @@ use uefi::{
     },
 };
 
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 pub fn rebar_requested() -> bool {
     let Ok(image) = protocol::<LoadedImage>(boot::image_handle()) else {
         return false;
@@ -48,15 +48,15 @@ pub fn rebar_requested() -> bool {
         file_enabled,
     );
     uefi::println!(
-        "CMP40-REBAR: POLICY file={:?} requested={}",
+        "CMPUNLOCKER-REBAR: POLICY file={:?} requested={}",
         policy,
         enabled
     );
     enabled
 }
 
-pub fn options() -> Result<CpuRmOptions, Status> {
+pub fn options() -> Result<UnlockOptions, Status> {
     let image = protocol::<LoadedImage>(boot::image_handle())?;
-    CpuRmOptions::parse(image.load_options_as_bytes().unwrap_or(&[]))
+    UnlockOptions::parse(image.load_options_as_bytes().unwrap_or(&[]))
         .map_err(|_| Status::INVALID_PARAMETER)
 }

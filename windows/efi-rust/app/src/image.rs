@@ -57,13 +57,13 @@ pub fn load_from_buffer(
     if let Err(status) = verified {
         if let Err(error) = boot::unload_image(image) {
             uefi::println!(
-                "CMP40: SOURCE_VOLUME_REJECTED unload failed {:?}",
+                "CMPUNLOCKER: SOURCE_VOLUME_REJECTED unload failed {:?}",
                 error.status()
             );
         }
         return Err(status);
     }
-    uefi::println!("CMP40: SOURCE_VOLUME_VERIFIED");
+    uefi::println!("CMPUNLOCKER: SOURCE_VOLUME_VERIFIED");
     Ok(image)
 }
 
@@ -115,7 +115,7 @@ fn load(path: &DevicePath, source: Option<&[u8]>) -> Result<Handle, Status> {
             if let Some(handle) = handle {
                 if let Err(error) = boot::unload_image(handle) {
                     uefi::println!(
-                        "CMP40-READONLY: rejected-image unload failed {:?}",
+                        "CMPUNLOCKER-READONLY: rejected-image unload failed {:?}",
                         error.status()
                     );
                 }

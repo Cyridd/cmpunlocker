@@ -46,17 +46,16 @@ Expected driver log:
 
 `CMP40_COMPUTE_UNLOCK_V525: ... SS0=0x88888888 SS1=0x00000008 FECS_PLM=0xffffff8f`
 
-### Proprietary CPU-RM with GSP OFF
+### Pre-driver compute unlock
 
-The independent [`linux/cpu-rm/`](../linux/cpu-rm/README.md) module runs the
+The independent [`linux/preboot/`](../linux/preboot/README.md) module runs the
 signed 610.43.03 Booter and the same published stock-relock selector payload
 before the proprietary driver probes the GPU. A 1 MiB temporary WPR heap
 moves WPR start to `0x1fe000000`, above the observed native CPU-RM ACR code
 PA `0x1fdf97000`. After firmware completion, it verifies the selectors,
 stock FECS permissions and WPR teardown, clears stopped SEC2 DMEM and restores
-staging state. The native proprietary driver then initializes with
-`NVreg_EnableGpuFirmware=0`. This transaction does not run GSP-RM or patch
-the installed proprietary driver. Firmware hashes and the exact 8 GiB layout
+staging state. The proprietary driver then initializes with its configured GSP policy. The
+pre-driver transaction finishes before the driver chooses its runtime mode. Firmware hashes and the exact 8 GiB layout
 are checked before the privileged load.
 
 The Windows EFI uses the same placement strategy with a **960 KiB** heap:

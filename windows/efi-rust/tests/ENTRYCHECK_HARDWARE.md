@@ -1,5 +1,7 @@
 # Early carrier-r1 diagnostic
 
+Current builds log `CMPUNLOCKER-ENTRYCHECK:`. The examples from the earlier images use `CMP40-ENTRYCHECK:`.
+
 Run only `ENTRYCHK.EFI` from this archive. It makes no GPU config/MMIO writes
 and calls no `StartImage`, firmware transaction or Windows handoff. The archive
 also contains the exact previously provided carrier-r1 ZERO/FULL images as

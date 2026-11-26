@@ -168,7 +168,7 @@ impl Source {
             .read_file(&mut reader, file, &mut bytes)
             .map_err(status)?;
         uefi::println!(
-            "CMP40: RAW_FILE_READ bytes={} FAT={:?} block_bytes={} SFS_CALLS=0 io_calls={} blocks_read={}",
+            "CMPUNLOCKER: RAW_FILE_READ bytes={} FAT={:?} block_bytes={} SFS_CALLS=0 io_calls={} blocks_read={}",
             bytes.len(),
             volume.kind,
             reader.block, reader.calls, reader.blocks_read

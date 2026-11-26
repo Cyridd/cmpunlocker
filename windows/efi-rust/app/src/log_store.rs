@@ -62,9 +62,9 @@ fn inspect(dir: &mut Directory, generation: u32) -> Result<Option<Record>, Statu
         .file_size();
     let mut header = [0; 96];
     let read = file.read(&mut header).map_err(|e| e.status())?;
-    if !log_store::owns(&header[..read], generation) {
+    let Some(footer_len) = log_store::owned_footer_len(&header[..read], generation) else {
         return Ok(None);
-    }
+    };
     if size > BUDGET {
         return Err(Status::VOLUME_FULL);
     }
@@ -74,10 +74,10 @@ fn inspect(dir: &mut Directory, generation: u32) -> Result<Option<Record>, Statu
         kind: Kind::Trace,
         complete: false,
     };
-    if size < FOOTER_LEN as u64 {
+    if size < footer_len as u64 {
         return Ok(Some(record));
     }
-    let body = size - FOOTER_LEN as u64;
+    let body = size - footer_len as u64;
     file.set_position(0).map_err(|e| e.status())?;
     let (mut remaining, mut digest) = (body, FNV_INITIAL);
     let mut buffer = [0u8; 4096];
@@ -93,6 +93,7 @@ fn inspect(dir: &mut Directory, generation: u32) -> Result<Option<Record>, Statu
         remaining -= read as u64;
     }
     let mut tail = [0; FOOTER_LEN];
+    let tail = &mut tail[..footer_len];
     let mut done = 0;
     while done < tail.len() {
         let read = file.read(&mut tail[done..]).map_err(|e| e.status())?;
@@ -104,7 +105,7 @@ fn inspect(dir: &mut Directory, generation: u32) -> Result<Option<Record>, Statu
     if file.read(&mut buffer[..1]).map_err(|e| e.status())? != 0 {
         return Err(Status::DEVICE_ERROR);
     }
-    if let Some(kind) = log_store::footer(&tail, body, digest) {
+    if let Some(kind) = log_store::footer(tail, body, digest) {
         record.kind = kind;
         record.complete = true;
     }

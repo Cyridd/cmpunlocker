@@ -84,7 +84,7 @@ static void dump(const char *kind, u32 index,
 		 const struct tl_record *r)
 {
 	/* One line per record keeps a parseable bounded log. Values are raw. */
-	timeline_length += scnprintf(timeline_log + timeline_length, TL_LOG_SIZE - timeline_length, "cmp40_preboot: SEC2_TIMELINE_%s index=%u begin_ns=%llu end_ns=%llu ctl=%08x fault=%08x cpu=%08x mb0=%08x mb1=%08x trans1=%08x dma=%08x irq=%08x wpr_lo=%08x wpr_hi=%08x current=%08x next=%08x pause=%08x inst=%08x sctl=%08x gsp_cpu=%08x bootvec=%08x engine=%08x reset_plm=%08x r630=%08x r634=%08x r638=%08x r63c=%08x r640=%08x r644=%08x r648=%08x r64c=%08x ctl_again=%08x fault_again=%08x\n",
+	timeline_length += scnprintf(timeline_log + timeline_length, TL_LOG_SIZE - timeline_length, "CMPUNLOCKER: SEC2_TIMELINE_%s index=%u begin_ns=%llu end_ns=%llu ctl=%08x fault=%08x cpu=%08x mb0=%08x mb1=%08x trans1=%08x dma=%08x irq=%08x wpr_lo=%08x wpr_hi=%08x current=%08x next=%08x pause=%08x inst=%08x sctl=%08x gsp_cpu=%08x bootvec=%08x engine=%08x reset_plm=%08x r630=%08x r634=%08x r638=%08x r63c=%08x r640=%08x r644=%08x r648=%08x r64c=%08x ctl_again=%08x fault_again=%08x\n",
 		kind, index, r->begin_ns, r->end_ns,
 		r->values[0], r->values[1], r->values[2], r->values[3],
 		r->values[4], r->values[5], r->values[6], r->values[7],
@@ -130,9 +130,9 @@ int cmp40_sec2_timeline(struct pci_dev *pdev, bool *armed)
 		goto unmap;
 	}
 	start_ns = ktime_get_ns();
-	timeline_length += scnprintf(timeline_log + timeline_length, TL_LOG_SIZE - timeline_length, "cmp40_preboot: SEC2_TIMELINE_BEGIN start_ns=%llu duration_ns=%llu capacity=%u sleep_min_us=100 sleep_max_us=200 gpu_writes=0\n",
+	timeline_length += scnprintf(timeline_log + timeline_length, TL_LOG_SIZE - timeline_length, "CMPUNLOCKER: SEC2_TIMELINE_BEGIN start_ns=%llu duration_ns=%llu capacity=%u sleep_min_us=100 sleep_max_us=200 gpu_writes=0\n",
 		start_ns, TL_DURATION_NS, TL_CAPACITY);
-	pci_info(pdev, "cmp40_preboot: SEC2_TIMELINE_BEGIN start_ns=%llu duration_ns=%llu capacity=%u sleep_min_us=100 sleep_max_us=200 gpu_writes=0\n",
+	pci_info(pdev, "CMPUNLOCKER: SEC2_TIMELINE_BEGIN start_ns=%llu duration_ns=%llu capacity=%u sleep_min_us=100 sleep_max_us=200 gpu_writes=0\n",
 		start_ns, TL_DURATION_NS, TL_CAPACITY);
 	/* Sysfs parameters exist during module_init. Publish only once all
 	 * guards/allocation/mapping have succeeded. The wrapper waits for Y.
@@ -156,9 +156,9 @@ int cmp40_sec2_timeline(struct pci_dev *pdev, bool *armed)
 	for (i = 0; i < count; i++)
 		dump("CHANGE", i, &records[i]);
 	dump("LAST", samples - 1, &latest);
-	timeline_length += scnprintf(timeline_log + timeline_length, TL_LOG_SIZE - timeline_length, "cmp40_preboot: SEC2_TIMELINE_END start_ns=%llu finish_ns=%llu samples=%u changes=%u stored=%u dropped=%u gpu_writes=0\n",
+	timeline_length += scnprintf(timeline_log + timeline_length, TL_LOG_SIZE - timeline_length, "CMPUNLOCKER: SEC2_TIMELINE_END start_ns=%llu finish_ns=%llu samples=%u changes=%u stored=%u dropped=%u gpu_writes=0\n",
 		start_ns, finish_ns, samples, changes, count, dropped);
-	pci_info(pdev, "cmp40_preboot: SEC2_TIMELINE_END start_ns=%llu finish_ns=%llu samples=%u changes=%u stored=%u dropped=%u gpu_writes=0\n",
+	pci_info(pdev, "CMPUNLOCKER: SEC2_TIMELINE_END start_ns=%llu finish_ns=%llu samples=%u changes=%u stored=%u dropped=%u gpu_writes=0\n",
 		start_ns, finish_ns, samples, changes, count, dropped);
 	timeline_attr.size = timeline_length;
 	ret = sysfs_create_bin_file(&THIS_MODULE->mkobj.kobj, &timeline_attr);

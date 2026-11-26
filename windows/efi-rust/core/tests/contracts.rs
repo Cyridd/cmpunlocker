@@ -3,8 +3,8 @@ use cmp40_efi_core::metadata::{DmaAddresses, MetadataError, SignatureKind, WprMe
 use cmp40_efi_core::radix::{RadixError, RadixPlan};
 
 #[test]
-fn cpu_rm_geometry_keeps_the_measured_small_wpr_boundary() {
-    let meta = WprMetadata::cpu_rm(
+fn unlock_geometry_keeps_the_measured_small_wpr_boundary() {
+    let meta = WprMetadata::small_wpr(
         DmaAddresses {
             radix: 0x110000000,
             signature: 0x112000000,
@@ -52,7 +52,7 @@ fn metadata_rejects_bad_dma_addresses_before_serialization() {
             },
         ] {
             assert_eq!(
-                WprMetadata::cpu_rm(addresses, SignatureKind::Payload),
+                WprMetadata::small_wpr(addresses, SignatureKind::Payload),
                 Err(MetadataError::InvalidDmaAddress)
             );
         }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! CPU-RM execution after PCI discovery, Windows preload, PTIMER seeding and
+//! compute unlock execution after PCI discovery, Windows preload, PTIMER seeding and
 //! reserved-buffer preparation. The same code can run against an EFI adapter
 //! or a host model. This module supplies neither adapter nor firmware assets.
 use crate::state::{Control, Snapshot, StateError, WPR2_HI_UP, WPR2_LO_UP};
@@ -301,7 +301,7 @@ impl Transaction {
 }
 
 /// Wait for actual FWSEC completion after WPR2 first appears. The Linux
-/// CPU-RM path requires HALT before checking scratch0e's FRTS error field and
+/// compute unlock path requires HALT before checking scratch0e's FRTS error field and
 /// the protected window. No engine writes, reset, retry or DMA release occur.
 pub fn complete_fwsec(io: &mut impl Io) -> Result<(), Error> {
     let mut last_cpu = 0;

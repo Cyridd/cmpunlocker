@@ -15,7 +15,7 @@ fn main() -> Status {
     }
     run().map_or_else(
         |status| {
-            uefi::println!("CMP40-FIXTURE: FAILED_PARENT_ERROR {:?}", status);
+            uefi::println!("CMPUNLOCKER-FIXTURE: FAILED_PARENT_ERROR {:?}", status);
             status
         },
         |()| Status::SUCCESS,
@@ -39,9 +39,9 @@ fn run() -> Result<(), Status> {
         let child = load_from_volume(volume, cstr16!("\\EFI\\CMP40\\FAILRET.EFI"))?;
         drop(root);
         drop(fs);
-        uefi::println!("CMP40-FIXTURE: START_ERROR_CHILD GPU_WRITES=0");
+        uefi::println!("CMPUNLOCKER-FIXTURE: START_ERROR_CHILD GPU_WRITES=0");
         let _ = cmp40_efi::handoff::start_prepared(child, true);
-        uefi::println!("CMP40-FIXTURE: PARENT_RESUMED_AFTER_FAILURE");
+        uefi::println!("CMPUNLOCKER-FIXTURE: PARENT_RESUMED_AFTER_FAILURE");
         return Err(Status::DEVICE_ERROR);
     }
     let image = load_from_volume(volume, cstr16!("\\EFI\\CMP40\\FAILED.EFI"))?;
@@ -53,9 +53,9 @@ fn run() -> Result<(), Status> {
             loaded.set_load_options(options.as_bytes().as_ptr(), options.num_bytes() as u32);
         }
     }
-    uefi::println!("CMP40-FIXTURE: START_FAILURE_CHILD");
+    uefi::println!("CMPUNLOCKER-FIXTURE: START_FAILURE_CHILD");
     let result = boot::start_image(image);
-    uefi::println!("CMP40-FIXTURE: PARENT_RESUMED_AFTER_FAILURE");
+    uefi::println!("CMPUNLOCKER-FIXTURE: PARENT_RESUMED_AFTER_FAILURE");
     result.map_err(|e| e.status())?;
     Ok(())
 }

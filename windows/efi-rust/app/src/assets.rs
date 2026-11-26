@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! Existing NVIDIA inputs are verified locally and embedded only in the
-//! opt-in CPU-RM build. No new firmware image is stored in the Rust source.
+//! opt-in compute unlock build. No new firmware image is stored in the Rust source.
 use cmp40_efi_core::state::Control;
 
 pub const FULL: &[u8; 0xfa00] = include_bytes!(concat!(env!("OUT_DIR"), "/v67_payload.bin"));

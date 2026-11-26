@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 use crate::image::protocol;
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 use alloc::vec::Vec;
 use cmp40_efi_core::pci::{self, Bdf, Config, Encoding};
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 use cmp40_efi_core::rebar::{self, Bridge, Range};
 use core::arch::asm;
 use core::ffi::c_void;
@@ -12,13 +12,13 @@ use uefi::proto::unsafe_protocol;
 use uefi::{Identify, Status};
 
 type Read = unsafe extern "efiapi" fn(*const RootBridge, u32, u64, usize, *mut c_void) -> Status;
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 type Write = unsafe extern "efiapi" fn(*const RootBridge, u32, u64, usize, *const c_void) -> Status;
-#[cfg(not(feature = "cpu-rm"))]
+#[cfg(not(feature = "unlock"))]
 type Write = usize; // opaque in the read-only build
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 type Configuration = unsafe extern "efiapi" fn(*const RootBridge, *mut *const u8) -> Status;
-#[cfg(not(feature = "cpu-rm"))]
+#[cfg(not(feature = "unlock"))]
 type Configuration = usize;
 
 #[repr(C)]
@@ -73,7 +73,7 @@ impl Pci {
                 }
             }
             Err(error) => uefi::println!(
-                "CMP40-CPU-RM: ROOT_BRIDGE_UNAVAILABLE {:?}; probing CF8",
+                "CMPUNLOCKER: ROOT_BRIDGE_UNAVAILABLE {:?}; probing CF8",
                 error.status()
             ),
         }
@@ -91,7 +91,7 @@ impl Pci {
         Ok(candidate)
     }
 
-    #[cfg(feature = "cpu-rm")]
+    #[cfg(feature = "unlock")]
     pub fn enable_bar(&mut self) -> Result<u32, Status> {
         if self.bdf.function != 0 {
             return Err(Status::UNSUPPORTED);
@@ -163,7 +163,7 @@ impl Config for Pci {
         }
     }
 
-    #[cfg(feature = "cpu-rm")]
+    #[cfg(feature = "unlock")]
     fn write32(&mut self, bdf: Bdf, offset: u8, value: u32) {
         let address = self.encoding.address(bdf, offset);
         if let Some(root) = self.root.as_ref() {
@@ -181,7 +181,7 @@ impl Config for Pci {
             }
         }
     }
-    #[cfg(not(feature = "cpu-rm"))]
+    #[cfg(not(feature = "unlock"))]
     fn write32(&mut self, _: Bdf, _: u8, _: u32) {
         panic!("PCI writes are unavailable in the read-only build");
     }
@@ -190,11 +190,11 @@ impl Config for Pci {
 /// ReBAR reuses the discovery encoding on every root, with CF8 restricted
 /// to segment zero. Segment filtering prevents a bridge on another PCI
 /// segment from being mistaken for the target's parent.
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 pub struct RebarRoots {
     roots: Vec<Pci>,
 }
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 impl RebarRoots {
     pub fn collect(target: &Pci) -> Result<Self, Status> {
         let mut roots = Vec::new();
@@ -315,11 +315,11 @@ impl RebarRoots {
     }
 }
 
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 pub struct Mmio {
     base: usize,
 }
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 impl Mmio {
     /// The caller has verified the target and enabled its preassigned BAR0.
     /// This adapter deliberately preserves direct BAR access and identity DMA

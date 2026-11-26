@@ -1,7 +1,8 @@
-# CMP 40HX proprietary Linux driver / CPU-RM unlock
+# CMP 40HX pre-driver compute unlock
 
 This path unlocks compute on an **8 GiB CMP 40HX / TU106 (`10de:1f0b`)**
-before the proprietary NVIDIA driver loads, with **GSP disabled**. It does not
+before the proprietary NVIDIA driver loads. Compute unlock works with GSP
+enabled or disabled on the tested card. See the [GSP-enabled results](../../docs/results.md#gsp-enabled-on-linux-and-windows). It does not
 modify or install NVIDIA's proprietary driver. Native initialization and CUDA
 throughput were validated with **610.43.03, 615.78.08 and 620.70.06**; see
 [the research report](../../docs/research/CPU_RM_SMALL_WPR.md).
@@ -41,14 +42,14 @@ Ubuntu's distribution headers. Rebuild and reinstall after kernel updates.
 From the repository root, as a normal user:
 
 ```bash
-python3 linux/cpu-rm/firmware/prepare.py
-make -C linux/cpu-rm/kernel
-make -C linux/cpu-rm offline-test
-python3 -m unittest discover -s linux/cpu-rm/firmware -p 'test_*.py'
+python3 linux/preboot/firmware/prepare.py
+make -C linux/preboot/kernel
+make -C linux/preboot offline-test
+python3 -m unittest discover -s linux/preboot/firmware -p 'test_*.py'
 ```
 
 For a kernel built with Clang/LTO, such as CachyOS, use
-`make -C linux/cpu-rm/kernel LLVM=1`. For a different kernel, specify
+`make -C linux/preboot/kernel LLVM=1`. For a different kernel, specify
 `KDIR=/lib/modules/<kernel-version>/build`.
 
 Firmware preparation downloads the pinned NVIDIA 610.43.03 source archive and
@@ -78,9 +79,9 @@ Install only the pre-driver module and its firmware:
 
 ```bash
 sudo install -d /lib/firmware/cmp40-preboot/610.43.03
-sudo cp linux/cpu-rm/build/assets/* /lib/firmware/cmp40-preboot/610.43.03/
+sudo cp linux/preboot/build/assets/* /lib/firmware/cmp40-preboot/610.43.03/
 sudo install -d /lib/modules/"$(uname -r)"/extra
-sudo install -m 0644 linux/cpu-rm/kernel/cmp40_preboot.ko /lib/modules/"$(uname -r)"/extra/
+sudo install -m 0644 linux/preboot/kernel/cmp40_preboot.ko /lib/modules/"$(uname -r)"/extra/
 sudo depmod -a
 ```
 
@@ -101,19 +102,17 @@ for the example below:
 
 ```bash
 readlink /sys/bus/pci/devices/0000:01:00.0/driver  # must have no driver link
-sudo bash linux/cpu-rm/unlock.sh --gpu 0000:01:00.0 --load-nvidia
+sudo bash linux/preboot/unlock.sh --gpu 0000:01:00.0 --load-nvidia
 nvidia-smi
-sudo dmesg | rg 'cmp40_preboot|NVRM'
+sudo dmesg | rg 'CMPUNLOCKER|cmp40_preboot|NVRM'
 ```
 
 The helper does not detach/reset an initialized GPU. It loads `cmp40_preboot`
 in `mode=unlock`, explicitly selects the tested stock handoff and 1 MiB WPR
 heap, checks `unlock_error=0` and `resources_retained=N`, then loads the
-proprietary `nvidia` module with `NVreg_EnableGpuFirmware=0`. Omit
+proprietary `nvidia` module using the system modprobe configuration. Omit
 `--load-nvidia` to stop after the pre-driver unlock. If `cmp40_preboot` is
 already loaded, inspect its parameters and logs before another operation.
-The GSP check accepts `/sys/module/nvidia/parameters/NVreg_EnableGpuFirmware`
-or `/proc/driver/nvidia/params`; some GRID builds expose only the latter.
 
 For a GRID host, keep the vGPU manager and guests stopped through this sequence.
 After native health and GSP OFF are confirmed, explicitly load the separate
@@ -130,12 +129,12 @@ benchmarks is recorded in [the GRID report](../../docs/research/GRID_CPU_RM_REPO
 Expected pre-driver markers:
 
 ```text
-CPU-RM handoff verified: FECS_PLM=0xffffff8f ... DMEM=zero WPR2=0:0x1ffffe00
+CMPUNLOCKER: handoff verified: FECS_PLM=0xffffff8f ... DMEM=zero WPR2=0:0x1ffffe00
 PRE_DRIVER_UNLOCK_PASS
 ```
 
 These markers establish firmware completion. Confirm native driver operation
-with `nvidia-smi`, GSP Firmware `N/A`, and an independent CUDA benchmark such
+with `nvidia-smi -q` and an independent CUDA benchmark such
 as clpeak (WMMA FP16/INT8). Successful `insmod` alone is insufficient:
 if firmware still owns DMA buffers, the module deliberately stays resident
 while reporting a nonzero `unlock_error` and `resources_retained=Y`.
@@ -146,7 +145,7 @@ For a read-only inspection on an active GPU, with no existing preboot module:
 
 ```bash
 sudo modprobe cmp40_preboot target=0000:01:00.0 mode=inspect
-sudo dmesg | rg 'cmp40_preboot'
+sudo dmesg | rg 'CMPUNLOCKER|cmp40_preboot'
 sudo modprobe -r cmp40_preboot
 ```
 
@@ -170,17 +169,14 @@ you boot. Keep `base`, `systemd` and `modconf` in `HOOKS`, and place
 Do not put `cmp40_preboot` in `MODULES`: the service must load it with explicit
 unlock parameters. Keep NVIDIA modules out of this initramfs as well.
 
-Persist GSP OFF before enabling automatic unlock. For example, create
-`/etc/modprobe.d/cmp40-cpu-rm.conf` with:
-
-```text
-options nvidia NVreg_EnableGpuFirmware=0
-```
+The hook leaves the NVIDIA GSP policy to the system configuration.
+Existing initramfs images can still pass the legacy module parameter
+`cpu_rm_handoff`. New hooks use `driver_handoff` for the same setting.
 
 From the repository root:
 
 ```bash
-sudo install -Dm644 linux/cpu-rm/mkinitcpio/cmp40-unlock /etc/initcpio/install/cmp40-unlock
+sudo install -Dm644 linux/preboot/mkinitcpio/cmp40-unlock /etc/initcpio/install/cmp40-unlock
 echo 'HOOKS=(${HOOKS[@]/modconf/modconf cmp40-unlock})' | sudo tee /etc/mkinitcpio.conf.d/20-cmp40-unlock.conf
 sudo mkinitcpio -P
 ```
@@ -211,7 +207,7 @@ adding it to the automatic module-load list.
 After a cold boot:
 
 ```bash
-journalctl -k -b | rg 'cmp40|NVRM'
+journalctl -k -b | rg 'CMPUNLOCKER|cmp40|NVRM'
 cat /sys/module/cmp40_preboot/parameters/{unlock_error,resources_retained}
 nvidia-smi
 ```
@@ -219,7 +215,7 @@ nvidia-smi
 The log should show `PRE_DRIVER_UNLOCK_PASS` and
 `pre-driver unlock completed on <GPU>; verify with nvidia-smi after boot`
 before NVIDIA's module-load message. The two parameter files must print `0`
-and `N`. Confirm GSP Firmware `N/A` with `nvidia-smi -q` and run a CUDA workload
+and `N`. Check the GSP firmware version with `nvidia-smi -q` and run a CUDA workload
 to check native operation; the firmware completion markers alone do not prove
 workload stability.
 
@@ -241,9 +237,9 @@ remove the guard or force a GPU driver to load during that boot.
 For a one-boot bypass, add `cmp40.skip` to the kernel command line. To remove
 the integration, remove the `cmp40-unlock` HOOKS entry or its
 `20-cmp40-unlock.conf` drop-in and `/etc/initcpio/install/cmp40-unlock`, then
-regenerate the initramfs. Keep GSP OFF if you still use the manual CPU-RM path.
+regenerate the initramfs.
 
-## PCIe Gen2 with CPU-RM
+## PCIe Gen2 with the proprietary driver
 
 Module **0.17.0** updates the Gen2 policy and training logic from the current
 CMP50HX approach. It shares its C implementation with the open-driver patches.
@@ -253,7 +249,7 @@ passed hardware validation; see
 
 Gen2 can be applied entirely **after native NVIDIA initialization**. An isolated
 615.78.08 cold-boot control with no preliminary Gen2 writes reached Gen2 x16
-using the CPU-RM helper. The helper also passed the manual 620.70.06 tests
+using the runtime Gen2 helper. The helper also passed the manual 620.70.06 tests
 after driver unload. Both used CMP40HX VBIOS `90.06.67.00.06` and MSI B550; see
 [the hardware report](../../docs/research/CPU_RM_PCIE_GEN2.md).
 
@@ -261,9 +257,9 @@ After installing the rebuilt module and firmware, start from an unbound cold
 boot and run this order, replacing the example PCI address:
 
 ```bash
-sudo bash linux/cpu-rm/unlock.sh --gpu 0000:01:00.0 --load-nvidia
+sudo bash linux/preboot/unlock.sh --gpu 0000:01:00.0 --load-nvidia
 sudo modprobe -r cmp40_preboot
-sudo bash linux/cpu-rm/gen2.sh --gpu 0000:01:00.0
+sudo bash linux/preboot/gen2.sh --gpu 0000:01:00.0
 ```
 
 After a successful mkinitcpio unlock, verify `unlock_error=0` and
@@ -271,13 +267,14 @@ After a successful mkinitcpio unlock, verify `unlock_error=0` and
 sequence. The compute unlock has already run; do not invoke `unlock.sh` again.
 
 The first helper verifies compute unlock and firmware/DMA cleanup. Unload its
-completed one-shot module before using it again for runtime Gen2. The Gen2
-helper verifies proprietary GSP OFF, native health and absence of open NVIDIA
+completed one-shot module before using it again for runtime Gen2. The Gen2 helper checks that the proprietary driver responds to `nvidia-smi`
+and reads the link speed. If retraining is needed, it checks for open GPU
 clients, then holds a temporary NVML client while the module sets the GPU-side
 policy and requests ordinary upstream retraining. It allows one further
 attempt only if the link remains healthy at Gen1 with its original width;
 before that attempt it restores policy without another adoption write.
-It requires full compute selectors, halted GSP and an active PCIe link. Its runtime mode
+Before retraining, the kernel module checks the compute selectors, GSP halt
+register and link state. Its runtime mode
 uses existing PCI decoding and leaves the native driver's PCI enable count
 unchanged.
 
@@ -322,7 +319,7 @@ policy setup could affect native initialization or capability sampling;
 neither report has yet been fixed by this experiment. The
 [hardware report](../../docs/research/CPU_RM_PCIE_GEN2.md#early-preparation-on-other-platforms)
 describes the cold-boot controls. The reported open/GSP path is a separate
-comparison from this proprietary GSP-OFF helper.
+comparison with the proprietary driver.
 
 Gen2 outcomes are recorded separately in `gen2_error`, `gen2_device_ok` and
 `gen2_link_status`; compute unlock has its own `unlock_error`. A Gen2 timeout
@@ -335,11 +332,11 @@ the code never changes Linux's PCI cache. CCC, ASPM, HASD/HAWD and `0x88610`
 are preserved. All Gen2 modes use the actual upstream port and ordinary
 Retrain Link, without Link Disable or driver reprobe. The existing
 `tools/cmp40hx-driver-reprobe-gen2.sh` depends on the patched open driver's
-Gen2 setup running again at probe time, so use the CPU-RM helper for this path.
+Gen2 setup running again at probe time, so use the runtime Gen2 helper for this path.
 
 ## Boot ordering and removal
 
-Persist CPU-RM selection in a modprobe configuration if desired:
+To reproduce the earlier GSP-OFF tests, select the driver mode in modprobe configuration:
 
 ```text
 options nvidia NVreg_EnableGpuFirmware=0

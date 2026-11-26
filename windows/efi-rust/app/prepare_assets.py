@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Prepare only the pinned inputs used by the project's current C CPU-RM EFI."""
+"""Prepare only the pinned inputs used by the project's current C compute unlock EFI."""
 import argparse
 import hashlib
 import json

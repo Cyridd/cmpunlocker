@@ -42,14 +42,14 @@ pub fn windows_prepared() -> Result<Prepared, Status> {
         if !self_is_windows {
             match Source::own(volume).and_then(|source| prepare(&source)) {
                 Ok(image) => {
-                    uefi::println!("CMP40-READONLY: WINDOWS_PREPARED own-volume");
+                    uefi::println!("CMPUNLOCKER-READONLY: WINDOWS_PREPARED own-volume");
                     return Ok(image);
                 }
                 Err(Status::NOT_FOUND) => {}
                 Err(status) => return Err(status),
             }
         } else {
-            uefi::println!("CMP40-READONLY: SELF_WINDOWS_PATH_SKIPPED");
+            uefi::println!("CMPUNLOCKER-READONLY: SELF_WINDOWS_PATH_SKIPPED");
         }
     }
     let mut candidate: Option<Prepared> = None;
@@ -67,7 +67,7 @@ pub fn windows_prepared() -> Result<Prepared, Status> {
                 if let Some(previous) = candidate {
                     release(previous.image);
                     release(image.image);
-                    uefi::println!("CMP40-READONLY: WINDOWS_AMBIGUOUS");
+                    uefi::println!("CMPUNLOCKER-READONLY: WINDOWS_AMBIGUOUS");
                     return Err(Status::NO_MAPPING);
                 }
                 candidate = Some(image);
@@ -82,7 +82,7 @@ pub fn windows_prepared() -> Result<Prepared, Status> {
         }
     }
     let image = candidate.ok_or(Status::NOT_FOUND)?;
-    uefi::println!("CMP40-READONLY: WINDOWS_PREPARED unique-volume");
+    uefi::println!("CMPUNLOCKER-READONLY: WINDOWS_PREPARED unique-volume");
     Ok(image)
 }
 
@@ -95,7 +95,7 @@ fn prepare(source: &Source) -> Result<Prepared, Status> {
                 &bytes,
             )?;
             uefi::println!(
-                "CMP40: WINDOWS_FROM_BUFFER bytes={} SFS_CALLS=0",
+                "CMPUNLOCKER: WINDOWS_FROM_BUFFER bytes={} SFS_CALLS=0",
                 bytes.len()
             );
             Ok(Prepared {
@@ -118,19 +118,22 @@ fn prepare(source: &Source) -> Result<Prepared, Status> {
 
 pub fn release(image: Handle) {
     if let Err(error) = boot::unload_image(image) {
-        uefi::println!("CMP40-READONLY: IMAGE_UNLOAD_FAILED {:?}", error.status());
+        uefi::println!(
+            "CMPUNLOCKER-READONLY: IMAGE_UNLOAD_FAILED {:?}",
+            error.status()
+        );
     }
 }
 
 /// A StartImage error after GPU mutation must not reach a parent's fallback.
-#[cfg(feature = "cpu-rm")]
+#[cfg(feature = "unlock")]
 pub fn start_prepared(image: Handle, gpu_attempted: bool) -> Status {
     match boot::start_image(image) {
         Ok(()) => Status::SUCCESS,
         Err(error) => {
             let status = error.status();
             uefi::println!(
-                "CMP40: START_IMAGE_FAILED {:?} GPU_ATTEMPTED={}",
+                "CMPUNLOCKER: START_IMAGE_FAILED {:?} GPU_ATTEMPTED={}",
                 status,
                 gpu_attempted
             );

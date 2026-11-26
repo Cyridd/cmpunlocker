@@ -17,7 +17,7 @@ on the affected system, so its cause remains unresolved.
 | Gen2 and checker | Deploy helper drivers; write status and diagnostic logs | Windows driver directory and project log directories |
 | Uninstaller and USB helper | Remove project files or restore a verified fallback backup | System ESP or the explicitly selected USB drive |
 
-Verified: the shipped CPU-RM entry does not call the historical FAT32,
+Verified: the shipped C EFI entry does not call the historical FAT32,
 BlockIo or GA102 disk-preload helpers. EFI logging uses firmware file services
 and flushes each line. It has no fixed 8 KiB length and is not a raw-sector
 write. A firmware filesystem error, failing storage or interrupted FAT

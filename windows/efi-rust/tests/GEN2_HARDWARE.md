@@ -1,12 +1,14 @@
 # Rust EFI Gen2 experiment
 
+Current builds log `CMPUNLOCKER-GEN2:`. The examples from the earlier images use `CMP40-GEN2:`.
+
 This package tests Gen2 preparation before the Windows NVIDIA driver starts.
 It targets the existing 8 GiB CMP40HX TU106 profile. The accepted FULL compute
 sequence runs first; Gen2 starts only after `NATIVE_READY Full`. The r2
 controls reached Gen2 through the final EFI observation, but loaded Windows
 remained at Gen1 with NVIDIA 621.14.
 
-Earlier Linux CPU-RM testing reached Gen2 before driver initialization, then
+Earlier Linux pre-driver testing reached Gen2 before driver initialization, then
 returned to Gen1 when NVIDIA rewrote the GPU policy. Check the live Windows
 link under load even when the EFI log reports Gen2. Capability and TLS=2 alone
 do not prove that the active link is Gen2.
@@ -277,7 +279,7 @@ insufficient evidence of a failed Gen2 policy, so use the same loaded check.
 The Gen2 log records before/after live capability, control and status fields,
 policy values, the selected port, the result, requested retrains and elapsed
 wait. `H` trace records are true 16-bit config writes; `E` records their
-backend result. Both the CPU-RM and Gen2 traces should report `dropped=0`.
+backend result. Both the compute unlock and Gen2 traces should report `dropped=0`.
 Successful handoff reaches `HANDOFF_READY Full` after the Gen2 result. A log
 ending at `NATIVE_READY` or `CMP40-GEN2: BEGIN` does not establish completion.
 

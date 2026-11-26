@@ -80,7 +80,7 @@ pub fn inventory() -> Result<(), Status> {
             let identity = pci.read32(0)?;
             let class = pci.read32(8)? >> 8;
             uefi::println!(
-                "CMP40-READONLY: PCI {:04x}:{:02x}:{:02x}.{} {:04x}:{:04x} CLASS={:06x}",
+                "CMPUNLOCKER-READONLY: PCI {:04x}:{:02x}:{:02x}.{} {:04x}:{:04x} CLASS={:06x}",
                 segment,
                 bus,
                 device,
@@ -96,11 +96,11 @@ pub fn inventory() -> Result<(), Status> {
         })();
         if let Err(status) = result {
             errors += 1;
-            uefi::println!("CMP40-READONLY: PCI_READ_FAILED {:?}", status);
+            uefi::println!("CMPUNLOCKER-READONLY: PCI_READ_FAILED {:?}", status);
         }
     }
     uefi::println!(
-        "CMP40-READONLY: PCI_HANDLES={} TARGETS={} READ_ERRORS={}",
+        "CMPUNLOCKER-READONLY: PCI_HANDLES={} TARGETS={} READ_ERRORS={}",
         handles.as_ref().map_or(0, |handles| handles.len()),
         targets,
         errors
@@ -109,7 +109,7 @@ pub fn inventory() -> Result<(), Status> {
     // Discovery reads config only and never enables BARs or touches GPU MMIO.
     match cmp40_efi::hardware::Pci::discover() {
         Ok(target) => uefi::println!(
-            "CMP40-READONLY: TARGET_ROUTE {:04x}:{:02x}:{:02x}.{} {:?} GPU_WRITES=0",
+            "CMPUNLOCKER-READONLY: TARGET_ROUTE {:04x}:{:02x}:{:02x}.{} {:?} GPU_WRITES=0",
             target.segment,
             target.bdf.bus,
             target.bdf.device,
@@ -117,10 +117,10 @@ pub fn inventory() -> Result<(), Status> {
             target.encoding
         ),
         Err(Status::NOT_FOUND) => {
-            uefi::println!("CMP40-READONLY: TARGET_ROUTE NOT_FOUND GPU_WRITES=0")
+            uefi::println!("CMPUNLOCKER-READONLY: TARGET_ROUTE NOT_FOUND GPU_WRITES=0")
         }
         Err(status) => uefi::println!(
-            "CMP40-READONLY: TARGET_ROUTE_FAILED {:?} GPU_WRITES=0",
+            "CMPUNLOCKER-READONLY: TARGET_ROUTE_FAILED {:?} GPU_WRITES=0",
             status
         ),
     }

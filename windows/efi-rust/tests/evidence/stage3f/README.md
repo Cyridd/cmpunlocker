@@ -87,7 +87,7 @@ FULL/ZERO baseline archives were rechecked and still match the stage-3e record.
 
 The accepted memory-r1 packages are copied unchanged to
 `target/baseline-memory-e1422c1/`, with hashes recorded in `summary.json`.
-Future changes should follow the [hardware procedure](../../CPU_RM_HARDWARE.md)
+Future changes should follow the [hardware procedure](../../UNLOCK_HARDWARE.md)
 against these frozen images. Any failed GPU attempt parks until physical
 power-off; no same-session retry is added. Next work is carrier parity and
 physical parent/Linux handoff, followed by existing Go distribution integration.

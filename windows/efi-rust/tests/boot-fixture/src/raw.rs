@@ -38,7 +38,7 @@ fn main() -> Status {
         return error.status();
     }
     run().unwrap_or_else(|status| {
-        uefi::println!("CMP40-FIXTURE: RAW_PARENT_FAILED {:?}", status);
+        uefi::println!("CMPUNLOCKER-FIXTURE: RAW_PARENT_FAILED {:?}", status);
         status
     })
 }
@@ -72,7 +72,7 @@ fn run() -> Result<Status, Status> {
         boot::reinstall_protocol_interface(volume, &SimpleFileSystem::GUID, original, failing)
             .map_err(|e| e.status())?;
     }
-    uefi::println!("CMP40-FIXTURE: SFS_BLOCKED START_RAW_CHILD");
+    uefi::println!("CMPUNLOCKER-FIXTURE: SFS_BLOCKED START_RAW_CHILD");
     let result = boot::start_image(child).map_or_else(|error| error.status(), |()| Status::SUCCESS);
     // SAFETY: Same private handle and live interface pointers; child exited.
     unsafe {
@@ -80,7 +80,7 @@ fn run() -> Result<Status, Status> {
             .map_err(|e| e.status())?;
     }
     uefi::println!(
-        "CMP40-FIXTURE: RAW_CHILD_RETURNED {:?} SFS_CALLS={}",
+        "CMPUNLOCKER-FIXTURE: RAW_CHILD_RETURNED {:?} SFS_CALLS={}",
         result,
         CALLS.load(Ordering::SeqCst)
     );

@@ -93,7 +93,7 @@ pub fn final_check(
     watch: Watch,
 ) -> Result<(), Status> {
     output.checkpoint(format_args!(
-        "CMP40-GEN2: FINAL_BEGIN phase=after-rebar-before-handoff OBSERVER_WRITES=0\n"
+        "CMPUNLOCKER-GEN2: FINAL_BEGIN phase=after-rebar-before-handoff OBSERVER_WRITES=0\n"
     ))?;
     let mut io = Observer {
         pci,
@@ -113,7 +113,7 @@ pub fn final_check(
         observation.policy, observation.policy_matches
     ))?;
     output.checkpoint(format_args!(
-        "CMP40-GEN2: FINAL_RESULT {:?} OBSERVER_WRITES=0 OS_RETENTION=unmeasured\n",
+        "CMPUNLOCKER-GEN2: FINAL_RESULT {:?} OBSERVER_WRITES=0 OS_RETENTION=unmeasured\n",
         observation.result
     ))?;
     observation
@@ -154,7 +154,7 @@ pub fn execute(
         Err(status) => {
             output.diagnostic();
             output.checkpoint(format_args!(
-                "CMP40-GEN2: SKIPPED roots={:?} GEN2_WRITES=0\n",
+                "CMPUNLOCKER-GEN2: SKIPPED roots={:?} GEN2_WRITES=0\n",
                 status
             ))?;
             return Ok(None);
@@ -163,7 +163,7 @@ pub fn execute(
     let capacity = cmp40_efi_core::trace::phase_capacity(false, roots.count(), pci.bdf.bus);
     let trace = Trace::with_capacity(capacity)?;
     output.checkpoint(format_args!(
-        "CMP40-GEN2: BEGIN mode={:?}; trace buffered; no resets\n",
+        "CMPUNLOCKER-GEN2: BEGIN mode={:?}; trace buffered; no resets\n",
         action
     ))?;
     let mut backend = Backend {
@@ -193,7 +193,7 @@ pub fn execute(
         "GEN2_POLICY BEFORE={:08x?} AFTER={:08x?} order=MISC,CYA,CFG,PL,OVR\n",
         report.policy_before, report.policy_after
     ))?;
-    output.checkpoint(format_args!("CMP40-GEN2: RESULT {:?} mutated={} retrains={} waited_us={} TLS_RESTORED={} saved_tls={:04x?}\n",
+    output.checkpoint(format_args!("CMPUNLOCKER-GEN2: RESULT {:?} mutated={} retrains={} waited_us={} TLS_RESTORED={} saved_tls={:04x?}\n",
         report.result,report.mutated,report.requested_retrains,report.waited_us,report.targets_restored,report.saved_tls))?;
     match report.result {
         Ok(_) => Ok(report.port.map(|port| Watch {
@@ -201,7 +201,7 @@ pub fn execute(
             port,
             width: report.before[0].width(),
         })),
-        // A read-only topology/capability refusal leaves completed CPU-RM intact.
+        // A read-only topology/capability refusal leaves completed compute unlock intact.
         Err(Error::NoPort | Error::SharedBus | Error::Topology | Error::Capability)
             if !report.mutated =>
         {

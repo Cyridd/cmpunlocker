@@ -33,4 +33,4 @@ discovery and refusal paths. QEMU used no NVIDIA passthrough, no real Windows lo
 block devices. It did not execute GPU firmware, exercise physical DMA or
 write the hardware log. The new file log and reserved-memory adapter require
 physical validation along with native completion and Windows driver behavior.
-Use the [hardware test guide](../../CPU_RM_HARDWARE.md) for that milestone.
+Use the [hardware test guide](../../UNLOCK_HARDWARE.md) for that milestone.

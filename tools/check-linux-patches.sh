@@ -178,8 +178,8 @@ apply_and_check() { # <version> <source> <label> <pcie patch> <marker>
             || die "PCIe marker ${marker} missing after ${version}/${label}"
         # Both paths must run the exact same engine. Check every RM/host stage
         # as well as the ABI declaration; a host marker alone is insufficient.
-        cmp "${SCRIPT_DIR}/linux/cpu-rm/kernel/gen2_core.h" kernel-open/nvidia/gen2_core.h \
-            || die "Gen2 core differs from the CPU-RM implementation"
+        cmp "${SCRIPT_DIR}/linux/preboot/kernel/gen2_core.h" kernel-open/nvidia/gen2_core.h \
+            || die "Gen2 core differs from the pre-driver implementation"
         cmp "${SCRIPT_DIR}/tools/gen2/open_adapter.h" kernel-open/nvidia/nv-cmp40-gen2.h \
             || die "Gen2 open adapter differs from its canonical source"
         for stage in 0 1; do

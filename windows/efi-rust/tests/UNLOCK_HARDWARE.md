@@ -1,4 +1,4 @@
-# Physical diagnostics for the Rust CPU-RM EFI
+# Physical diagnostics for the Rust compute unlock EFI
 
 These experimental images target the existing CMP40HX TU106 `10de:1f0b`,
 8 GiB, and the project's current board-specific firmware. The completion-gated
@@ -11,7 +11,9 @@ WPR2 up and GSP still running before Booter preparation. The original log
 was subsequently found, confirming that logging worked.
 
 For future changed variants, use the accepted FULL/ZERO pair as the baseline.
-On the same Limine path, after full power-off, collect the next `RZ*.LOG`/`RF*.LOG`.
+Current builds write `EFI/40HX/LOGS/Lxxxxxxx.LOG` with the control in the header
+and the `CMPUNLOCKER:` prefix. The root-level RF/RZ/RL filenames below belong
+to the historical test images. Use the [logging guide](../LOGGING_POLICY.md) for current builds.
 
 The accepted memory-r1 variant removes the separate zero-image allocation and
 constructs its contents in the radix leaves. It saves 29,339,648 reserved bytes

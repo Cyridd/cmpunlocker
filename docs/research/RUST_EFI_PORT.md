@@ -1,4 +1,4 @@
-# Rust EFI port: carrier, CPU-RM core and experimental FULL/ZERO
+# Rust EFI port: carrier, compute unlock core and experimental FULL/ZERO
 
 The port starts on branch `port/rust` from commit `1c94f8e`. Stage 1 adds
 [`windows/efi-rust/`](../../windows/efi-rust/README.md), a pure Rust core and
@@ -42,7 +42,7 @@ The acceptance checks cover:
 
 - All 256 metadata bytes with three sets of low/high DMA addresses, for both
   payload and stock signature sizes; fixed assertions also pin the measured
-  CPU-RM geometry independently of changes to the C reference.
+  compute unlock geometry independently of changes to the C reference.
 - Radix output at partial-page boundaries, across leaf 511/512, and at the
   actual dummy-image size. Last-leaf padding and the caller's buffer tail are
   checked separately.
@@ -91,7 +91,7 @@ records the reported partition layout and evidence limits. This accepts the
 read-only hardware milestone for that machine. RootBridgeIo/CF8 fallbacks,
 the C loader's raw BlockIo/FAT path and file logging remain pending.
 
-## Stage 3a: CPU-RM firmware operations against a host backend
+## Stage 3a: compute unlock firmware operations against a host backend
 
 The independent `no_std` core now implements:
 
@@ -133,9 +133,9 @@ GCC and Clang both pass the new comparisons. See [stage-3 evidence](../../window
 The core includes no firmware or payload bytes and no `unsafe` code. The host
 execution milestone supplies no EFI adapters; those belong to stage 3b below.
 
-## Stage 3b: experimental EFI CPU-RM integration
+## Stage 3b: experimental EFI compute unlock integration
 
-The opt-in `cpu-rm` feature builds separate FULL/ZERO EFI applications. The
+The opt-in `unlock` feature builds separate FULL/ZERO EFI applications. The
 default application remains the read-only carrier. The adapters implement the
 existing RootBridgeIo encodings/CF8 route, verified BAR enable, volatile MMIO,
 PTIMER seeding and retained reserved memory. High-slot placement and payload,
@@ -145,7 +145,7 @@ follow the C order. Booter recopy/signature patch remains in the deferred callba
 Source assets are verified by full length and SHA-256 before output publication.
 The original 128 KiB GSP boot input produces the exact 24 KiB C runtime prefix,
 with an independent hash; FULL/ZERO and the signature match the existing inputs.
-No generated asset is committed. CPU-RM retains its 960 KiB heap and native
+No generated asset is committed. The unlock uses its 960 KiB heap and native
 completion with no reset/cleanup/FLR/retry tail. Windows is prepared before PCI
 mutation, or the existing parent return option is honored after completion.
 
@@ -163,7 +163,7 @@ records checks and image hashes. Four PCI policy tests cover scan encodings,
 bus bounds/multifunction discovery and BAR refusal/readback. Asset checks include
 corruption outside the runtime prefix and refusal without changing prior output.
 QEMU exercises both no-NVIDIA paths in addition to the seven carrier cases.
-The [hardware guide](../../windows/efi-rust/tests/CPU_RM_HARDWARE.md) defines the
+The [hardware guide](../../windows/efi-rust/tests/UNLOCK_HARDWARE.md) defines the
 remaining ZERO/FULL comparison; physical GPU transactions are not yet accepted.
 
 ## Stage 3c: first ZERO failure and diagnostic recovery
@@ -207,7 +207,7 @@ This does not prove SEC2 DMA read the same bytes or identify a unique cause.
 FWSEC produced WPR2 after three explicit 1 ms waits, but the immediately
 following SEC2 health snapshot still read GSP `CPUCTL=0`. Both C and the initial
 Rust entry returned on WPR2 appearance without waiting for FWSEC HALT; C's
-in-flight output adds incidental timing. The [Linux implementation](../../linux/cpu-rm/kernel/unlock.c)
+in-flight output adds incidental timing. The [Linux implementation](../../linux/preboot/kernel/unlock.c)
 waits for HALT and checks scratch0e/FRTS. The reference TU10x analyses associate
 `0x91` with WPR validation, but timing/geometry/DMA alternatives remain open.
 
@@ -237,7 +237,7 @@ failed ZERO trace; the control traces of FULL/ZERO match apart from PTIMER
 and selector observations. `DEBUGINFO=deadb00d` also appears on success.
 
 The [stage-3e evidence](../../windows/efi-rust/tests/evidence/stage3e/README.md)
-accepts the Rust CPU-RM execution milestone on this tested configuration.
+accepts the Rust compute unlock execution milestone on this tested configuration.
 EFI hashes were not separately reconfirmed; numeric benchmark, driver-version,
 repeated-boot and suspend/resume records were not supplied. Physical parent-return
 is not covered by these `parent=false` runs. The accepted provided binaries
@@ -288,9 +288,9 @@ outside the GPU transaction, so raw preload alone is not an SFS-free logger.
 
 `EFI/40HX/REBAR.CFG` reads preserve the C policy and `norebar` precedence.
 The read-only carrier reports effective opt-in without resizing; FULL/ZERO
-refuse it until ReBAR allocation is implemented. The no-CPU-RM carrier also
+refuse it until ReBAR allocation is implemented. The read-only carrier also
 exercises shared RootBridgeIo Standard/Compact and CF8 discovery without BAR
-enable or GPU MMIO. The accepted CPU-RM preparation/transaction and reserved
+enable or GPU MMIO. The accepted compute unlock preparation/transaction and reserved
 DMA code are preserved; this changed OS preparation still needs hardware checks.
 
 Eleven new host disk tests cover FAT, fragmentation, LFN boundaries, cycles,
@@ -298,12 +298,12 @@ geometry, I/O errors, MBR and native-block GPT/CRC. All 39 core tests pass, alon
 with GCC/Clang comparisons, both EFI feature configurations and Windows checks.
 All 25 QEMU scenarios pass; a failing filesystem shim forces raw preload/policy,
 and GPT/FAT32 disks exercise actual 512/4096-byte BlockIo. Four further default
-build cases verify the no-CPU-RM carrier. The
+build cases verify the read-only carrier. The
 [stage-4a record](../../windows/efi-rust/tests/evidence/stage4a/README.md)
 archives evidence and identifies the isolated preflight image.
 
 The [physical report](../../windows/efi-rust/tests/evidence/stage4a/hardware-report.md)
-now accepts the default no-CPU-RM carrier on the tested configuration:
+now accepts the default read-only carrier on the tested configuration:
 Windows/NVIDIA preload works, return to Limine works, and Linux subsequently
 starts. This is reported console/OS behavior without a raw capture or separately
 reconfirmed image checksum. The supplied read-only archive is frozen unchanged
@@ -375,7 +375,7 @@ Verified: inspection of all four complete logs confirms native FULL/ZERO,
 `RawBuffer` Windows preload with `parent=false`, 99 ms of extra FWSEC waiting,
 and zero trace drops. All 256 metadata bytes per run match the actual C
 builder; input manifests match the pinned sources and derived runtime bytes.
-Same-control CPU-RM traces differ only at two PTIMER writes. The enabled
+Same-control compute unlock traces differ only at two PTIMER writes. The enabled
 ZERO/FULL ReBAR traces are identical across all 111 records: 8 GiB BAR1,
 32 MiB BAR3, placement at attempt 0, matching readback and two zero VRAM
 samples. Both `norebar` logs skip ReBAR despite the reported enabled file.

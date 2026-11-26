@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 use cmp40_efi_core::{
-    options::CpuRmOptions,
+    options::UnlockOptions,
     trace::{encode, full_log, Event, Record},
 };
 
@@ -115,7 +115,7 @@ fn trace_option_is_exact_and_independent_of_handoff_and_rebar() {
         ("\0--trace", false),
     ] {
         let bytes: Vec<_> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
-        assert_eq!(CpuRmOptions::parse(&bytes).unwrap().trace, expected);
+        assert_eq!(UnlockOptions::parse(&bytes).unwrap().trace, expected);
     }
 }
 

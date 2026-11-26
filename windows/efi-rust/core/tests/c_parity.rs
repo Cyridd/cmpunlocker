@@ -5,7 +5,7 @@ use std::io::Write as _;
 use std::process::{Command, Stdio};
 
 use cmp40_efi_core::metadata::{DmaAddresses, SignatureKind, WprMetadata, IMAGE_BYTES};
-use cmp40_efi_core::options::CpuRmOptions;
+use cmp40_efi_core::options::UnlockOptions;
 use cmp40_efi_core::radix::RadixPlan;
 use cmp40_efi_core::state::{Control, Snapshot, StateError, STOCK_PLM, WPR2_LO_DOWN};
 
@@ -73,7 +73,7 @@ fn metadata_matches_all_256_c_bytes_in_both_signature_modes() {
             )
             .unwrap();
             expected.extend_from_slice(
-                WprMetadata::cpu_rm(addresses, signature)
+                WprMetadata::small_wpr(addresses, signature)
                     .unwrap()
                     .as_bytes(),
             );
@@ -193,7 +193,7 @@ fn options_match_c_including_binary_optional_data() {
     for (bytes, row) in options.iter().zip(output.chunks_exact(8)) {
         let valid = i32::from_le_bytes(row[..4].try_into().unwrap()) != 0;
         let parent = i32::from_le_bytes(row[4..].try_into().unwrap()) != 0;
-        let result = CpuRmOptions::parse(bytes);
+        let result = UnlockOptions::parse(bytes);
         assert_eq!(result.is_ok(), valid, "load options {bytes:?}");
         if let Ok(result) = result {
             assert_eq!(result.return_to_bootloader, parent);

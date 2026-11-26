@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Experimental FULL/ZERO integration of the existing CPU-RM transaction.
+//! Experimental FULL/ZERO integration of the existing compute unlock transaction.
 use crate::{
     assets,
     dma::Dma,
@@ -11,7 +11,7 @@ use crate::{
 use cmp40_efi_core::{
     allocation::HighSlots,
     metadata::{self, DmaAddresses, SignatureKind, WprMetadata},
-    options::CpuRmOptions,
+    options::UnlockOptions,
     radix::RadixPlan,
     state::{Control, Snapshot},
     timer::{self, Rtc},
@@ -22,7 +22,7 @@ use cmp40_efi_core::{gen2::Action, options::has_load_option};
 use uefi::{boot, Handle, Status};
 
 struct RunOptions {
-    boot: CpuRmOptions,
+    boot: UnlockOptions,
     #[cfg(feature = "gen2-experiment")]
     gen2: Action,
 }
@@ -81,7 +81,7 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
         Control::Zero => "zero",
     };
     uefi::println!(
-        "CMP40-CPU-RM: BEGIN control={} version={}",
+        "CMPUNLOCKER: BEGIN control={} version={}",
         name,
         env!("CARGO_PKG_VERSION")
     );
@@ -91,14 +91,11 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     let options = match policy::options() {
         Ok(options) => options,
         Err(status) => {
-            uefi::println!("CMP40-CPU-RM: OPTIONS_REFUSED {:?} GPU_WRITES=0", status);
+            uefi::println!("CMPUNLOCKER: OPTIONS_REFUSED {:?} GPU_WRITES=0", status);
             return status;
         }
     };
-    uefi::println!(
-        "CMP40-CPU-RM: LOG_MODE trace={} GPU_WRITES=0",
-        options.trace
-    );
+    uefi::println!("CMPUNLOCKER: LOG_MODE trace={} GPU_WRITES=0", options.trace);
     // Cache the policy on this image's volume before any GPU mutation.
     let rebar_requested = policy::rebar_requested();
     #[cfg(feature = "gen2-experiment")]
@@ -109,7 +106,7 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
                     has_load_option(image.load_options_as_bytes().unwrap_or(&[]), "--no-gen2")
                 });
         let action = if disabled { Action::Off } else { action };
-        uefi::println!("CMP40-GEN2: MODE {:?} GPU_WRITES=0", action);
+        uefi::println!("CMPUNLOCKER-GEN2: MODE {:?} GPU_WRITES=0", action);
         action
     };
     let options = RunOptions {
@@ -121,12 +118,12 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     let mut pci = match Pci::discover() {
         Ok(pci) => pci,
         Err(status) => {
-            uefi::println!("CMP40-CPU-RM: GPU_NOT_FOUND {:?} GPU_WRITES=0", status);
+            uefi::println!("CMPUNLOCKER: GPU_NOT_FOUND {:?} GPU_WRITES=0", status);
             return status;
         }
     };
     uefi::println!(
-        "CMP40-CPU-RM: TARGET {:04x}:{:02x}:{:02x}.{} {:?}",
+        "CMPUNLOCKER: TARGET {:04x}:{:02x}:{:02x}.{} {:?}",
         pci.segment,
         pci.bdf.bus,
         pci.bdf.device,
@@ -136,7 +133,7 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     let mut output = match Output::open(name) {
         Ok(output) => output,
         Err(status) => {
-            uefi::println!("CMP40-CPU-RM: LOG_OPEN_FAILED {:?} GPU_WRITES=0", status);
+            uefi::println!("CMPUNLOCKER: LOG_OPEN_FAILED {:?} GPU_WRITES=0", status);
             return status;
         }
     };
@@ -155,7 +152,7 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     let mut status = result.err().map_or(Status::SUCCESS, failure_status);
     if let Err(error) = output.finish_traces(status.is_error()) {
         uefi::println!(
-            "CMP40-CPU-RM: LOG_DETAIL_FAILED {:?}; handoff refused",
+            "CMPUNLOCKER: LOG_DETAIL_FAILED {:?}; handoff refused",
             error
         );
         if !status.is_error() {
@@ -173,12 +170,12 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     }
     if status.is_error() {
         let _ = output.checkpoint(format_args!(
-            "CMP40-CPU-RM: ABORT {:?}; no retry; power off before another attempt\n",
+            "CMPUNLOCKER: ABORT {:?}; no retry; power off before another attempt\n",
             status
         ));
     }
     if let Err(error) = output.seal() {
-        uefi::println!("CMP40-CPU-RM: LOG_SEAL_FAILED {:?}; handoff refused", error);
+        uefi::println!("CMPUNLOCKER: LOG_SEAL_FAILED {:?}; handoff refused", error);
         if !status.is_error() {
             status = failure_status(error);
         }
@@ -207,14 +204,14 @@ fn run(
     control: Control,
     rebar_requested: bool,
 ) -> Result<(), Status> {
-    output.checkpoint(format_args!("CMP40-CPU-RM: BEGIN {:?}; FLR=off\n", control))?;
+    output.checkpoint(format_args!("CMPUNLOCKER: BEGIN {:?}; FLR=off\n", control))?;
     output.write(format_args!(
         "LOG_FORMAT version=2 image_version={} trace_requested={}\n",
         env!("CARGO_PKG_VERSION"),
         options.boot.trace
     ))?;
     output.write(format_args!(
-        "CMP40-REBAR: POLICY requested={}\n",
+        "CMPUNLOCKER-REBAR: POLICY requested={}\n",
         rebar_requested
     ))?;
     output.write(format_args!(
@@ -235,7 +232,7 @@ fn run(
         None
     };
     output.checkpoint(format_args!(
-        "CMP40-CPU-RM: HANDOFF_PREPARED parent={} source={:?}\n",
+        "CMPUNLOCKER: HANDOFF_PREPARED parent={} source={:?}\n",
         options.boot.return_to_bootloader, source
     ))?;
     // Conservatively own the failure tail before a config operation that may
@@ -269,7 +266,7 @@ fn run(
             ))?;
         }
         output.checkpoint(format_args!(
-            "CMP40-CPU-RM: TRANSACTION {:?} failed_at={:?} result={:?}\n",
+            "CMPUNLOCKER: TRANSACTION {:?} failed_at={:?} result={:?}\n",
             txn.phase(),
             txn.failed_at(),
             result
@@ -283,23 +280,23 @@ fn run(
         io.trace.last_read(reg::SEC2 + reg::MBOX0), io.trace.last_read(reg::GSP + reg::CPU),
     ))
     })();
-    output.retain_trace("CPU_RM", io.trace)?;
+    output.retain_trace("UNLOCK", io.trace)?;
     native_result?;
-    output.checkpoint(format_args!("CMP40-CPU-RM: NATIVE_READY {:?}\n", control))?;
+    output.checkpoint(format_args!("CMPUNLOCKER: NATIVE_READY {:?}\n", control))?;
     #[cfg(feature = "gen2-experiment")]
     let gen2_watch = crate::gen2::execute(pci, &mut io.mmio, output, options.gen2)?;
     if rebar_requested {
         rebar::execute(pci, &mut io.mmio, output)?;
     } else {
         output.checkpoint(format_args!(
-            "CMP40-REBAR: SKIPPED no effective opt-in; stock BARs retained\n"
+            "CMPUNLOCKER-REBAR: SKIPPED no effective opt-in; stock BARs retained\n"
         ))?;
     }
     #[cfg(feature = "gen2-experiment")]
     if let Some(watch) = gen2_watch {
         crate::gen2::final_check(pci, &mut io.mmio, output, watch)?;
     }
-    output.checkpoint(format_args!("CMP40-CPU-RM: HANDOFF_READY {:?}\n", control))
+    output.checkpoint(format_args!("CMPUNLOCKER: HANDOFF_READY {:?}\n", control))
 }
 
 fn prepare_and_execute(
@@ -362,7 +359,7 @@ fn prepare_and_execute(
         .map_err(|_| Status::INVALID_PARAMETER)?;
     io.flush();
     let mut meta = Dma::allocate(&mut slots, metadata::METADATA_BYTES)?;
-    let wire = WprMetadata::cpu_rm(
+    let wire = WprMetadata::small_wpr(
         DmaAddresses {
             radix: radix.address(),
             signature: payload.address(),
@@ -390,7 +387,7 @@ fn prepare_and_execute(
         output.hex_line(format_args!("META {:02x} ", index * 32), chunk)?;
     }
     output.checkpoint(format_args!(
-        "CMP40-CPU-RM: TRANSACTION_BEGIN; trace buffered until completion\n"
+        "CMPUNLOCKER: TRANSACTION_BEGIN; trace buffered until completion\n"
     ))?;
     let mut allocation_failure = None;
     let result = txn.run(

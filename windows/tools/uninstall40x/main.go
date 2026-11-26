@@ -3,7 +3,7 @@
 // 移除: 计划任务(含 Gen2 重试任务) / Gen2 Run 键 / 固件启动项 "40HX Unlock"
 //
 //	/ ESP 解锁 EFI(含 \EFI\Boot\bootx64.efi 回退副本并还原 .bak)
-//	/ 驱动服务与文件 / EnableGpuFirmware(GSP 恢复默认关)
+//	/ 驱动服务与文件
 //
 // v2.6.0: 全部清理实现上提 40hxcore/uninstall_ops.go — 与安装器 GUI 的
 // 组件级卸载共用同一实现, 消除两份漂移副本。本文件仅保留编排与交互。
@@ -161,13 +161,6 @@ func main() {
 	fmt.Println(tr("[6/8] Removing driver files...", "[6/8] Удаление файлов драйверов...", "[6/8] 删除驱动文件..."))
 	hxcore.UninstallDriverFiles()
 
-	// 6.5 GSP 注册表 (恢复默认关)
-	fmt.Print(tr("[6.5/8] Removing EnableGpuFirmware (restoring the GSP default: off) ... ", "[6.5/8] Удаление EnableGpuFirmware (возврат GSP к значению по умолчанию: выкл) ... ", "[6.5/8] 删除 EnableGpuFirmware (恢复 GSP 默认关) ... "))
-	if delGspKey() {
-		fmt.Println(tr("Done", "Готово", "完成"))
-	} else {
-		fmt.Println(tr("not found (skipped)", "не найдено (пропущено)", "未找到(跳过)"))
-	}
 
 	// 6.6 ProgramData 残留: gen2_status.txt(诊断会当"结果"显示!) + drivers 备份源 + 策略键
 	fmt.Print(tr("[6.6/8] Cleaning %ProgramData%\\40HXUnlock + policy key ... ", "[6.6/8] Очистка %ProgramData%\\40HXUnlock + ключа политики ... ", "[6.6/8] 清理 %ProgramData%\\40HXUnlock + 策略键 ... "))
@@ -249,7 +242,6 @@ func delTasks() bool        { return len(hxcore.UninstallTasks()) > 0 }
 func delRunKey()            { hxcore.UninstallRunKey() }
 func delBootEntry() bool    { return hxcore.UninstallBootEntry() }
 func delEspEfi() bool       { return hxcore.UninstallEspEfi() }
-func delGspKey() bool       { return hxcore.UninstallGspKey() }
 func delProgramData()       { hxcore.UninstallProgramData() }
 func checkLeftover() string { rem := hxcore.CheckLeftover(); return strings.Join(rem, "\n") }
 

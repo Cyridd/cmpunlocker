@@ -39,10 +39,10 @@ fn main() -> Status {
     })()
     .unwrap_or(false);
     if let Err(status) = if rotate { retention_test() } else { log_test() } {
-        uefi::println!("CMP40-FIXTURE: LOG_TEST_FAILED {:?}", status);
+        uefi::println!("CMPUNLOCKER-FIXTURE: LOG_TEST_FAILED {:?}", status);
         return status;
     }
-    uefi::println!("CMP40-FIXTURE: LOG_TEST_READY GPU_WRITES=0");
+    uefi::println!("CMPUNLOCKER-FIXTURE: LOG_TEST_READY GPU_WRITES=0");
     let park = protocol::<LoadedImage>(boot::image_handle()).is_ok_and(|image| {
         has_load_option(
             image.load_options_as_bytes().unwrap_or(&[]),
@@ -50,7 +50,7 @@ fn main() -> Status {
         )
     });
     if park {
-        uefi::println!("CMP40-FIXTURE: SIMULATED_POST_MUTATION_FAILURE GPU_WRITES=0");
+        uefi::println!("CMPUNLOCKER-FIXTURE: SIMULATED_POST_MUTATION_FAILURE GPU_WRITES=0");
         return terminal::failure(Status::DEVICE_ERROR, true);
     }
     let result = terminal::failure(Status::NOT_FOUND, false);
@@ -78,7 +78,7 @@ fn log_test() -> Result<(), Status> {
         return Err(Status::DEVICE_ERROR);
     }
     uefi::println!(
-        "CMP40-FIXTURE: LOG_BATCH_WRITES={}",
+        "CMPUNLOCKER-FIXTURE: LOG_BATCH_WRITES={}",
         first.physical_writes()
     );
     first.seal()?;
@@ -107,7 +107,7 @@ fn log_test() -> Result<(), Status> {
         if native.last_read(0x1100f4) != Some(1) {
             return Err(Status::DEVICE_ERROR);
         }
-        output.retain_trace("CPU_RM", native)?;
+        output.retain_trace("UNLOCK", native)?;
         let mut tail = Trace::new()?;
         tail.record(b'W', 0x88050, 6);
         output.retain_trace("REBAR", tail)?;
@@ -126,7 +126,7 @@ fn log_test() -> Result<(), Status> {
         trace.record(b'S', 0, 100);
     }
     trace.record(b'W', 0x88050, 6);
-    output.retain_trace("CPU_RM", trace)?;
+    output.retain_trace("UNLOCK", trace)?;
     output.finish_traces(false)?;
     output.seal()
 }
@@ -159,6 +159,6 @@ fn retention_test() -> Result<(), Status> {
     let mut output = Output::open("full")?;
     output.write(format_args!("RETENTION_AFTER_INTERRUPT\n"))?;
     output.seal()?;
-    uefi::println!("CMP40-FIXTURE: RETENTION_READY GPU_WRITES=0");
+    uefi::println!("CMPUNLOCKER-FIXTURE: RETENTION_READY GPU_WRITES=0");
     Ok(())
 }

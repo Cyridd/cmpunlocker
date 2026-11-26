@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-only
-# Explicit one-shot Gen2 policy reapplication on idle proprietary CPU-RM.
+# Explicit one-shot Gen2 policy reapplication on an idle proprietary driver.
 set -euo pipefail
-source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 usage() { echo "Usage: sudo $0 --gpu 0000:01:00.0 [--module /path/cmp40_preboot.ko]"; }
-die() { printf 'cmp40 CPU-RM Gen2: %s\n' "$*" >&2; exit 1; }
+die() { printf 'CMPUNLOCKER Gen2: %s\n' "$*" >&2; exit 1; }
 gpu='' module=''
 while (($#)); do
     case "$1" in
@@ -25,10 +24,7 @@ device=/sys/bus/pci/devices/$gpu
 [[ -r /proc/driver/nvidia/version ]] && ! grep -q 'Open Kernel Module' /proc/driver/nvidia/version || die "requires the proprietary NVIDIA module"
 [[ ! -d /sys/module/nvidia_drm && ! -d /sys/module/nvidia_modeset ]] || die "stop NVIDIA display users (nvidia_drm, nvidia_modeset) before the Gen2 experiment"
 [[ ! -d /sys/module/cmp40_preboot ]] || die "cmp40_preboot is already loaded; inspect its result before another operation"
-firmware=$(cmp40_gsp_setting) || die "cannot read NVIDIA's GSP setting from sysfs or /proc"
-[[ $firmware == 0 ]] || die "requires GSP OFF"
-report=$(nvidia-smi -i "$gpu" -q) || die "NVIDIA is not responding"
-grep -q 'GSP Firmware Version[[:space:]]*:[[:space:]]*N/A' <<< "$report" || die "NVIDIA-SMI did not confirm GSP OFF"
+nvidia-smi -i "$gpu" -q >/dev/null || die "NVIDIA is not responding"
 status=$(setpci -s "$gpu" CAP_EXP+12.W)
 [[ $status =~ ^[[:xdigit:]]{4}$ && $status != ffff ]] || die "cannot read live Link Status"
 # An already trained link needs only reads, even with active GPU clients.

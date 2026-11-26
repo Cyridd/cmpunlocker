@@ -1,6 +1,6 @@
 [package]
 name = "cmp40-efi"
-description = "Read-only carrier and experimental CMP40HX CPU-RM EFI"
+description = "Read-only carrier and experimental CMP40HX compute unlock EFI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,8 +8,8 @@ rust-version = "1.91"
 publish = false
 
 [features]
-cpu-rm = ["dep:uefi-raw"]
-gen2-experiment = ["cpu-rm"]
+unlock = ["dep:uefi-raw"]
+gen2-experiment = ["unlock"]
 
 [dependencies]
 cmp40-efi-core = { path = "../core" }
@@ -23,30 +23,30 @@ test = false
 bench = false
 
 [[bin]]
-name = "cmp40-cpu-rm-full"
+name = "cmp40-unlock-full"
 path = "src/full.rs"
-required-features = ["cpu-rm"]
+required-features = ["unlock"]
 test = false
 bench = false
 
 [[bin]]
-name = "cmp40-cpu-rm-zero"
+name = "cmp40-unlock-zero"
 path = "src/zero.rs"
-required-features = ["cpu-rm"]
+required-features = ["unlock"]
 test = false
 bench = false
 
 [[bin]]
 name = "cmp40-logcheck"
 path = "src/logcheck.rs"
-required-features = ["cpu-rm"]
+required-features = ["unlock"]
 test = false
 bench = false
 
 [[bin]]
 name = "cmp40-entrycheck"
 path = "src/entrycheck.rs"
-required-features = ["cpu-rm"]
+required-features = ["unlock"]
 test = false
 bench = false
 

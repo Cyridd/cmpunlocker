@@ -206,13 +206,13 @@ pub fn execute(pci: &mut Pci, mmio: &mut Mmio, output: &mut Output) -> Result<()
         Err(status) => {
             output.diagnostic();
             return output.checkpoint(format_args!(
-                "CMP40-REBAR: SKIPPED preparation={:?} REBAR_WRITES=0\n",
+                "CMPUNLOCKER-REBAR: SKIPPED preparation={:?} REBAR_WRITES=0\n",
                 status
             ));
         }
     };
     output.checkpoint(format_args!(
-        "CMP40-REBAR: BEGIN requested=true bytes={}\n",
+        "CMPUNLOCKER-REBAR: BEGIN requested=true bytes={}\n",
         rebar::BAR1_BYTES
     ))?;
     let bus = pci.bdf.bus;
@@ -236,7 +236,7 @@ pub fn execute(pci: &mut Pci, mmio: &mut Mmio, output: &mut Output) -> Result<()
         report.bar1_probe, report.bar3_bytes, report.readback, report.vram
     ))?;
     output.checkpoint(format_args!(
-        "CMP40-REBAR: RESULT {:?} BAR1={:016x} BAR3={:016x} LIMIT={:016x} attempt={}\n",
+        "CMPUNLOCKER-REBAR: RESULT {:?} BAR1={:016x} BAR3={:016x} LIMIT={:016x} attempt={}\n",
         report.outcome, report.base, report.bar3_base, report.limit, report.attempt
     ))
 }

@@ -1,4 +1,4 @@
-# CMP 40HX CPU-RM unlock with a small Booter WPR heap
+# CMP 40HX compute unlock with a small Booter WPR heap
 
 On 2026-10-31, proprietary Linux **610.43.03 and 615.78.08** initialized and
 completed CUDA workloads with the full unlock and GSP disabled. Subsequent
@@ -8,20 +8,22 @@ tests. The exact Windows driver version for those tests was not
 recorded. Earlier Windows failures on 617.14 are historical controls, not a
 claim that the new build was tested on every Windows release.
 
-The repository now ships the FULL Windows path and a separate Linux
-[pre-driver CPU-RM module](../../linux/cpu-rm/README.md). Windows keeps the
+The repository now ships the FULL Windows path and a separate
+[Linux pre-driver module](../../linux/preboot/README.md). Windows keeps the
 current repository's ReBAR, signed-image installation and return-to-bootloader
 features. Integrated installer tests also reproduced an upgrade:
 after deliberately setting `EnableGpuFirmware=1`, **Disable GSP** changed it
 to `0`, and the Gen2 task left it at `0`.
 
+A later [GSP-enabled test](../results.md#gsp-enabled-on-linux-and-windows) covered the Linux pre-driver module and the Windows Rust EFI.
+
 ## NVIDIA 620.70.06 follow-up
 
 Verified on 2026-11-08: the same 610.43.03 firmware and 1 MiB heap worked with
 proprietary NVIDIA 620.70.06, GSP OFF, on `7.3.3-1-cachyos`. The module was
-built with `make -C linux/cpu-rm/kernel LLVM=1 W=1 -j8` using Clang/LLD
+built with `make -C linux/preboot/kernel LLVM=1 W=1 -j8` using Clang/LLD
 `23.1.4`. Firmware preparation with `--offline`, the firmware unit tests and
-`make -C linux/cpu-rm offline-test ROM=<board-rom>`
+`make -C linux/preboot offline-test ROM=<board-rom>`
 passed. The offline run included 24 Gen2 fault cases and six helper cases.
 
 The ROM path and PCI address in these commands are redacted. The hardware
@@ -29,7 +31,7 @@ sequence was stock native initialization and a locked benchmark,
 driver unload, then:
 
 ```bash
-sudo insmod linux/cpu-rm/kernel/cmp40_preboot.ko \
+sudo insmod linux/preboot/kernel/cmp40_preboot.ko \
   target=<pci-address> mode=unlock cpu_rm_handoff=1 stock_handoff=1 \
   small_wpr_heap=1 gen2=off
 ```
@@ -45,7 +47,7 @@ clpeak 2.0.19 used CUDA toolkit 13.2 and reported driver API 13.5. Both runs
 held an NVML client open, verified 150 W before and after the workload, and
 restored the previous 184 W limit:
 
-| Measurement | Stock | CPU-RM unlock |
+| Measurement | Stock | Unlocked (GSP OFF) |
 |---|---:|---:|
 | FP16 WMMA, TFLOPS | 1.05 | 66.77 |
 | INT8 WMMA, TOPS | 2.08 | 132.08 |
@@ -140,8 +142,8 @@ establish successful initialization.
 ## Reproduction and provenance
 
 - Linux firmware hashes and sizes are pinned in
-  [`artifacts-610.43.03.json`](../../linux/cpu-rm/firmware/artifacts-610.43.03.json)
-  and [`asset_hashes.h`](../../linux/cpu-rm/kernel/asset_hashes.h).
+  [`artifacts-610.43.03.json`](../../linux/preboot/firmware/artifacts-610.43.03.json)
+  and [`asset_hashes.h`](../../linux/preboot/kernel/asset_hashes.h).
 - FULL payload SHA-256:
   `de7288bcfb80c2d4b259a59e823c926ba0a9adcab594219cc6802c94257ce271`.
 - ZERO payload SHA-256:
@@ -149,7 +151,7 @@ establish successful initialization.
 - Earlier Windows controls are curated in
   [WINDOWS_CPU_RM_HISTORY.md](WINDOWS_CPU_RM_HISTORY.md).
 
-Use the [Linux guide](../../linux/cpu-rm/README.md) or
+Use the [Linux guide](../../linux/preboot/README.md) or
 [Windows guide](../../windows/README.md). The small heap is for this
 pre-driver transaction; running GSP-RM with it is not validated. Other
 boards/models, long-duration stability, reset recovery and suspend/resume

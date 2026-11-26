@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! Experimental pre-driver Gen2 policy and ordinary immediate-port retrain.
-//! Register masks follow the project's documented EFI-RMW/CPU-RM policy.
+//! Register masks follow the project's documented EFI and Linux pre-driver policy.
 use crate::{
     pci::{Bdf, CMP40_ID},
     rebar::Bridge,

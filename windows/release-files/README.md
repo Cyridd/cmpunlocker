@@ -9,8 +9,8 @@ loads the NVIDIA driver.
 1. In BIOS, enable **Above 4G Decoding** and disable **Secure Boot**, **CSM**,
    and **Fast Boot** while testing. Use UEFI/GPT.
 2. Run `40HXInstaller.exe` as Administrator.
-   Keep **Compute EFI** and **Disable GSP (recommended)** selected when
-   upgrading. The new EFI must be deployed before switching to GSP OFF.
+   Select **Compute EFI** when upgrading. Select **Disable GSP** only if you
+   want to switch the driver to GSP OFF.
 3. Reboot and allow the `40HXUNLK.EFI` entry to run before Windows.
 4. After login, let the Gen2 task finish, then run `40HXCheck.exe` as
    Administrator.
@@ -19,8 +19,8 @@ The installer GUI and logs support `-lang en`, `-lang ru`, and `-lang zh`.
 English is the default. The same choice can be made with
 `CMP40HX_LANG=en|ru|zh`.
 
-This package uses the FULL CPU-RM / 960 KiB EFI path. Installation writes
-the CMP40HX registry DWORD `EnableGpuFirmware=0` and updates existing login
+This package uses the FULL EFI with a 960 KiB Booter heap. Installation preserves
+the CMP40HX registry setting by default and updates existing login
 entries to use this installer. The Gen2 task no longer writes GSP settings.
 
 ## Files

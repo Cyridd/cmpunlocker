@@ -28,9 +28,9 @@
 
 ## Windows / UEFI (`windows/`)
 
-The separate proprietary Linux path is [`linux/cpu-rm/`](../linux/cpu-rm/README.md):
+The separate proprietary Linux path is [`linux/preboot/`](../linux/preboot/README.md):
 `kernel/` contains the pre-driver module, `firmware/` prepares pinned assets,
-`unlock.sh` checks completion before loading CPU-RM, and `test_offline.c`
+`unlock.sh` checks completion before loading NVIDIA, and `test_offline.c`
 checks the firmware parsers and WPR layout. `build/` and compiled modules are
 local outputs and are not committed.
 
@@ -39,7 +39,7 @@ local outputs and are not committed.
 | `windows/README.md` | Windows user guide: prerequisites, installation, verification, recovery |
 | `windows/FORK_CHANGES.md` | Fork-specific changes, the boot-manager handoff, and research boundaries |
 | `windows/tools/unlock40x/` | UEFI unlock application source, firmware blobs, and `build_v70.sh` |
-| `windows/efi-rust/` | Rust port: read-only EFI carrier, CPU-RM execution/preparation core, C comparisons and QEMU boot tests; EFI unlock integration pending |
+| `windows/efi-rust/` | Rust port: read-only EFI carrier, compute unlock core, C comparisons and QEMU boot tests; the Windows installer still ships the C EFI |
 | `docs/research/RUST_EFI_PORT.md` | Rust port baseline, completed stage and remaining validation |
 | `windows/tools/inst40hx/` | Installer GUI/CLI (`40HXInstaller.exe`) and its embedded EFI/drivers |
 | `windows/tools/check40x/` | Status and diagnostic utility (`40HXCheck.exe`) |

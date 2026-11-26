@@ -48,7 +48,7 @@
 #define TU_V67_SIZE 0xfa00u
 #define TU_SEC2_BL_SIZE 768u
 
-/* Transient coherent-sysmem staging must not leak into native CPU-RM. */
+/* Transient coherent-sysmem staging must not leak into the native driver. */
 static const u32 tu_fbif_offsets[] = {
 	GSP_FBIF + 0x24, GSP_FBIF + 4 * 4,
 	SEC_FBIF + 0x24, SEC_FBIF, SEC_FBIF + 1 * 4, SEC_FBIF + 4 * 4,
@@ -952,7 +952,7 @@ static int preserve_wpr_before_unload(struct tu_work *w)
  * Mirror the existing cmpunlocker handoff: a stopped fresh SEC2, empty DMEM,
  * a host-reset window, and stock FECS protection over the unlocked selectors.
  */
-static int prepare_cpu_rm_handoff(struct tu_work *w)
+static int prepare_driver_handoff(struct tu_work *w)
 {
 	u32 i, reset_plm;
 	int ret;
@@ -960,7 +960,7 @@ static int prepare_cpu_rm_handoff(struct tu_work *w)
 	if (!(rd(w, SEC_BASE + 0x100) & (1u << 4)))
 		return GU_DIAG(-EBUSY);
 	reset_plm = rd(w, SEC_BASE + 0x3c4);
-	GU_NOTE("CPU-RM handoff before: reset_plm=%#x wpr2=%#x:%#x\n",
+	GU_NOTE("handoff before: reset_plm=%#x wpr2=%#x:%#x\n",
 		reset_plm, rd(w, 0x1fa828), rd(w, 0x1fa824));
 	wr(w, SEC_BASE + 0x3c4, 0xff);
 	if (rd(w, SEC_BASE + 0x3c4) != 0xff)
@@ -983,7 +983,7 @@ static int prepare_cpu_rm_handoff(struct tu_work *w)
 	/* Only privileged firmware can restore all stock permission bits. */
 	if (!w->stock_handoff)
 		wr(w, TU_FEAT_PLM, TU_FEAT_PLM_STOCK);
-	GU_NOTE("CPU-RM handoff observed: FECS_PLM=%#x SS0=%#x SS1=%#x READOUT=%#x WPR2=%#x:%#x\n",
+	GU_NOTE("handoff observed: FECS_PLM=%#x SS0=%#x SS1=%#x READOUT=%#x WPR2=%#x:%#x\n",
 		rd(w, TU_FEAT_PLM), rd(w, TU_FEAT_SS0), rd(w, TU_FEAT_SS1),
 		rd(w, TU_FEAT_READOUT), rd(w, 0x1fa828), rd(w, 0x1fa824));
 	if (rd(w, TU_FEAT_PLM) != TU_FEAT_PLM_STOCK ||
@@ -992,7 +992,7 @@ static int prepare_cpu_rm_handoff(struct tu_work *w)
 	    rd(w, TU_FEAT_READOUT) != w->expected_readout || rd(w, 0x1fa828) ||
 	    (w->stock_handoff && rd(w, 0x1fa824) != TU_WPR2_LO_DOWN))
 		return GU_DIAG(-EIO);
-	GU_NOTE("CPU-RM handoff verified: FECS_PLM=%#x RESET_PLM=%#x SEC2_CPUCTL=%#x DMEM=zero WPR2=%#x:%#x\n",
+	GU_NOTE("handoff verified: FECS_PLM=%#x RESET_PLM=%#x SEC2_CPUCTL=%#x DMEM=zero WPR2=%#x:%#x\n",
 		rd(w, TU_FEAT_PLM), rd(w, SEC_BASE + 0x3c4),
 		rd(w, SEC_BASE + 0x100), rd(w, 0x1fa828), rd(w, 0x1fa824));
 	return 0;
@@ -1135,7 +1135,7 @@ static int tu_flr(struct tu_work *w)
 	return 0;
 }
 
-int turing_unlock_card(struct pci_dev *pdev, bool *retained, bool cpu_rm_handoff,
+int turing_unlock_card(struct pci_dev *pdev, bool *retained, bool driver_handoff,
                        bool stock_handoff, bool locked_control, bool signed_unload,
                        bool loader_control, bool mmu_invalidate, bool unload_before_down,
                        bool loader_fb_control, bool loader_virtual_control,
@@ -1489,9 +1489,9 @@ int turing_unlock_card(struct pci_dev *pdev, bool *retained, bool cpu_rm_handoff
 		ret = run_signed_unload(w);
 	if (!ret && loader_control)
 		ret = run_ns_loader_control(w);
-	if (!ret && cpu_rm_handoff)
-		ret = prepare_cpu_rm_handoff(w);
-	if (!ret && cpu_rm_handoff && stock_handoff)
+	if (!ret && driver_handoff)
+		ret = prepare_driver_handoff(w);
+	if (!ret && driver_handoff && stock_handoff)
 		ret = restore_staging_fbif(w);
 	if (!ret && mmu_invalidate)
 		ret = invalidate_mmu_handoff(w);
@@ -1504,7 +1504,7 @@ out:
 	if (!firmware_quiesced(w)) {
 		w->retained = true;
 		*retained = true;
-		pci_err(pdev, "cmp40_preboot: firmware did not stop; retaining DMA resources until power off\n");
+		pci_err(pdev, "CMPUNLOCKER: firmware did not stop; retaining DMA resources until power off\n");
 		__module_get(THIS_MODULE);
 		if (!ret)
 			ret = -EBUSY;

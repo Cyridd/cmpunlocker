@@ -3,7 +3,7 @@ use std::{env, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=prepare_assets.py");
-    if env::var_os("CARGO_FEATURE_CPU_RM").is_none() {
+    if env::var_os("CARGO_FEATURE_UNLOCK").is_none() {
         return;
     }
     let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
@@ -25,9 +25,9 @@ fn main() {
         .arg("--output")
         .arg(env::var_os("OUT_DIR").unwrap())
         .status()
-        .expect("CPU-RM firmware preparation requires Python 3");
+        .expect("compute unlock firmware preparation requires Python 3");
     assert!(
         status.success(),
-        "Pinned CPU-RM input verification failed; EFI build refused"
+        "Pinned compute unlock input verification failed; EFI build refused"
     );
 }

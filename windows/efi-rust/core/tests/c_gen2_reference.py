@@ -9,7 +9,7 @@ import tempfile
 from c_reference import COMMON, function
 
 ROOT = Path(__file__).resolve().parents[4]
-SOURCE = (ROOT / "linux/cpu-rm/kernel/gen2_core.h").read_text()
+SOURCE = (ROOT / "linux/preboot/kernel/gen2_core.h").read_text()
 PREFIX = r"""
 #define __iomem
 #define BIT(n) (1u<<(n))

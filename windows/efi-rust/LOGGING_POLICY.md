@@ -20,14 +20,17 @@ refusals and reported errors select diagnostics in experimental Gen2 images.
 Any dropped event selects full output and keeps the nonzero loss counter.
 
 All completed phase traces stay in RAM until the overall pre-handoff result
-is known. A late error therefore retains earlier CPU-RM and Gen2 observations.
+is known. A late error therefore retains earlier compute unlock and Gen2 observations.
 `LOG_DETAIL` states the selected mode and its reasons. Successful compact logs
 contain `TRACE_SUMMARY` lines; diagnostic logs contain named `TRACE_BEGIN` /
-`TRACE_END` blocks for `CPU_RM`, `GEN2` and `REBAR` as applicable.
+`TRACE_END` blocks for `UNLOCK`, `GEN2` and `REBAR` as applicable. Console and file messages use
+`CMPUNLOCKER:` or a component tag such as `CMPUNLOCKER-REBAR:`,
+`CMPUNLOCKER-GEN2:` or `CMPUNLOCKER-ENTRYCHECK:`. Earlier images emitted `CMP40-CPU-RM:` and named
+the phase `CPU_RM`; the decoder accepts both phase names.
 These records follow `HANDOFF_READY` on success and precede `ABORT` on failure.
 `HANDOFF_READY` alone does not establish a sealed log.
 
-CPU-RM still preallocates 131072 event slots before its hardware operation.
+The unlock transaction preallocates 131072 event slots before its hardware operation.
 Gen2 and ReBAR use conservative bounds based on up to eight roots and the GPU
 bus number, capped at the same 131072-slot limit. Bounds include dense live
 functions, repeated conflict scans, capability walks, retrain polling and
@@ -58,6 +61,9 @@ diagnostic control. A completion footer records the selected summary/trace
 class, preceding byte length and FNV checksum. Trace blocks inside this
 envelope retain version 2. The host decoder checks the envelope before
 expanding events and recalculates its footer when converting a complete log.
+New files start with `CMPUNLOCKER_LOG_V3` and end with `CMPUNLOCKER_END_V3`.
+The decoder and EFI rotation also recognize the earlier `CMP40_LOG_V3` and
+`CMP40_END_V3` pair. Both generations of logs share the same quota.
 
 The logger retains at most 32 summaries and four diagnostics within an 8 MiB
 file-byte budget. An active record's buffered bytes and reserved footer count
@@ -97,7 +103,7 @@ retain full streaming checksum/EOF verification. A short write, I/O error or
 failed verification permanently poisons that output; its pending batch is
 never replayed, and the file cannot receive a valid completion footer.
 UEFI error statuses are preserved; warnings returned as errors cannot bypass
-the CPU-RM failure tail. `LOG_IO` reports batches before the final seal.
+the unlock failure handler. `LOG_IO` reports batches before the final seal.
 
 Reserved radix memory is initialized before Rust slices are formed. Its table
 builder now clears only the tables, avoiding a second full 29405184-byte
@@ -162,17 +168,17 @@ Inspection confirms the following results:
 | --- | --- | --- |
 | File size | 3662 bytes (3.6 KiB) | 15422 bytes (15.1 KiB) |
 | Log mode | `summary`, `requested=false` | `trace`, `requested=true` |
-| Native CPU-RM result | `Ready`, `NATIVE_READY Full` | `Ready`, `NATIVE_READY Full` |
+| Native compute unlock result | `Ready`, `NATIVE_READY Full` | `Ready`, `NATIVE_READY Full` |
 | ReBAR result | `Active`, 8 GiB BAR1 | `Active`, 8 GiB BAR1 |
 | Handoff checkpoint | `HANDOFF_READY Full` | `HANDOFF_READY Full` |
-| Retained CPU-RM records / operations | 20499 / 20594 | 20499 / 20594 |
+| Retained compute unlock records / operations | 20499 / 20594 | 20499 / 20594 |
 | Retained ReBAR records / operations | 111 / 111 | 111 / 111 |
 | Dropped events | 0 in both phases | 0 in both phases |
 
 Both logs report `failed=false`, `diagnostic=false`, direct Windows preparation
 from `RawBuffer` and 99 ms of additional FWSEC completion waiting. The default
 log contains phase summaries and no event blocks. The diagnostic log contains
-two valid version 2 blocks: CPU-RM emits 307 body records for its 20499 captured
+two valid version 2 blocks: compute unlock emits 307 body records for its 20499 captured
 records, and ReBAR emits 111. The bounded decoder validates the expanded counts
 against the headers, which agree with the summary log's counters.
 
@@ -232,7 +238,7 @@ in each completion footer.
 | `norebar` | 1 / 2 | Skipped, stock BARs retained | 3274 bytes (summary) | 11 |
 | `--trace` with ReBAR enabled | 3 / 4 | Active, 8 GiB BAR1 | 15583 bytes (trace) | 14 |
 
-Each CPU-RM trace counted 20594 operations across 20499 records. Both
+Each compute unlock trace counted 20594 operations across 20499 records. Both
 diagnostic logs also captured 111 ReBAR operations. Every phase reported
 `dropped=0`. The four runs were below the rotation limits. They provide no
 boot-time measurement or per-run Windows BAR1 readout.
@@ -242,8 +248,8 @@ boot-time measurement or per-run Windows BAR1 readout.
 Build into a new directory and package with the frozen logging-r1 FULL:
 
 ```bash
-cargo build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/opt-r1/normal -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
-python3 tests/package_cpu_rm.py --optimize --image-dir target/opt-r1/normal/x86_64-unknown-uefi/release --baseline-full target/logging-r1/normal/x86_64-unknown-uefi/release/cmp40-cpu-rm-full.efi --output-dir target/opt-r1/usb
+cargo build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/opt-r1/normal -p cmp40-efi -p cmp40-efi-boot-fixture --features unlock,adapters
+python3 tests/package_unlock.py --optimize --image-dir target/opt-r1/normal/x86_64-unknown-uefi/release --baseline-full target/logging-r1/normal/x86_64-unknown-uefi/release/cmp40-cpu-rm-full.efi --output-dir target/opt-r1/usb
 ```
 
 `FULLOPT.EFI` and `ZEROOPT.EFI` are the new images. FULL is also the USB fallback;

@@ -18,16 +18,19 @@ fn main() -> Status {
     if let Err(error) = uefi::helpers::init() {
         return error.status();
     }
-    uefi::println!("CMP40-ENTRYCHECK: ENTERED GPU_WRITES=0 CHILD_STARTS=0");
+    uefi::println!("CMPUNLOCKER-ENTRYCHECK: ENTERED GPU_WRITES=0 CHILD_STARTS=0");
     if let Err(error) = boot::set_watchdog_timer(0, 0x10000, None) {
-        uefi::println!("CMP40-ENTRYCHECK: WATCHDOG_FAILED {:?}", error.status());
+        uefi::println!(
+            "CMPUNLOCKER-ENTRYCHECK: WATCHDOG_FAILED {:?}",
+            error.status()
+        );
         return error.status();
     }
     // Make even a filesystem-open failure visible to a phone recording.
     boot::stall(core::time::Duration::from_secs(5));
     let status = run().err().unwrap_or(Status::SUCCESS);
     uefi::println!(
-        "CMP40-ENTRYCHECK: FINISHED {:?} GPU_WRITES=0 CHILD_STARTS=0; return in 10s",
+        "CMPUNLOCKER-ENTRYCHECK: FINISHED {:?} GPU_WRITES=0 CHILD_STARTS=0; return in 10s",
         status
     );
     boot::stall(core::time::Duration::from_secs(10));
@@ -37,11 +40,14 @@ fn main() -> Status {
 fn run() -> Result<(), Status> {
     // Open/verify a log before policy, discovery or candidate image loading.
     let mut output = Output::open("entrycheck").inspect_err(|status| {
-        uefi::println!("CMP40-ENTRYCHECK: LOG_OPEN_FAILED {:?}", status);
+        uefi::println!("CMPUNLOCKER-ENTRYCHECK: LOG_OPEN_FAILED {:?}", status);
     })?;
     let result = inspect(&mut output);
     if let Err(status) = result {
-        let _ = output.checkpoint(format_args!("CMP40-ENTRYCHECK: FAILED {:?}\n", status));
+        let _ = output.checkpoint(format_args!(
+            "CMPUNLOCKER-ENTRYCHECK: FAILED {:?}\n",
+            status
+        ));
     }
     output.seal()?;
     result
@@ -49,27 +55,27 @@ fn run() -> Result<(), Status> {
 
 fn inspect(output: &mut Output) -> Result<(), Status> {
     output.checkpoint(format_args!(
-        "CMP40-ENTRYCHECK: BEGIN GPU_WRITES=0 CHILD_STARTS=0\n"
+        "CMPUNLOCKER-ENTRYCHECK: BEGIN GPU_WRITES=0 CHILD_STARTS=0\n"
     ))?;
-    output.checkpoint(format_args!("CMP40-ENTRYCHECK: POLICY_BEGIN\n"))?;
+    output.checkpoint(format_args!("CMPUNLOCKER-ENTRYCHECK: POLICY_BEGIN\n"))?;
     match policy::options() {
         Ok(options) => output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: POLICY_OK parent={}\n",
+            "CMPUNLOCKER-ENTRYCHECK: POLICY_OK parent={}\n",
             options.return_to_bootloader
         ))?,
         Err(status) => output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: POLICY_REFUSED {:?}\n",
+            "CMPUNLOCKER-ENTRYCHECK: POLICY_REFUSED {:?}\n",
             status
         ))?,
     }
-    output.checkpoint(format_args!("CMP40-ENTRYCHECK: PCI_BEGIN\n"))?;
+    output.checkpoint(format_args!("CMPUNLOCKER-ENTRYCHECK: PCI_BEGIN\n"))?;
     match Pci::discover() {
         Ok(pci) => output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: TARGET {:04x}:{:02x}:{:02x}.{} {:?} GPU_WRITES=0\n",
+            "CMPUNLOCKER-ENTRYCHECK: TARGET {:04x}:{:02x}:{:02x}.{} {:?} GPU_WRITES=0\n",
             pci.segment, pci.bdf.bus, pci.bdf.device, pci.bdf.function, pci.encoding
         ))?,
         Err(status) => output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: PCI_RESULT {:?} GPU_WRITES=0\n",
+            "CMPUNLOCKER-ENTRYCHECK: PCI_RESULT {:?} GPU_WRITES=0\n",
             status
         ))?,
     }
@@ -89,7 +95,7 @@ fn inspect(output: &mut Output) -> Result<(), Status> {
         ),
     ] {
         output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: LOAD_BEGIN {} route=Firmware\n",
+            "CMPUNLOCKER-ENTRYCHECK: LOAD_BEGIN {} route=Firmware\n",
             control
         ))?;
         record_load(
@@ -100,14 +106,14 @@ fn inspect(output: &mut Output) -> Result<(), Status> {
             load_from_volume(volume, filename),
         )?;
         output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: LOAD_BEGIN {} route=RawBuffer\n",
+            "CMPUNLOCKER-ENTRYCHECK: LOAD_BEGIN {} route=RawBuffer\n",
             control
         ))?;
         let result = (|| {
             let source = Source::own(volume)?;
             let bytes = source.read(&components, 0x02000000)?;
             output.checkpoint(format_args!(
-                "CMP40-ENTRYCHECK: FILE {} bytes={}\n",
+                "CMPUNLOCKER-ENTRYCHECK: FILE {} bytes={}\n",
                 control,
                 bytes.len()
             ))?;
@@ -115,11 +121,13 @@ fn inspect(output: &mut Output) -> Result<(), Status> {
         })();
         record_load(output, control, "RawBuffer", filename, result)?;
     }
-    output.checkpoint(format_args!("CMP40-ENTRYCHECK: WINDOWS_PREPARE_BEGIN\n"))?;
+    output.checkpoint(format_args!(
+        "CMPUNLOCKER-ENTRYCHECK: WINDOWS_PREPARE_BEGIN\n"
+    ))?;
     match handoff::windows_prepared() {
         Ok(prepared) => {
             let recorded = output.checkpoint(format_args!(
-                "CMP40-ENTRYCHECK: WINDOWS_PREPARED source={:?} CHILD_STARTS=0\n",
+                "CMPUNLOCKER-ENTRYCHECK: WINDOWS_PREPARED source={:?} CHILD_STARTS=0\n",
                 prepared.source
             ));
             let unloaded = boot::unload_image(prepared.image).map_err(|error| error.status());
@@ -127,12 +135,12 @@ fn inspect(output: &mut Output) -> Result<(), Status> {
             unloaded?;
         }
         Err(status) => output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: WINDOWS_RESULT {:?} CHILD_STARTS=0\n",
+            "CMPUNLOCKER-ENTRYCHECK: WINDOWS_RESULT {:?} CHILD_STARTS=0\n",
             status
         ))?,
     }
     output.checkpoint(format_args!(
-        "CMP40-ENTRYCHECK: READY GPU_WRITES=0 CHILD_STARTS=0\n"
+        "CMPUNLOCKER-ENTRYCHECK: READY GPU_WRITES=0 CHILD_STARTS=0\n"
     ))
 }
 
@@ -147,7 +155,7 @@ fn record_load(
         Ok(image) => {
             // Always unload even when recording the result fails.
             let recorded = output.checkpoint(format_args!(
-                "CMP40-ENTRYCHECK: LOAD_OK {} route={} file={:?} CHILD_STARTS=0\n",
+                "CMPUNLOCKER-ENTRYCHECK: LOAD_OK {} route={} file={:?} CHILD_STARTS=0\n",
                 control, route, filename
             ));
             let unloaded = boot::unload_image(image).map_err(|error| error.status());
@@ -155,7 +163,7 @@ fn record_load(
             unloaded
         }
         Err(status) => output.checkpoint(format_args!(
-            "CMP40-ENTRYCHECK: LOAD_REFUSED {} route={} {:?}\n",
+            "CMPUNLOCKER-ENTRYCHECK: LOAD_REFUSED {} route={} {:?}\n",
             control, route, status
         )),
     }

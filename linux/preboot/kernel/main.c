@@ -16,7 +16,7 @@ MODULE_PARM_DESC(target, "Exact PCI address of one CMP40HX in domain:bus:slot.fu
 
 static char *mode = "inspect";
 module_param(mode, charp, 0444);
-MODULE_PARM_DESC(mode, "inspect/sec2_timeline: read only; sec2_ports/sec2_vm: diagnostic reads with restored ports/window; direct: SS0/SS1; unlock: Booter; gen2_runtime: explicit idle CPU-RM PCIe experiment");
+MODULE_PARM_DESC(mode, "inspect/sec2_timeline: read only; sec2_ports/sec2_vm: diagnostic reads with restored ports/window; direct: SS0/SS1; unlock: Booter; gen2_runtime: idle-driver PCIe experiment");
 static bool timeline_armed;
 module_param(timeline_armed, bool, 0444);
 MODULE_PARM_DESC(timeline_armed, "Read-only SEC2 timeline is sampling; start the first native query now");
@@ -27,9 +27,12 @@ MODULE_PARM_DESC(unlock_error, "Operation errno; always check before loading NVI
 static bool resources_retained;
 module_param(resources_retained, bool, 0444);
 MODULE_PARM_DESC(resources_retained, "Firmware could not stop; keep module resident and power off");
-static bool cpu_rm_handoff = true;
-module_param(cpu_rm_handoff, bool, 0444);
-MODULE_PARM_DESC(cpu_rm_handoff, "Reset stopped SEC2, clear DMEM, restore stock FECS protection before CPU-RM");
+static bool driver_handoff = true;
+module_param(driver_handoff, bool, 0444);
+/* Keep existing modprobe configurations and initramfs images working. */
+module_param_named(cpu_rm_handoff, driver_handoff, bool, 0444);
+MODULE_PARM_DESC(cpu_rm_handoff, "Legacy name for driver_handoff");
+MODULE_PARM_DESC(driver_handoff, "Reset stopped SEC2, clear DMEM, restore stock FECS protection before NVIDIA initialization");
 static bool stock_handoff = true;
 module_param(stock_handoff, bool, 0444);
 MODULE_PARM_DESC(stock_handoff, "Use published CMP40HX GPU-side selector and stock-FECS-relock payload");
@@ -38,7 +41,7 @@ module_param(locked_control, bool, 0444);
 MODULE_PARM_DESC(locked_control, "Diagnostic stock-handoff control with SS0/SS1 kept zero");
 static bool signed_unload;
 module_param(signed_unload, bool, 0444);
-MODULE_PARM_DESC(signed_unload, "Diagnostic: force production Booter Unload after WPR2 teardown, before CPU-RM");
+MODULE_PARM_DESC(signed_unload, "Diagnostic: force production Booter Unload after WPR2 teardown, before NVIDIA initialization");
 static bool unload_before_down;
 module_param(unload_before_down, bool, 0444);
 MODULE_PARM_DESC(unload_before_down, "Diagnostic: preserve the measured FWSEC WPR2 range in the payload, then run signed Unload before teardown");
@@ -47,7 +50,7 @@ module_param(unload_full_wpr, bool, 0444);
 MODULE_PARM_DESC(unload_full_wpr, "Diagnostic: substitute complete planned Booter WPR bounds, rather than FRTS-only, before signed Unload");
 static bool small_wpr_heap = true;
 module_param(small_wpr_heap, bool, 0444);
-MODULE_PARM_DESC(small_wpr_heap, "CPU-RM handoff: 1-MiB Booter WPR heap instead of 88 MiB; required for the tested proprietary path");
+MODULE_PARM_DESC(small_wpr_heap, "Driver handoff: 1-MiB Booter WPR heap instead of 88 MiB; required for the tested proprietary path");
 static bool loader_control;
 module_param(loader_control, bool, 0444);
 MODULE_PARM_DESC(loader_control, "Diagnostic: run an internal DMEM marker/EXIT NS probe through the native generic SEC2 loader");
@@ -71,11 +74,11 @@ module_param(loader_boundary, uint, 0444);
 MODULE_PARM_DESC(loader_boundary, "Diagnostic physical NS probe: 1 last page before former WPR, 2 first WPR page, 3 first heap page");
 static bool mmu_invalidate;
 module_param(mmu_invalidate, bool, 0444);
-MODULE_PARM_DESC(mmu_invalidate, "Diagnostic: invalidate all MMU PDB/VA mappings with global ACK after quiesced CPU-RM handoff");
+MODULE_PARM_DESC(mmu_invalidate, "Diagnostic: invalidate all MMU PDB/VA mappings with global ACK after quiesced driver handoff");
 
 static char *gen2 = "off";
 module_param(gen2, charp, 0444);
-MODULE_PARM_DESC(gen2, "Opt-in pre-driver Gen2 experiment: off/prepare/targets/retrain (normal CPU-RM unlock only)");
+MODULE_PARM_DESC(gen2, "Opt-in pre-driver Gen2 experiment: off/prepare/targets/retrain (pre-driver unlock only)");
 static char *gen2_policy = "rmw";
 module_param(gen2_policy, charp, 0444);
 MODULE_PARM_DESC(gen2_policy, "Gen2 register policy: rmw preserves unrelated bits; windows uses the Windows full MISC/CYA constants");
@@ -108,23 +111,23 @@ static int __init cmp40_preboot_init(void)
     do_gen2 = strcmp(gen2, "off") != 0;
     if (runtime_gen2 && strcmp(gen2, "retrain"))
         return -EINVAL;
-    if (do_gen2 && ((!runtime_gen2 && strcmp(mode, "unlock")) || !stock_handoff || !cpu_rm_handoff ||
+    if (do_gen2 && ((!runtime_gen2 && strcmp(mode, "unlock")) || !stock_handoff || !driver_handoff ||
                    !small_wpr_heap || locked_control || signed_unload || loader_control ||
                    mmu_invalidate || unload_before_down || unload_full_wpr ||
                    loader_fb_control || loader_virtual_control || loader_native_fbif ||
                    loader_native_addresses || loader_native_physical || loader_boundary))
         return -EINVAL;
-    if (locked_control && (strcmp(mode, "unlock") || !stock_handoff || !cpu_rm_handoff))
+    if (locked_control && (strcmp(mode, "unlock") || !stock_handoff || !driver_handoff))
         return -EINVAL;
-    if (signed_unload && (strcmp(mode, "unlock") || !stock_handoff || !cpu_rm_handoff))
+    if (signed_unload && (strcmp(mode, "unlock") || !stock_handoff || !driver_handoff))
         return -EINVAL;
     if (unload_before_down && (!signed_unload || !locked_control || loader_control))
         return -EINVAL;
     if (unload_full_wpr && !unload_before_down)
         return -EINVAL;
-    if (!strcmp(mode, "unlock") && small_wpr_heap && (!stock_handoff || !cpu_rm_handoff || signed_unload || loader_boundary))
+    if (!strcmp(mode, "unlock") && small_wpr_heap && (!stock_handoff || !driver_handoff || signed_unload || loader_boundary))
         return -EINVAL;
-    if (loader_control && (signed_unload || strcmp(mode, "unlock") || !stock_handoff || !cpu_rm_handoff))
+    if (loader_control && (signed_unload || strcmp(mode, "unlock") || !stock_handoff || !driver_handoff))
         return -EINVAL;
     if (loader_fb_control && (!loader_control || !locked_control || signed_unload))
         return -EINVAL;
@@ -138,7 +141,7 @@ static int __init cmp40_preboot_init(void)
         return -EINVAL;
     if (loader_boundary > 3 || (loader_boundary && (!loader_fb_control || loader_virtual_control || loader_native_addresses || loader_native_physical)))
         return -EINVAL;
-    if (mmu_invalidate && (strcmp(mode, "unlock") || !stock_handoff || !cpu_rm_handoff))
+    if (mmu_invalidate && (strcmp(mode, "unlock") || !stock_handoff || !driver_handoff))
         return -EINVAL;
     while ((pdev = pci_get_device(PCI_VENDOR_ID_NVIDIA, 0x1f0b, pdev)))
         if (!strcmp(pci_name(pdev), target))
@@ -166,7 +169,7 @@ static int __init cmp40_preboot_init(void)
         goto out;
     }
     if (unlock && pdev->driver) {
-        pci_err(pdev, "cmp40_preboot: refusing unlock while driver %s owns the card\n",
+        pci_err(pdev, "CMPUNLOCKER: refusing unlock while driver %s owns the card\n",
                 pdev->driver->name);
         ret = -EBUSY;
         goto out;
@@ -175,13 +178,13 @@ static int __init cmp40_preboot_init(void)
         struct cmp40_gen2_result result;
 
         /* No firmware runs, DMA allocation, detach, PCI enable or FLR here.
-         * The external diagnostic helper checks idle proprietary GSP OFF;
+         * The external diagnostic helper checks the proprietary driver and its clients;
          * gen2.c additionally requires halted GSP and full selectors.
          */
         gen2_error = cmp40_gen2_runtime(pdev, !strcmp(gen2_policy, "windows"), &result);
         gen2_device_ok = result.device_ok;
         gen2_link_status = result.link_status;
-        pci_info(pdev, "cmp40_preboot: GEN2_RUNTIME_RESULT error=%d device_ok=%u status=%04x\n",
+        pci_info(pdev, "CMPUNLOCKER: GEN2_RUNTIME_RESULT error=%d device_ok=%u status=%04x\n",
                  gen2_error, gen2_device_ok, gen2_link_status);
         ret = 0;
     } else if (!strcmp(mode, "sec2_timeline")) {
@@ -195,28 +198,28 @@ static int __init cmp40_preboot_init(void)
     } else if (!strcmp(mode, "sec2_vm")) {
         ret = cmp40_sec2_vm(pdev);
         if (!ret)
-            pci_info(pdev, "cmp40_preboot: SEC2_VM_CAPTURE (window restored; see walk_status)\n");
+            pci_info(pdev, "CMPUNLOCKER: SEC2_VM_CAPTURE (window restored; see walk_status)\n");
     } else if (!strcmp(mode, "sec2_ports")) {
         ret = cmp40_sec2_ports(pdev);
         if (!ret)
-            pci_info(pdev, "cmp40_preboot: SEC2_PORTS_PASS (index ports restored; memory unchanged)\n");
+            pci_info(pdev, "CMPUNLOCKER: SEC2_PORTS_PASS (index ports restored; memory unchanged)\n");
     } else if (!unlock) {
         ret = cmp40_inspect(pdev);
         if (!ret)
             cmp40_gen2_snapshot(pdev, "inspect");
         if (!ret)
-            pci_info(pdev, "cmp40_preboot: INSPECT_PASS (no writes)\n");
+            pci_info(pdev, "CMPUNLOCKER: INSPECT_PASS (no writes)\n");
     } else if (!strcmp(mode, "direct")) {
         ret = cmp40_direct_selectors(pdev);
         if (!ret)
-            pci_info(pdev, "cmp40_preboot: PRE_DRIVER_DIRECT_PASS (driver compatibility untested)\n");
+            pci_info(pdev, "CMPUNLOCKER: PRE_DRIVER_DIRECT_PASS (driver compatibility untested)\n");
     } else {
         if (do_gen2)
             cmp40_gen2_snapshot(pdev, "before_compute");
-        ret = turing_unlock_card(pdev, &resources_retained, cpu_rm_handoff,
+        ret = turing_unlock_card(pdev, &resources_retained, driver_handoff,
                                  stock_handoff, locked_control, signed_unload, loader_control, mmu_invalidate, unload_before_down, loader_fb_control, loader_virtual_control, loader_native_fbif, loader_native_addresses, loader_native_physical, loader_boundary, unload_full_wpr, small_wpr_heap);
         if (!ret)
-            pci_info(pdev, "cmp40_preboot: PRE_DRIVER_%s_PASS (verify native driver and workload next)\n",
+            pci_info(pdev, "CMPUNLOCKER: PRE_DRIVER_%s_PASS (verify native driver and workload next)\n",
                      locked_control ? "CONTROL" : "UNLOCK");
         /* turing_unlock_card has already freed DMA and restored device state.
          * Keep link errors out of its FLR cleanup and unlock_error entirely.
@@ -229,7 +232,7 @@ static int __init cmp40_preboot_init(void)
                                            !strcmp(gen2_policy, "windows"), &result);
             gen2_device_ok = result.device_ok;
             gen2_link_status = result.link_status;
-            pci_info(pdev, "cmp40_preboot: GEN2_RESULT error=%d device_ok=%u status=%04x\n",
+            pci_info(pdev, "CMPUNLOCKER: GEN2_RESULT error=%d device_ok=%u status=%04x\n",
                      gen2_error, gen2_device_ok, gen2_link_status);
         }
     }
@@ -247,7 +250,7 @@ put_device:
          * Keep this pinned module alive while firmware still owns DMA buffers.
          * This is a recorded failure, never a successful unlock.
          */
-        pr_err("cmp40_preboot: RETAINED_ERROR errno=%d; power off before loading a GPU driver\n", ret);
+        pr_err("CMPUNLOCKER: RETAINED_ERROR errno=%d; power off before loading a GPU driver\n", ret);
         return 0;
     }
     return ret;
@@ -261,5 +264,5 @@ static void __exit cmp40_preboot_exit(void)
 module_init(cmp40_preboot_init);
 module_exit(cmp40_preboot_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("CMP40HX CPU-RM pre-driver unlock and inspection");
+MODULE_DESCRIPTION("CMP40HX pre-driver unlock and inspection");
 MODULE_VERSION("0.17.0");

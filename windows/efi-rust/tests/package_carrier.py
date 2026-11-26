@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Package the no-CPU-RM carrier for an isolated physical preload/parent check."""
+"""Package the read-only carrier for an isolated physical preload/parent check."""
 import argparse
 import hashlib
 from pathlib import Path

@@ -3,7 +3,7 @@ use cmp40_efi_core::log_store::{self, Kind, Record, BUDGET, FNV_INITIAL, FOOTER_
 
 #[test]
 fn ownership_and_footer_refuse_foreign_stale_and_corrupted_records() {
-    let header = b"CMP40_LOG_V3 generation=0001234 control=full\n";
+    let header = b"CMPUNLOCKER_LOG_V3 generation=0001234 control=full\n";
     assert!(log_store::owns(header, 1234));
     for bad in [
         b"CMP40_LOG_V2 generation=0001234 control=full\n".as_slice(),
@@ -23,9 +23,25 @@ fn ownership_and_footer_refuse_foreign_stale_and_corrupted_records() {
     ] {
         assert_eq!(log_store::filename_generation(bad), None);
     }
+    assert_eq!(log_store::owned_footer_len(header, 1234), Some(FOOTER_LEN));
+    let legacy = b"CMP40_LOG_V3 generation=0001234 control=full\n";
+    let legacy_hash = log_store::checksum(FNV_INITIAL, legacy);
+    let legacy_tail = format!(
+        "CMP40_END_V3 kind=S bytes={:020} fnv={:016x}\n",
+        legacy.len(),
+        legacy_hash
+    );
+    assert_eq!(
+        log_store::owned_footer_len(legacy, 1234),
+        Some(legacy_tail.len())
+    );
+    assert_eq!(
+        log_store::footer(legacy_tail.as_bytes(), legacy.len() as u64, legacy_hash),
+        Some(Kind::Summary)
+    );
     let digest = log_store::checksum(FNV_INITIAL, header);
     let tail = format!(
-        "CMP40_END_V3 kind=T bytes={:020} fnv={:016x}\n",
+        "CMPUNLOCKER_END_V3 kind=T bytes={:020} fnv={:016x}\n",
         header.len(),
         digest
     );

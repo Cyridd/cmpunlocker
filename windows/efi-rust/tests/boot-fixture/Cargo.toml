@@ -13,7 +13,7 @@ cmp40-efi-core = { path = "../../core" }
 uefi.workspace = true
 
 [features]
-adapters = ["cmp40-efi/cpu-rm"]
+adapters = ["cmp40-efi/unlock"]
 
 [[bin]]
 name = "cmp40-fixture-rebar-policy"

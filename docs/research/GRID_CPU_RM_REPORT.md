@@ -95,11 +95,10 @@ Two issues were independent of the unlock payload:
    GSP OFF are verified.
 2. This GRID build has no `/sys/module/nvidia/parameters` directory. Its
    actual setting is `EnableGpuFirmware: 0` in `/proc/driver/nvidia/params`,
-   with `GSP Firmware Version: N/A` in NVIDIA-SMI. Both CPU-RM helpers now
-   accept the sysfs or /proc representation. An explicitly enabled setting
-   is still rejected.
+   with `GSP Firmware Version: N/A` in NVIDIA-SMI. The runtime Gen2 helper now checks whether the driver responds to
+   `nvidia-smi`, regardless of where GRID exposes its firmware setting.
 
-The [CPU-RM guide](../../linux/cpu-rm/README.md) includes this ordering.
+The [pre-driver guide](../../linux/preboot/README.md) includes this ordering.
 
 ## Gen2 observations
 
@@ -374,7 +373,7 @@ before workloads or vGPU startup and refused a second attempt in the same boot.
 
 **Verified:** local tests passed seven native-record cases, ten link-result
 cases and rejection outside the test boot.
-`bash -n linux/cpu-rm/gen2.sh linux/cpu-rm/common.sh` exited `0`. Installed
+`bash -n linux/preboot/gen2.sh linux/preboot/common.sh` exited `0`. Installed
 file hashes matched; the helper scripts, test initramfs and ordinary boot
 images were unchanged. The third boot exercised the hardware sequence.
 
@@ -388,7 +387,7 @@ helper once. The installed helper/module paths and PCI address are redacted
 below; the helper path is shown relative to the repository:
 
 ```bash
-bash linux/cpu-rm/gen2.sh --gpu <pci-address> \
+bash linux/preboot/gen2.sh --gpu <pci-address> \
   --module <installed-lts-module>
 ```
 
@@ -470,7 +469,7 @@ HASD on both ends, clears ASPM, and first clears CCC on both ends. It sets
 upstream HAWD and Retrain Link, clears bandwidth-status flags, and polls
 both link speeds. On failure, its second round uses the upstream's original
 CCC bit on both ends. If that bit was already zero, both rounds use zero.
-The current CPU-RM helper waits 50 ms after policy and preserves CCC, ASPM,
+The current runtime Gen2 helper waits 50 ms after policy and preserves CCC, ASPM,
 HASD and HAWD while setting TLS and requesting ordinary Retrain Link.
 
 The external repository reports an Intel Xeon E7 v4 IIO / C224 platform,
@@ -545,7 +544,7 @@ The late policy restoration has a local precedent: the 615.78.08 CPU-RM
 test retained Gen2 capability through native initialization, but lost the
 working MISC/CFG/PL settings and actual Gen2 speed. Restoring the policy
 then retraining succeeded; see [the ordered result](CPU_RM_PCIE_GEN2.md#ordered-hardware-result).
-The current CPU-RM helper already reapplies policy when the link is Gen1,
+The current runtime Gen2 helper already reapplies policy when the link is Gen1,
 even if CAP2 or TLS advertises Gen2.
 
 ### Issue #51: hybrid code and a second initialization
@@ -653,7 +652,7 @@ hypotheses concern the affected CMP40HX host.
 - Independently reproduce the guest measurements with paired stock/FULL and
   numerical controls, then exercise guest/manager lifecycle transitions.
 
-CPU-RM 0.17.0 and the refreshed open patches now use a
+Pre-driver module 0.17.0 and the refreshed open patches now use a
 [shared Gen2 engine](CPU_RM_PCIE_GEN2.md#shared-gen2-engine-0170). It reads
 live capability independently of Linux's cached version, permits policy
 application from live v1, and requires live v2 before TLS writes. It adds

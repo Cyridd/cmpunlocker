@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
-"""Prepare hash-pinned CMP40HX CPU-RM firmware without installing a driver."""
+"""Prepare hash-pinned CMP40HX pre-driver firmware without installing a driver."""
 from __future__ import annotations
 
 import argparse

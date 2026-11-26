@@ -9,7 +9,7 @@ import (
 	"unicode/utf16"
 )
 
-func TestEmbeddedEfiIsFullCpuRm(t *testing.T) {
+func TestEmbeddedLegacyEfiIsFull(t *testing.T) {
 	data, err := embedded.ReadFile("embed/" + efiFile)
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +23,7 @@ func TestEmbeddedEfiIsFullCpuRm(t *testing.T) {
 		return out
 	}
 	if !bytes.Contains(data, marker("CPU-RM-FULL")) || bytes.Contains(data, marker("CPU-RM-ZERO")) {
-		t.Fatal("installer must embed FULL CPU-RM; ZERO is a separate diagnostic image")
+		t.Fatal("installer must embed the FULL C EFI; ZERO is a separate diagnostic image")
 	}
 }
 

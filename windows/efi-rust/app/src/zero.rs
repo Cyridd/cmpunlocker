@@ -5,5 +5,5 @@ use cmp40_efi_core::state::Control;
 use uefi::prelude::*;
 #[entry]
 fn main() -> Status {
-    cmp40_efi::cpu_rm::entry(Control::Zero)
+    cmp40_efi::unlock::entry(Control::Zero)
 }

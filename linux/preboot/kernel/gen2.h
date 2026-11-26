@@ -16,7 +16,7 @@ void cmp40_gen2_snapshot(struct pci_dev *pdev, const char *phase);
 /* action: 0=prepare, 1=targets, 2=retrain. */
 int cmp40_gen2_prepare(struct pci_dev *pdev, unsigned int action, bool windows_policy,
 		       struct cmp40_gen2_result *result);
-/* Explicit diagnostic only: helper must verify idle proprietary CPU-RM first. */
+/* Explicit diagnostic only: helper must verify an idle proprietary driver first. */
 int cmp40_gen2_runtime(struct pci_dev *pdev, bool windows_policy,
 		      struct cmp40_gen2_result *result);
 

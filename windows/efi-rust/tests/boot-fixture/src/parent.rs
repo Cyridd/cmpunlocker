@@ -14,7 +14,7 @@ fn main() -> Status {
     }
     run().map_or_else(
         |status| {
-            uefi::println!("CMP40-FIXTURE: PARENT_FAILED {:?}", status);
+            uefi::println!("CMPUNLOCKER-FIXTURE: PARENT_FAILED {:?}", status);
             status
         },
         |()| Status::SUCCESS,
@@ -35,9 +35,9 @@ fn run() -> Result<(), Status> {
             loaded.set_load_options(options.as_bytes().as_ptr(), options.num_bytes() as u32);
         }
     }
-    uefi::println!("CMP40-FIXTURE: START_READONLY_AS_CHILD");
+    uefi::println!("CMPUNLOCKER-FIXTURE: START_READONLY_AS_CHILD");
     let result = boot::start_image(image).map_err(|error| error.status());
     result?;
-    uefi::println!("CMP40-FIXTURE: PARENT_RESUMED");
+    uefi::println!("CMPUNLOCKER-FIXTURE: PARENT_RESUMED");
     Ok(())
 }

@@ -14,7 +14,7 @@ and the post-driver helper alone exposed and trained Gen2 x16.
 ## Shared Gen2 engine (0.17.0)
 
 **Verified by source inspection:** the Gen2 update on 2026-11-08 uses one implementation in
-[`gen2_core.h`](../../linux/cpu-rm/kernel/gen2_core.h) for CPU-RM and all four
+[`gen2_core.h`](../../linux/preboot/kernel/gen2_core.h) for the pre-driver module and all four
 open-driver patch sets. The hardware measurements elsewhere in this report
 used the previous implementation.
 
@@ -44,7 +44,7 @@ OVR  0x8872c = 6          # last, only if live Gen2 capability is absent
 BOOT0, full compute selectors and every register to be written must be
 readable before the first policy write. XP3G registers are written only when
 their PLM is `ffffffff` and their values are valid. Other PLM values retain
-the previous CMP40 subset. The optional CPU-RM `windows` policy still uses
+the previous CMP40 subset. The optional pre-driver `windows` policy still uses
 full MISC/CYA constants. A failed write/readback stops the sequence before
 retraining; partial policy remains visible for diagnosis.
 
@@ -73,9 +73,9 @@ A healthy early Gen1 timeout preserves TLS=2 for the later stages. It does
 not mean the early retrain succeeded. GSP-ready performs policy restoration
 only; the post-init stage performs ordinary retraining.
 
-CPU-RM retains `gen2=off` by default. Its pre-driver `prepare`, `targets` and
-`retrain` controls run after compute cleanup. The explicit runtime helper
-still requires an idle native proprietary driver with GSP halted. The late
+The pre-driver module retains `gen2=off` by default. Its pre-driver `prepare`, `targets` and
+`retrain` controls run after compute cleanup. The runtime helper checks that the proprietary driver is responding. The
+module checks the GSP halt register before retraining. The late
 engine allows two retrain requests, each with a two-second observation
 window. It retries only on a healthy Gen1 link with unchanged width and live
 Gen2 capability, restoring policy without another `0x8872c` write first.
@@ -103,11 +103,11 @@ both declarations, along with compute, ReBAR and optional profiling patches.
 with Python 3.14.9 and Clang/LLD 23.1.4:
 
 ```bash
-make -C linux/cpu-rm offline-test
-python3 -m unittest discover -s linux/cpu-rm/firmware -p 'test_*.py'
-make -C linux/cpu-rm/kernel KDIR=/usr/lib/modules/7.3.3-1-cachyos/build LLVM=1
-bash -n linux/cpu-rm/unlock.sh tools/check-linux-patches.sh
-shellcheck -x -S warning linux/cpu-rm/unlock.sh tools/check-linux-patches.sh
+make -C linux/preboot offline-test
+python3 -m unittest discover -s linux/preboot/firmware -p 'test_*.py'
+make -C linux/preboot/kernel KDIR=/usr/lib/modules/7.3.3-1-cachyos/build LLVM=1
+bash -n linux/preboot/unlock.sh tools/check-linux-patches.sh
+shellcheck -x -S warning linux/preboot/unlock.sh tools/check-linux-patches.sh
 ```
 
 All exited 0. The offline suite passed 44 production-code PCI/MMIO fault
@@ -152,7 +152,7 @@ that each embedded core and adapter matched the canonical files.
 The recorded build inputs matched the final `gen2_core.h`.
 `git diff --check` also passed.
 
-**Verified limitation:** a full CPU-RM LTS build exited 2 at the existing
+**Verified limitation:** a full pre-driver module LTS build exited 2 at the existing
 `timeline.c:35` sysfs callback: these headers require `struct bin_attribute *`,
 while the current callback takes `const struct bin_attribute *`. The separate
 final `gen2.o` build passed with:
@@ -269,7 +269,7 @@ OVR=00000000 CFG=800c5800 PL=00120036 MISC=e0b40500 CYA=068731b3
 CAP=00453d01 CAP2=00000002 CTL2=00000001
 ```
 
-The public `linux/cpu-rm/gen2.sh` helper, using module 0.16.0, applied the masked
+The public `linux/preboot/gen2.sh` helper, using module 0.16.0, applied the masked
 policy after native initialization. Its register writes were all logged under
 the NVIDIA-owned device; no Gen2 writes preceded native initialization. The
 result was:
@@ -305,8 +305,8 @@ Gen2 writes preceded native initialization. NVIDIA DRM and modeset were
 unloaded and `fuser` found no clients before running:
 
 ```bash
-sudo bash linux/cpu-rm/gen2.sh --gpu <pci-address> \
-  --module linux/cpu-rm/kernel/cmp40_preboot.ko
+sudo bash linux/preboot/gen2.sh --gpu <pci-address> \
+  --module linux/preboot/kernel/cmp40_preboot.ko
 ```
 
 The helper exited 0 with `GEN2_RUNTIME_RESULT error=0 device_ok=1
@@ -358,9 +358,9 @@ to it. The public helper ran once, with its existing client checks and NVML
 monitor, using this command from the repository root:
 
 ```bash
-bash linux/cpu-rm/gen2.sh \
+bash linux/preboot/gen2.sh \
   --gpu <pci-address> \
-  --module linux/cpu-rm/kernel/cmp40_preboot.ko
+  --module linux/preboot/kernel/cmp40_preboot.ko
 ```
 
 It ran as root and exited 0 with `GEN2_RUNTIME_RESULT error=0 device_ok=1
@@ -418,8 +418,8 @@ The explicit runtime mode is `mode=gen2_runtime gen2=retrain`. It does not
 execute firmware, allocate firmware DMA, detach NVIDIA, change PCI enable
 counts or perform a reset. In addition to exact CMP40HX identity and an
 active link, it requires the NVIDIA driver, full selectors and halted GSP.
-The [CPU-RM helper](../../linux/cpu-rm/gen2.sh) verifies proprietary GSP OFF,
-native health and absence of open GPU clients, then temporarily holds an
+The [runtime helper](../../linux/preboot/gen2.sh) checks driver health and
+the absence of open GPU clients before retraining, then temporarily holds an
 NVML client while the module reapplies the masked policy and retrains.
 
 The existing driver-reprobe helper remains specific to the patched open
@@ -470,9 +470,9 @@ cold boots with the same driver and workload:
 Collect OVR, CFG, PL, MISC, CYA and live endpoint/upstream capabilities before
 and after each boundary, then verify native health, full selectors and DMA
 bandwidth. Keep Link Disable out of these comparisons. The two community
-reports use open/GSP drivers; switching them to proprietary CPU-RM is itself
+reports use open/GSP drivers; switching them to the proprietary driver is itself
 a driver-path change and cannot isolate the effect of earlier preparation
-in the open driver. The CPU-RM runtime helper requires GSP OFF.
+in the open driver.
 
 ## VFIO passthrough: host retrain in issue #20
 

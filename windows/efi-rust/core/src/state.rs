@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Verdicts over recorded register values for the existing CPU-RM path.
+//! Verdicts over recorded register values for the existing compute unlock path.
 //! A verdict performs no reset, cleanup, polling or implicit retry.
 
 pub const SS0_FULL: u32 = 0x8888_8888;

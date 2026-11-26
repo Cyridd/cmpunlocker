@@ -514,8 +514,6 @@ func check() {
 	gpuOK := hxcore.FindGPU()
 	sbOn := hxcore.SecureBootOn()
 	tsOn := hxcore.TestSigningOn()
-	gsOff := hxcore.GspDisabled()
-	sub, _, _ := hxcore.GspDiag() // 只需判断 GSP 键是否存在(开关式显示, 不展示寄存器/Adapter 细节)
 
 	// --- A. 主判定: 算力 + Gen2 最优先 (v2.5) ---
 	selfM, drvOK, drvFail := ensureDrivers()
@@ -568,12 +566,7 @@ func check() {
 	w("%s\n", bar)
 
 	// --- B. 基础状态 ---
-	gspTxt := tr("— GSP OFF not explicitly configured", "— GSP OFF явно не задан", "— 尚未明确设置 GSP OFF")
-	if gsOff {
-		gspTxt = tr("✓ disabled (recommended CPU-RM mode)", "✓ отключён (рекомендуемый режим CPU-RM)", "✓ 已关闭（推荐 CPU-RM 模式）")
-	} else if sub == "" {
-		gspTxt = tr("— GPU registry key not found", "— раздел GPU в реестре не найден", "— 未找到 GPU 注册表键")
-	}
+	gspTxt := hxcore.GspSettingText(hxcore.GspRegistrySetting())
 	w("GPU 40HX: %s   Secure Boot: %s   GSP: %s\n",
 		map[bool]string{true: "✓", false: "✗"}[gpuOK],
 		map[bool]string{true: tr("on (must disable!)", "вкл (нужно отключить!)", "开启(需关闭!)"), false: tr("off (OK)", "выкл (OK)", "关闭(OK)")}[sbOn], gspTxt)
@@ -706,9 +699,6 @@ func check() {
 	}
 	if tsOn {
 		tips = append(tips, tr("· Test signing is on (not needed since v2.5): disable with bcdedit /set testsigning off", "· Тестовая подпись включена (не нужна с v2.5): отключите через bcdedit /set testsigning off", "· 测试签名已开启 (v2.5 不需要): bcdedit /set testsigning off 可关闭"))
-	}
-	if !gsOff {
-		tips = append(tips, tr("· Select [Disable GSP (recommended)] in 40HXInstaller.exe and reboot after installing the updated EFI.", "· Выберите «Отключить GSP (рекомендуется)» в 40HXInstaller.exe и перезагрузитесь после установки обновлённого EFI.", "· 在 40HXInstaller.exe 选择关闭 GSP（推荐），安装更新的 EFI 后重启。"))
 	}
 	if gpuOK && st.SS0OK && !st.Unlocked {
 		tips = append(tips, tr("· EFI compute unlock not in effect (SS0 locked): if the '40HX Unlock' EFI is not deployed / was uninstalled on this machine, this is expected and compute stays locked — to restore it re-run 40HXInstaller.exe and check [Compute EFI deploy + firmware boot entry]; if the EFI is installed, confirm the boot went through the '40HX Unlock' entry / Above 4G is on / Secure Boot is off", "· Разблокировка вычислений через EFI не действует (SS0 заблокирован): если EFI '40HX Unlock' не развернут / удален на этой машине, это ожидаемо и вычисления остаются заблокированными — чтобы восстановить, перезапустите 40HXInstaller.exe и отметьте [Развертывание вычислительного EFI + запись загрузки прошивки]; если EFI установлен, проверьте, что загрузка прошла через запись '40HX Unlock' / Above 4G включен / Secure Boot выключен", "· EFI 算力解锁未生效(SS0 锁定): 若本机未部署/已卸载 '40HX Unlock' 解锁 EFI, 此提示属预期, 算力会保持锁定 — 想恢复请重跑 40HXInstaller.exe 勾选[算力 EFI 部署+固件启动项]; 若 EFI 已装, 则确认开机走了 '40HX Unlock' 启动项 / Above 4G 已开 / Secure Boot 已关"))

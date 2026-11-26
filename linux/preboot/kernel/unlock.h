@@ -6,7 +6,7 @@
 
 struct pci_dev;
 
-int turing_unlock_card(struct pci_dev *pdev, bool *retained, bool cpu_rm_handoff,
+int turing_unlock_card(struct pci_dev *pdev, bool *retained, bool driver_handoff,
                        bool stock_handoff, bool locked_control, bool signed_unload,
                        bool loader_control, bool mmu_invalidate, bool unload_before_down,
                        bool loader_fb_control, bool loader_virtual_control,

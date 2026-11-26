@@ -10,13 +10,12 @@ those binaries are reproducible from the v3.0 source.
 
 ## Changes in this fork
 
-The current FULL EFI supports **GSP OFF / CPU-RM** using the tested 960 KiB
+The current FULL EFI supports GSP OFF using the tested 960 KiB
 temporary Booter heap and complete native Booter handoff. It keeps return-to-bootloader options and signed-image deployment.
 ReBAR resource relocation now requires an explicit experimental opt-in.
-The installer now offers **Disable GSP (recommended)**, writes an explicit
-`EnableGpuFirmware=0`, detects outdated ESP payloads, upgrades EFI before
-switching GSP, and redirects existing Gen2 login entries to the current
-installer. Gen2 no longer changes GSP; the obsolete GSP-ensure task is removed
+The Rust EFI also passed a [Windows test with GSP enabled](../docs/results.md#gsp-enabled-on-linux-and-windows).
+The installer preserves GSP by default. Selecting **Disable GSP** writes
+`EnableGpuFirmware=0` after the EFI check. Upgrades redirect existing Gen2 login entries to the current installer. Gen2 no longer changes GSP; the obsolete GSP-ensure task is removed
 on installation. See [the report](../docs/research/CPU_RM_SMALL_WPR.md).
 
 The integrated installer and its upgrade path were tested: Disable GSP replaces

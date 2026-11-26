@@ -61,7 +61,7 @@ echo [4/5] Writing build metadata...
 >"%OUT%\BUILD_INFO.txt" echo Source tree: %ROOT%
 >>"%OUT%\BUILD_INFO.txt" echo Built: %DATE% %TIME%
 >>"%OUT%\BUILD_INFO.txt" echo EFI default mode: automatic Windows chainload
->>"%OUT%\BUILD_INFO.txt" echo Compute payload: FULL CPU-RM, 960 KiB Booter heap; GSP OFF recommended
+>>"%OUT%\BUILD_INFO.txt" echo Compute payload: FULL compute unlock, 960 KiB Booter heap
 >>"%OUT%\BUILD_INFO.txt" echo Boot-manager handoff: add the --return-to-bootloader load option to the 40HX boot entry
 
 echo [5/5] Writing SHA256SUMS.txt...

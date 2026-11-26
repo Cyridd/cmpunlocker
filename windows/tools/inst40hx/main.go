@@ -1,10 +1,10 @@
 // 40HX 一键安装工具 v2.1.2 (CMP 40HX Windows Unlock Installer)
 // 功能:
 //
-//	Install: CPU-RM (EnableGpuFirmware=0) + ESP 双路部署 40HXUNLK.EFI (V70)
+//	Install: ESP 双路部署 40HXUNLK.EFI (V70)
 //	      + boot entry registration + drivers + Gen2 logon autostart
 //	-gen2        立即执行 Gen2 解锁(供登录自启动调用, 幂等)
-//	-uninstall   卸载(移除启动项/Run键/驱动服务/EnableGpuFirmware)
+//	-uninstall   卸载(移除启动项/Run键/驱动服务)
 //	-status      状态检查
 //
 // 资源 embed (v2.5): 40HXUNLK.EFI (V70 解锁版) / ThrottleStop.sys / WinRing0x64.sys
@@ -36,7 +36,7 @@
 //  3. Boot priority is configured manually; installation displays a reminder.
 //  4. 关键 BIOS 操作全部进消息框 (社区用户不看 README/日志)
 //
-// Small-WPR firmware preserves full selectors with GSP disabled (CPU-RM).
+// Small-WPR firmware supports the FULL compute handoff.
 package main
 
 import (
@@ -76,7 +76,7 @@ const (
 	efiStdDir = "\\EFI\\Boot"
 	efiStdF   = "bootx64.efi"
 	efiBakExt = ".40hx.bak" // bootx64.efi.40hx.bak 原文件备份
-	// Hardware-bound CPU-RM registry setting.
+	// Hardware-bound NVIDIA registry setting.
 	// 40HX 的显示适配器 Class 子键 (0001 = 40HX; 多卡时需按 AdapterString 找)
 	gpuClassPath  = `SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}`
 	gpuClassGUID  = `{4d36e968-e325-11ce-bfc1-08002be10318}` // Driver 值反查用
@@ -369,7 +369,7 @@ func isAdmin() bool {
 	return false
 }
 
-// setGspDisabled selects the tested CPU-RM path for the hardware-bound 40HX key.
+// setGspDisabled explicitly disables GSP for the hardware-bound 40HX key.
 func setGspDisabled() error {
 	// An old EFI with GSP=0 can fail native initialization. Upgrade it first.
 	if !hxcore.FirmwareIsLegacy() {
@@ -693,7 +693,7 @@ func installEFI() bool {
 func install() {
 	fmt.Println("==============================================")
 	fmt.Println("  CMP 40HX Windows Unlock Installer " + hxcore.Version)
-	fmt.Println(tr("  Tensor unlock (EFI + GSP disabled) + PCIe Gen2 + autostart", "  Разблокировка Tensor (EFI + GSP отключён) + PCIe Gen2 + автозапуск", "  Tensor 解锁(EFI + GSP 关闭) + PCIe Gen2 + 自启动"))
+	fmt.Println(tr("  Tensor unlock (EFI) + PCIe Gen2 + autostart", "  Разблокировка Tensor (EFI) + PCIe Gen2 + автозапуск", "  Tensor 解锁(EFI) + PCIe Gen2 + 自启动"))
 	fmt.Println("==============================================")
 
 	if !isAdmin() {
@@ -706,10 +706,10 @@ func install() {
 		return
 	}
 
-	// 0. 重入检测: 已装过(固件启动项/GSP 键已存在) → 确认后再覆盖,
+	// 0. 重入检测: 已装过(固件启动项/EFI 文件已存在) → 确认后再覆盖,
 	//    避免用户误以为需要反复安装、或在不知情下覆盖现有部署。
 	if alreadyInstalled() {
-		fmt.Println(tr("[!] Detected an existing 40HX unlock install (boot entry / GSP key present).", "[!] Обнаружена ранее установленная разблокировка 40HX (есть запись загрузки / ключ GSP).", "[!] 检测到 40HX 解锁已安装过(启动项/GSP 键存在)。"))
+		fmt.Println(tr("[!] Detected an existing 40HX unlock install (boot entry or EFI file present).", "[!] Обнаружена ранее установленная разблокировка 40HX (есть запись загрузки или файл EFI).", "[!] 检测到 40HX 解锁已安装过(启动项/EFI 文件存在)。"))
 		if !msgboxYesNo(tr("40HX Installer", "Установщик 40HX", "40HX 安装器"),
 			tr("An existing 40HX unlock install was detected.\n\n", "Обнаружена ранее установленная разблокировка 40HX.\n\n", "检测到 40HX 解锁已安装过。\n\n")+
 				tr("Installing again overwrites the existing deployment (drivers and boot entry are updated; system boot is not harmed).\n", "Повторная установка перезапишет существующее развёртывание (драйверы и запись загрузки обновятся; загрузка системы не пострадает).\n", "再次安装会覆盖现有部署(驱动与启动项会更新, 不会损坏系统引导)。\n")+
@@ -790,15 +790,7 @@ func install() {
 		// A full installation retains stock BARs. ReBAR needs explicit opt-in.
 		applyRebarLoadOption(false)
 	}
-	// Select CPU-RM only after the EFI upgrade has been attempted and checked.
-	fmt.Print(tr("Disabling GSP (recommended) ... ", "Отключение GSP (рекомендуется) ... ", "关闭 GSP（推荐）... "))
 	removeLegacyGspTask()
-	if err := setGspDisabled(); err != nil {
-		fmt.Println(err)
-		msgbox(tr("40HX Installer", "Установщик 40HX", "40HX 安装器"), err.Error(), mbIconError)
-		return
-	}
-	fmt.Println(tr("EnableGpuFirmware=0 set (takes effect after reboot)", "EnableGpuFirmware=0 установлено (вступит в силу после перезагрузки)", "已设 EnableGpuFirmware=0（重启生效）"))
 
 	// 7. Gen2 自启动(安装时不 retrain!)
 	// 重要: 安装过程中绝不执行 Gen2 PCIe 重训。此时 nvlddmkm 正占用 GPU,
@@ -828,7 +820,6 @@ func install() {
 		fmt.Println(tr("  [!] The EFI compute unlock was not deployed this time (see the [5/8] notes) — compute will not be unlocked yet,", "  [!] Разблокировка вычислений через EFI в этот раз не развёрнута (см. пояснения [5/8]) — вычисления пока не разблокированы,", "  [!] EFI 算力解锁本次未部署(见 [5/8] 说明) — 算力暂不会解锁,"))
 		fmt.Println(tr("      follow the [5/8] dialog guidance (mbr2gpt / manual deployment), then run this installer again.", "      выполните указания диалога [5/8] (mbr2gpt / ручное развёртывание), затем снова запустите установщик.", "      按 [5/8] 弹窗指引(mbr2gpt/手动部署)处理后重跑本安装器即可。"))
 	}
-	fmt.Println(tr("  GSP disabled: updated EFI uses the tested CPU-RM handoff", "  GSP отключён: обновлённый EFI использует проверенную передачу в CPU-RM", "  GSP 已关闭：更新的 EFI 使用已验证的 CPU-RM 交接"))
 	fmt.Println(tr("  After logon: Gen2 unlocks automatically (autostart registered, silent and windowless)", "  После входа: Gen2 разблокируется автоматически (автозапуск зарегистрирован, тихо и без окна)", "  登录后: Gen2 自动解锁 (已注册自启动, 无窗口静默)"))
 	fmt.Println(tr("  [!] PCIe is not retrained during install; it runs at logon after reboot (avoids conflicts with the GPU driver)", "  [!] PCIe не переобучается во время установки; это выполняется при входе после перезагрузки (во избежание конфликтов с драйвером GPU)", "  [!] 安装时不重训 PCIe, 重启后登录时才执行(避免与显卡驱动冲突)"))
 	fmt.Println(tr("  Verify after reboot: double-click 40HXCheck.exe to view the unlock status (SS0=0x88888888 means success)", "  Проверка после перезагрузки: дважды щёлкните 40HXCheck.exe, чтобы увидеть статус разблокировки (SS0=0x88888888 — успех)", "  重启后验证: 双击 40HXCheck.exe 查看解锁状态(SS0=0x88888888 即成功)"))
@@ -858,7 +849,6 @@ func install() {
 			tr("    'Unlock succeeded: Tensor at full power (SS0=0x88888888)' means done\n", "    'Разблокировка успешна: Tensor на полной мощности (SS0=0x88888888)' — готово\n", "    '解锁成功: Tensor 满血(SS0=0x88888888)' 即完成\n")+
 			tr("  · If it reports not unlocked, it gives the next step (such as enabling Above 4G)\n\n", "  · Если сообщит, что не разблокировано, подскажет следующий шаг (например, включить Above 4G)\n\n", "  · 若提示未解锁, 它会给下一步(如开 Above 4G)\n\n")+
 			tr("· If test signing was just enabled: reboot once so the driver can load\n", "· Если тестовая подпись только что включена: перезагрузитесь один раз, чтобы драйвер загрузился\n", "· 测试签名若刚开启: 先重启一次驱动才可加载\n")+
-			tr("· GSP disabled (recommended CPU-RM mode)\n", "· GSP отключён (рекомендуемый режим CPU-RM)\n", "· GSP 已关闭（推荐 CPU-RM 模式）\n")+
 			tr("· Fast Startup and PCIe link power saving (ASPM) were disabled automatically:\n", "· Быстрый запуск и энергосбережение канала PCIe (ASPM) отключены автоматически:\n", "· 已自动关闭快速启动与 PCIe 链路省电(ASPM):\n")+
 			tr("  the former ensures a full UEFI boot even after shutdown+power-on, the latter reduces idle drops to Gen1;\n", "  первое обеспечивает полную загрузку UEFI даже после выключения и включения, второе уменьшает падения до Gen1 в простое;\n", "  前者保证关机再开也走完整 UEFI 引导, 后者减少空闲降到 Gen1;\n")+
 			tr("  see README §2.4 to restore them\n", "  способ восстановления см. в README §2.4\n", "  恢复方式见 README §2.4\n")+
@@ -1978,12 +1968,6 @@ func uninstall() {
 	hxcore.UninstallDriverServices()
 	fmt.Println(tr("[6/8] Removing driver files...", "[6/8] Удаление файлов драйверов...", "[6/8] 删除驱动文件..."))
 	hxcore.UninstallDriverFiles()
-	fmt.Print(tr("[6.5/8] Removing EnableGpuFirmware (restoring the GSP default: off) ... ", "[6.5/8] Удаление EnableGpuFirmware (возврат GSP к значению по умолчанию: выкл) ... ", "[6.5/8] 删除 EnableGpuFirmware (恢复 GSP 默认关) ... "))
-	if hxcore.UninstallGspKey() {
-		fmt.Println(tr("Done", "Готово", "完成"))
-	} else {
-		fmt.Println(tr("not found (skipped)", "не найдено (пропущено)", "未找到(跳过)"))
-	}
 	fmt.Print(tr("[6.6/8] Cleaning ProgramData + policy key ... ", "[6.6/8] Очистка ProgramData + ключа политики ... ", "[6.6/8] 清理 ProgramData + 策略键 ... "))
 	hxcore.UninstallProgramData()
 	fmt.Println(tr("Done", "Готово", "完成"))
@@ -2013,11 +1997,11 @@ func status() {
 	gpuOK := hxcore.FindGPU()
 	sb := hxcore.SecureBootOn()
 	ts := hxcore.TestSigningOn()
-	gs := hxcore.GspDisabled()
+	gs := hxcore.GspSettingText(hxcore.GspRegistrySetting())
 	fmt.Printf(tr("GPU 40HX detected: %v\n", "Обнаружение GPU 40HX: %v\n", "GPU 40HX 检测: %v\n"), gpuOK)
 	fmt.Printf("Secure Boot: %v\n", sb)
 	fmt.Printf(tr("Test signing: %v\n", "Тестовая подпись: %v\n", "测试签名: %v\n"), ts)
-	fmt.Printf(tr("GSP disabled (recommended CPU-RM): %v\n", "GSP отключён (рекомендуемый CPU-RM): %v\n", "GSP 已关闭（推荐 CPU-RM）: %v\n"), gs)
+	fmt.Println("GSP (EnableGpuFirmware):", gs)
 	// v2.4.1: GSP 定位诊断 — 伪装/魔改驱动会 AdapterString≠"CMP 40HX"
 	if sub, adapter, fw := hxcore.GspDiag(); sub != "" {
 		fmt.Printf(tr("  GSP key: Class\\%s (fw=%d)\n", "  Ключ GSP: Class\\%s (fw=%d)\n", "  GSP 键: Class\\%s (fw=%d)\n"), sub, fw)
@@ -2079,9 +2063,6 @@ func status() {
 	if ts {
 		diag = append(diag, tr("· Test signing is on — not needed in v2.5; turn it off with bcdedit /set testsigning off", "· Тестовая подпись включена — в v2.5 не нужна; отключите её командой bcdedit /set testsigning off", "· 测试签名已开启 — v2.5 不需要, 可 bcdedit /set testsigning off 关闭"))
 	}
-	if !gs {
-		diag = append(diag, tr("· Select Disable GSP (recommended) in the installer and reboot with the updated EFI.", "· Выберите «Отключить GSP (рекомендуется)» в установщике и перезагрузитесь с обновлённым EFI.", "· 请在安装器选择关闭 GSP（推荐），并使用更新的 EFI 重启。"))
-	}
 	if !tsRun || !winringRun {
 		diag = append(diag, tr("· Drivers not running: they start automatically when you log in after a reboot; or run 40HXInstaller.exe -gen2 manually", "· Драйверы не запущены: они запустятся автоматически при входе после перезагрузки; либо запустите 40HXInstaller.exe -gen2 вручную", "· 驱动未运行: 重启后登录会自动拉起; 或手动运行 40HXInstaller.exe -gen2"))
 	}
@@ -2101,7 +2082,7 @@ func status() {
 	}
 	msg := tr("40HX unlock status\n========================\n", "Статус разблокировки 40HX\n========================\n", "40HX 解锁状态\n========================\n")
 	msg += fmt.Sprintf("GPU 40HX: %v    Secure Boot: %v\n", map[bool]string{true: "✓", false: "✗"}[gpuOK], map[bool]string{true: tr("on!", "включён!", "开启!"), false: tr("off (OK)", "выкл (OK)", "关闭(OK)")}[sb])
-	msg += fmt.Sprintf(tr("Test signing: %v    GSP: %v\n", "Тестовая подпись: %v    GSP: %v\n", "测试签名: %v    GSP: %v\n"), map[bool]string{true: "✓", false: "✗"}[ts], map[bool]string{true: "✓", false: "✗"}[gs])
+	msg += fmt.Sprintf(tr("Test signing: %v    GSP: %v\n", "Тестовая подпись: %v    GSP: %v\n", "测试签名: %v    GSP: %v\n"), map[bool]string{true: "✓", false: "✗"}[ts], gs)
 	msg += fmt.Sprintf("ThrottleStop: %v  WinRing0: %v\n", map[bool]string{true: "✓", false: "✗"}[tsRun], map[bool]string{true: "✓", false: "✗"}[winringRun])
 	if tsRun && winringRun {
 		msg += fmt.Sprintf("PCIe: Gen%d    SS0: 0x%08x\n", speed, ss0)

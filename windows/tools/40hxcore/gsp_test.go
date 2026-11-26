@@ -33,6 +33,13 @@ func TestDisableGspUpgrade(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			wantPolicy := state
+			if state == "missing" {
+				wantPolicy = "default"
+			}
+			if got := gspRegistrySettingAt(registry.CURRENT_USER, path); got != wantPolicy {
+				t.Fatalf("registry policy: got %q, want %q", got, wantPolicy)
+			}
 			if gspDisabledAt(registry.CURRENT_USER, path) != (state == "disabled") {
 				t.Fatal("status must require explicit zero")
 			}

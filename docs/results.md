@@ -84,7 +84,7 @@ mechanism behind the CUDA loops has not been investigated here.
 ### Setup notes
 
 - This earlier "after" state has GSP enabled (`EnableGpuFirmware=1`). The
-  current small-WPR EFI supports GSP OFF; see the CPU-RM results below.
+  small-WPR tests below cover both GSP modes.
   With GSP on, the driver reserves some video memory, so the reported VRAM
   drops from `8191 MB` to `8024 MB` (CUDA) and from `8016 MB` to `7857 MB` (Vulkan).
   These figures describe the earlier GSP-ON comparison.
@@ -209,9 +209,18 @@ Before the userspace pipeline fix, the affected game configurations showed a ver
 large slowdown, reported as up to roughly 10-15x. The application figures above
 are observations from one system, not universal performance guarantees.
 
+## GSP enabled on Linux and Windows
+
+On 2026-11-26 I tested compute unlock with the proprietary NVIDIA driver on
+Linux (`NVreg_EnableGpuFirmware=1`) and with the Rust EFI on Windows
+(`EnableGpuFirmware=1`). In both systems, `nvidia-smi -q` reported a GSP
+firmware version, compute unlock persisted, and the driver ran stably.
+Gen2 also worked in these tests. The performance differences I observed
+were within measurement error.
+
 ## Proprietary Linux and Windows with GSP OFF
 
-The current small-WPR CPU-RM path passed native proprietary Linux 610.43.03
+The small-WPR handoff passed native proprietary Linux 610.43.03
 and 615.78.08 initialization. At a verified 150 W on 615, FP16 WMMA increased
 from 1.0440 to 66.1629 TFLOPS, INT8 WMMA from 2.0724 to 131.0379 TOPS, and
 cuBLASLt FP16 from 1.0335 to 52.1347 TFLOPS. A separate numerical WMMA test

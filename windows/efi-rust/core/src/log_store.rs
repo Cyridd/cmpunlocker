@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 //! Ownership syntax and retention decisions; no filesystem or allocation.
 pub const BUDGET: u64 = 8 * 1024 * 1024;
-pub const FOOTER_LEN: usize =
-    b"CMP40_END_V3 kind=S bytes=00000000000000000000 fnv=0000000000000000\n".len();
+pub const HEADER_TAG: &str = "CMPUNLOCKER_LOG_V3";
+pub const FOOTER_TAG: &str = "CMPUNLOCKER_END_V3";
+const LEGACY_FOOTER_TAG: &str = "CMP40_END_V3";
+const FOOTER_FIELDS_LEN: usize = b" kind=S bytes=00000000000000000000 fnv=0000000000000000\n".len();
+pub const FOOTER_LEN: usize = FOOTER_TAG.len() + FOOTER_FIELDS_LEN;
+const LEGACY_FOOTER_LEN: usize = LEGACY_FOOTER_TAG.len() + FOOTER_FIELDS_LEN;
 pub const FNV_INITIAL: u64 = 0xcbf29ce484222325;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,34 +40,39 @@ pub fn filename_generation(name: &str) -> Option<u32> {
     digits.parse().ok().filter(|&number| number != 0)
 }
 pub fn owns(header: &[u8], generation: u32) -> bool {
-    let Some(end) = header.iter().position(|&byte| byte == b'\n') else {
-        return false;
-    };
-    let Ok(text) = core::str::from_utf8(&header[..end]) else {
-        return false;
-    };
+    owned_footer_len(header, generation).is_some()
+}
+pub fn owned_footer_len(header: &[u8], generation: u32) -> Option<usize> {
+    let end = header.iter().position(|&byte| byte == b'\n')?;
+    let text = core::str::from_utf8(&header[..end]).ok()?;
     let mut words = text.split_ascii_whitespace();
-    words.next() == Some("CMP40_LOG_V3")
-        && words
-            .next()
-            .and_then(|word| word.strip_prefix("generation="))
-            .filter(|digits| digits.len() == 7 && digits.bytes().all(|byte| byte.is_ascii_digit()))
-            .and_then(|digits| digits.parse::<u32>().ok())
-            == Some(generation)
+    let footer_len = match words.next()? {
+        HEADER_TAG => FOOTER_LEN,
+        "CMP40_LOG_V3" => LEGACY_FOOTER_LEN,
+        _ => return None,
+    };
+    (words
+        .next()
+        .and_then(|word| word.strip_prefix("generation="))
+        .filter(|digits| digits.len() == 7 && digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|digits| digits.parse::<u32>().ok())
+        == Some(generation)
         && matches!(
             words.next(),
             Some("control=full" | "control=zero" | "control=logcheck" | "control=entrycheck")
         )
-        && words.next().is_none()
+        && words.next().is_none())
+    .then_some(footer_len)
 }
 pub fn footer(bytes: &[u8], length: u64, digest: u64) -> Option<Kind> {
-    if bytes.len() != FOOTER_LEN || bytes.last() != Some(&b'\n') {
+    if bytes.last() != Some(&b'\n') {
         return None;
     }
     let text = core::str::from_utf8(bytes).ok()?;
     let mut words = text.split_ascii_whitespace();
-    if words.next()? != "CMP40_END_V3" {
-        return None;
+    match (words.next()?, bytes.len()) {
+        (FOOTER_TAG, FOOTER_LEN) | (LEGACY_FOOTER_TAG, LEGACY_FOOTER_LEN) => (),
+        _ => return None,
     }
     let kind = match words.next()? {
         "kind=S" => Kind::Summary,

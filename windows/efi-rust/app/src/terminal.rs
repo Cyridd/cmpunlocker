@@ -6,7 +6,7 @@ pub fn failure(status: Status, gpu_attempted: bool) -> Status {
     if !gpu_attempted {
         return status;
     }
-    uefi::println!("CMP40-CPU-RM: FAILURE_PARKED {:?} GPU_ATTEMPTED=1", status);
+    uefi::println!("CMPUNLOCKER: FAILURE_PARKED {:?} GPU_ATTEMPTED=1", status);
     uefi::println!("Power off physically. Do not continue Windows or retry this boot.");
     loop {
         // SAFETY: x64 EFI runs at firmware privilege. The watchdog has been

@@ -318,7 +318,7 @@ fn revert(io: &mut impl Io, saved: Saved) {
     io.mmio_read(CYA);
 }
 
-/// Call only after native CPU-RM completion and effective opt-in. Outcomes
+/// Call only after native compute unlock completion and effective opt-in. Outcomes
 /// after mutation attempt the C rollback and permit its best-effort handoff.
 pub fn relocate(io: &mut impl Io, target_bus: u8) -> Report {
     let mut report = Report {

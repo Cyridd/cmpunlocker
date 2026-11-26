@@ -2,12 +2,11 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Explicit pre-driver unlock. No unbind, reset, PCI rescan or background task.
 set -euo pipefail
-source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 usage() {
     echo "Usage: sudo $0 --gpu 0000:01:00.0 [--load-nvidia] [--gen2 prepare|targets|retrain] [--gen2-policy rmw|windows]"
     echo "The target must be an unbound 10de:1f0b; firmware/module must be installed."
 }
-die() { echo "cmp40 CPU-RM: $*" >&2; exit 1; }
+die() { echo "cmpunlocker: $*" >&2; exit 1; }
 gpu='' load_nvidia=0 gen2=off gen2_policy=rmw
 while (($#)); do
     case "$1" in
@@ -26,14 +25,14 @@ done
 ((EUID == 0)) || die "run as root"
 device=/sys/bus/pci/devices/$gpu
 [[ -d $device ]] || die "PCI device $gpu does not exist"
-[[ $(cat "$device/vendor") == 0x10de && $(cat "$device/device") == 0x1f0b ]] || die "target is not CMP40HX (10de:1f0b)"
+[[ $(cat "$device/vendor") == 0x10de && $(cat "$device/device") == 0x1f0b ]] || die "target is not CMP 40HX (10de:1f0b)"
 [[ ! -L $device/driver ]] || die "a driver owns $gpu; boot with the GPU unbound before using this tool"
 [[ ! -d /sys/module/cmp40_preboot ]] || die "cmp40_preboot is already loaded; inspect its status before another operation"
 if ((load_nvidia)); then
-    [[ ! -d /sys/module/nvidia ]] || die "NVIDIA is already loaded; boot without NVIDIA to select CPU-RM"
+    [[ ! -d /sys/module/nvidia ]] || die "NVIDIA is already loaded; boot without NVIDIA to load the proprietary driver"
     [[ $(modinfo -F license nvidia) == NVIDIA ]] || die "--load-nvidia requires the proprietary kernel module"
 fi
-modprobe cmp40_preboot target="$gpu" mode=unlock cpu_rm_handoff=1 stock_handoff=1 small_wpr_heap=1 \
+modprobe cmp40_preboot target="$gpu" mode=unlock driver_handoff=1 stock_handoff=1 small_wpr_heap=1 \
     gen2="$gen2" gen2_policy="$gen2_policy"
 parameters=/sys/module/cmp40_preboot/parameters
 [[ $(cat "$parameters/unlock_error") == 0 && $(cat "$parameters/resources_retained") == N ]] ||
@@ -46,8 +45,6 @@ if [[ $gen2 != off ]]; then
     echo "Gen2 experiment: errno=$gen2_error Link Status=$(cat "$parameters/gen2_link_status") (decimal)."
 fi
 if ((load_nvidia)); then
-    modprobe nvidia NVreg_EnableGpuFirmware=0
-    firmware=$(cmp40_gsp_setting) || die "cannot read NVIDIA's GSP setting from sysfs or /proc"
-    [[ $firmware == 0 ]] || die "NVIDIA did not select GSP OFF"
-    echo "Proprietary NVIDIA loaded with GSP OFF. Verify with nvidia-smi and a compute workload."
+    modprobe nvidia
+    echo "Proprietary NVIDIA loaded. Verify compute with a workload."
 fi

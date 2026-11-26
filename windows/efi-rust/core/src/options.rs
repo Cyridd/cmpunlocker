@@ -45,13 +45,13 @@ pub enum OptionsError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CpuRmOptions {
+pub struct UnlockOptions {
     pub return_to_bootloader: bool,
     pub trace: bool,
 }
 
-impl CpuRmOptions {
-    /// Preserve the production CPU_RM_HANDOFF + STAGE_CONTROL=9/10 contract:
+impl UnlockOptions {
+    /// Preserve the production C EFI FULL/ZERO stage-control contract:
     /// preload handoff and optional parent return.
     pub fn parse(bytes: &[u8]) -> Result<Self, OptionsError> {
         let has = |option| has_load_option(bytes, option);

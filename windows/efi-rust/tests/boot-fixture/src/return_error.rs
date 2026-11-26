@@ -8,6 +8,6 @@ fn main() -> Status {
     if let Err(error) = uefi::helpers::init() {
         return error.status();
     }
-    uefi::println!("CMP40-FIXTURE: RETURN_DEVICE_ERROR GPU_WRITES=0");
+    uefi::println!("CMPUNLOCKER-FIXTURE: RETURN_DEVICE_ERROR GPU_WRITES=0");
     Status::DEVICE_ERROR
 }

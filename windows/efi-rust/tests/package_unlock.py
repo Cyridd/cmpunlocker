@@ -51,8 +51,8 @@ def package_gen2(args, guide):
 
 
 def package_rebar(args, guide):
-    full = args.image_dir / "cmp40-cpu-rm-full.efi"
-    zero = args.image_dir / "cmp40-cpu-rm-zero.efi"
+    full = args.image_dir / "cmp40-unlock-full.efi"
+    zero = args.image_dir / "cmp40-unlock-zero.efi"
     for image in (full, zero):
         check_efi(image)
     inputs = [("EFI/BOOT/BOOTX64.EFI", full.read_bytes()),
@@ -112,7 +112,7 @@ def main():
         parser.error("--baseline-full is only valid with --gen2/--optimize")
     if args.rebar and args.control:
         parser.error("--rebar packages both FULL and ZERO; do not combine it with --control")
-    guide_path = args.guide or WORKSPACE / ("LOGGING_POLICY.md" if args.logging else "tests/GEN2_HARDWARE.md" if args.gen2 else "tests/REBAR_HARDWARE.md" if args.rebar else "tests/CPU_RM_HARDWARE.md")
+    guide_path = args.guide or WORKSPACE / ("LOGGING_POLICY.md" if args.logging else "tests/GEN2_HARDWARE.md" if args.gen2 else "tests/REBAR_HARDWARE.md" if args.rebar else "tests/UNLOCK_HARDWARE.md")
     guide = guide_path.read_bytes()
     if args.gen2:
         package_gen2(args, guide)
@@ -124,12 +124,12 @@ def main():
     controls = list(dict.fromkeys(args.control or ("logcheck", "zero", "full")))
     inputs = []
     for control in controls:
-        filename = "cmp40-logcheck.efi" if control == "logcheck" else f"cmp40-cpu-rm-{control}.efi"
+        filename = "cmp40-logcheck.efi" if control == "logcheck" else f"cmp40-unlock-{control}.efi"
         inputs.append((control, args.image_dir / filename))
     hashes = {control: check_efi(path) for control, path in inputs}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for control, path in inputs:
-        archive = args.output_dir / ("cmp40-rust-logcheck-usb.zip" if control == "logcheck" else f"cmp40-rust-cpu-rm-{control}-usb.zip")
+        archive = args.output_dir / ("cmp40-rust-logcheck-usb.zip" if control == "logcheck" else f"cmp40-rust-unlock-{control}-usb.zip")
         sums = (f"{hashes[control]}  EFI/BOOT/BOOTX64.EFI\n"
                 f"{hashlib.sha256(guide).hexdigest()}  TEST_GUIDE.md\n").encode()
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
