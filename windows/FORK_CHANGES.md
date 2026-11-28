@@ -10,16 +10,15 @@ those binaries are reproducible from the v3.0 source.
 
 ## Changes in this fork
 
-The current FULL EFI supports **GSP OFF / CPU-RM** using the tested 960 KiB
+The current FULL EFI supports GSP OFF using the tested 960 KiB
 temporary Booter heap and complete native Booter handoff. It keeps return-to-bootloader options and signed-image deployment.
 ReBAR resource relocation now requires an explicit experimental opt-in.
-The installer now offers **Disable GSP (recommended)**, writes an explicit
-`EnableGpuFirmware=0`, detects outdated ESP payloads, upgrades EFI before
-switching GSP, and redirects existing Gen2 login entries to the current
-installer. Gen2 no longer changes GSP; the obsolete GSP-ensure task is removed
-on installation. See [the report](../docs/research/CPU_RM_SMALL_WPR.md).
+The Rust EFI also passed a [Windows test with GSP enabled](https://github.com/Cyridd/cmpunlocker/blob/main/docs/results.md#gsp-enabled-on-linux-and-windows).
+The installer preserves GSP by default. Selecting **Disable GSP** writes
+`EnableGpuFirmware=0` after the EFI check. Upgrades redirect existing Gen2 login entries to the current installer. Gen2 no longer changes GSP; the obsolete GSP-ensure task is removed
+on installation. See [the report](https://github.com/Cyridd/cmpunlocker/blob/main/docs/research/CPU_RM_SMALL_WPR.md).
 
-I tested the integrated installer and its upgrade path: Disable GSP replaces
+The integrated installer and its upgrade path were tested: Disable GSP replaces
 an existing `EnableGpuFirmware=1` with `0`, and the Gen2 task leaves it at `0`.
 The notice asking for manual boot-order setup uses an information icon.
 
@@ -58,7 +57,7 @@ The notice asking for manual boot-order setup uses an information icon.
    full installation and USB/fallback boot. The unchecked installer component
    or `-rebar` adds `--experimental-rebar` to the EFI entry; `-norebar` disables
    it. Compute unlock and Gen2 do not require relocation. See the
-   [disk/PCI audit](../docs/research/WINDOWS_DISK_PCI_AUDIT.md).
+   [disk/PCI audit](https://github.com/Cyridd/cmpunlocker/blob/main/docs/research/WINDOWS_DISK_PCI_AUDIT.md).
 8. Secure Boot can stay enabled. `tools/unlock40x/sign_efi.sh` signs the built
    EFI with the operator's own `db` key (`sbctl`, or `sbsign`), and the installer
    deploys a user-supplied image via `-efi <path>` or a `40HXUNLK.signed.efi`
@@ -68,7 +67,7 @@ The notice asking for manual boot-order setup uses an information icon.
    certificate table directly (`tools/40hxcore/pesign.go`) and reports
    "Secure Boot is on and the deployed EFI is unsigned" as its own verdict,
    because that combination otherwise looks identical to a silent failure to
-   unlock. See the *Secure Boot* section of [`README.md`](README.md).
+   unlock. See the *Secure Boot* section of the [Windows guide](https://github.com/Cyridd/cmpunlocker/blob/main/windows/README.md#secure-boot).
 
 ## Returning to a boot manager (grub / Limine / rEFInd)
 
@@ -103,7 +102,8 @@ On Windows, run `windows/tools/build_release.bat`. It builds the three Go
 utilities with the GUI subsystem, packages the embedded EFI and helper drivers,
 and writes `SHA256SUMS.txt` to `windows/release-fork/` (a build output, not
 tracked in git). `windows/tools/verify_source.ps1` checks that the expected
-source inputs are present and prints EFI hashes.
+source inputs are present and prints the embedded image hash. In an extracted
+package, the same script checks the files listed in `SHA256SUMS.txt`.
 
 ## Gen2 PL0 parity with upstream v3.2.0 by PZH1gdmu (`tools/inst40hx/gen2_pl0_v2.go`)
 

@@ -1,29 +1,24 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
-	"unicode/utf16"
 )
 
-func TestEmbeddedEfiIsFullCpuRm(t *testing.T) {
+// Pin the entire installer image for the local Windows packaging script.
+// Rust CI independently compares the installer copy with a build from source.
+func TestEmbeddedRustEfiIsFull(t *testing.T) {
+	const fullSHA256 = "fdf71e56e05366cadfd3149a66c06a33a96db6642842bcc81fa6cbf4211ebf25"
 	data, err := embedded.ReadFile("embed/" + efiFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := func(text string) []byte {
-		units := utf16.Encode([]rune(text))
-		out := make([]byte, 2*len(units))
-		for i, unit := range units {
-			binary.LittleEndian.PutUint16(out[2*i:], unit)
-		}
-		return out
-	}
-	if !bytes.Contains(data, marker("CPU-RM-FULL")) || bytes.Contains(data, marker("CPU-RM-ZERO")) {
-		t.Fatal("installer must embed FULL CPU-RM; ZERO is a separate diagnostic image")
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); got != fullSHA256 {
+		t.Fatalf("embedded EFI SHA-256 = %s, want reviewed Rust FULL %s", got, fullSHA256)
 	}
 }
 

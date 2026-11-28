@@ -1,0 +1,26 @@
+Passed locally on 2026-11-17:
+
+cargo fmt --all -- --check
+cargo test --locked --offline -p cmp40-efi-core
+  24 tests passed
+python3 tests/test_assets.py
+  2 tests passed, including 4 input-refusal subcases
+cargo clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
+cargo clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture -- -D warnings
+cargo clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi --features cpu-rm -- -D warnings
+CC=clang cargo test --locked --offline -p cmp40-efi-core --test preparation --test transaction
+  10 tests passed
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnullvm
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-msvc
+cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture
+cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi --features cpu-rm --bin cmp40-cpu-rm-full --bin cmp40-cpu-rm-zero
+python3 tests/qemu_smoke.py --cpu-rm
+  9 scenarios passed; initial run-ai95qlid
+python3 tests/qemu_smoke.py --case cpu-full-no-gpu --case cpu-zero-no-gpu
+  2 scenarios passed on final CPU-RM binaries; run-qh9ug0rl
+python3 tests/package_cpu_rm.py
+  Separate ZERO/FULL archives created
+Archive content/SHA256SUMS validation
+  Both BOOTX64.EFI entries match the final release images
+git diff --check

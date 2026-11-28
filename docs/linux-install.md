@@ -9,15 +9,15 @@ The earlier 620.70.06 patch series passed build/offline checks and manual
 runtime tests for compute, Gen2 x16, 8 GiB BAR1 and a CUPTI hardware counter.
 The Gen2 engine updated on 2026-11-08 passed hardware validation. Its
 [shared implementation](research/CPU_RM_PCIE_GEN2.md#shared-gen2-engine-0170)
-is used by all four open patch sets and CPU-RM.
+is used by all four open patch sets and the pre-driver module.
 The first normal Gen2 pass failed in that session; subsequent initializations
 passed. Automatic cold-boot startup remains unverified. See
 [the Booter report](research/615_BOOTER_COMPATIBILITY.md).
 
 For the Windows/UEFI procedure, see [`windows/README.md`](../windows/README.md) instead.
 
-For the **proprietary Linux driver with GSP disabled**, use the separate
-[`linux/cpu-rm/README.md`](../linux/cpu-rm/README.md). That pre-driver module
+For the **proprietary Linux driver**, use the separate
+[`linux/preboot/README.md`](../linux/preboot/README.md). That pre-driver module
 is validated with 610.43.03, 615.78.08 and 620.70.06 and does not patch NVIDIA's
 driver. The 620 tests confirmed native initialization, compute and runtime
 Gen2 after driver unload. A later cold-boot control confirmed the mkinitcpio
@@ -39,8 +39,7 @@ On Ubuntu, the `nvidia-*-615-server-open` packages ship `615.71.09`.
 The distribution's NVIDIA installation must provide a compatible open kernel
 module stack; this project does not install the NVIDIA driver or firmware.
 
-The open modules require GSP ON. When switching from the CPU-RM path, remove
-the `NVreg_EnableGpuFirmware=0` override from modprobe configuration or the
+The open modules require GSP ON. When switching from the pre-driver module, remove any `NVreg_EnableGpuFirmware=0` override from modprobe configuration or the
 kernel command line and disable the `cmp40-unlock` initramfs hook before
 installation. `install.sh` rebuilds the initramfs but does not change those
 settings. Confirm GSP firmware 620.70.06 after boot when selecting that release.

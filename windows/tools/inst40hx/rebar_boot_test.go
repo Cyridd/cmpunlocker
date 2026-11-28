@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -185,5 +187,61 @@ func TestEmbeddedEfiSupportsEspRebarPolicy(t *testing.T) {
 	}
 	if rebarPolicySupported([]byte("old EFI without ESP policy support")) {
 		t.Fatal("old EFI accepted for the new opt-in transport")
+	}
+}
+
+func TestRebarPolicyMarkers(t *testing.T) {
+	var widePath strings.Builder
+	for _, c := range []byte(`\EFI\40HX\REBAR.CFG` + "\x00") {
+		widePath.WriteByte(c)
+		widePath.WriteByte(0)
+	}
+	path := widePath.String()
+	const policyLog = "CMPUNLOCKER-REBAR: POLICY file="
+	for _, tc := range []struct {
+		name, image string
+		want        bool
+	}{
+		{"C policy value", rebarPolicyEnabled, true},
+		{"Rust policy reader", path + policyLog, true},
+		{"older Rust log prefix", path + "CMP40-REBAR: POLICY file=", true},
+		{"path alone", path, false},
+		{"diagnostic alone", policyLog, false},
+		{"unrelated ReBAR message", path + "CMPUNLOCKER-REBAR: Active", false},
+	} {
+		if got := rebarPolicySupported([]byte(tc.image)); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestRebarImageCopies(t *testing.T) {
+	selected, err := embedded.ReadFile("embed/" + efiFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	primary, fallback := filepath.Join(dir, efiFile), filepath.Join(dir, efiStdF)
+	write := func(path string, data []byte) {
+		t.Helper()
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(primary, selected)
+	if err := verifyRebarImages(selected, primary, fallback); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing fallback: %v", err)
+	}
+	write(fallback, selected)
+	if err := verifyRebarImages(selected, primary, fallback); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{primary, fallback} {
+		// A different image can advertise support for the same policy.
+		write(path, []byte(rebarPolicyEnabled))
+		if err := verifyRebarImages(selected, primary, fallback); err == nil || !strings.Contains(err.Error(), path) {
+			t.Fatalf("expected a mismatch at %s, got %v", path, err)
+		}
+		write(path, selected)
 	}
 }

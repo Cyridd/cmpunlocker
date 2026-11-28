@@ -1,36 +1,3 @@
-# Keep GitHub Actions pinned by commit SHA and Go modules current.
-#
-# Workflows pin actions to commit SHAs (see the trailing `# vN` comments);
-# this keeps those pins from silently ageing out, and tracks the five Go
-# modules under windows/tools/.
-
+# Dependabot version updates are paused.
 version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "ci"
-    groups:
-      actions:
-        patterns: ["*"]
-
-  # All five modules form one dependency chain: the four tools resolve
-  # `40hxcore` through `replace ../40hxcore` and share its go.sum entries.
-  # Bumping one module alone leaves the others with a stale go.sum and breaks
-  # `go build` ("updates to go.mod needed"), so they are updated together.
-  - package-ecosystem: gomod
-    directories:
-      - /windows/tools/40hxcore
-      - /windows/tools/check40x
-      - /windows/tools/inst40hx
-      - /windows/tools/uninstall40x
-      - /windows/tools/winres_gen
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "deps"
-    groups:
-      go-modules:
-        patterns: ["*"]
+updates: []

@@ -1,0 +1,57 @@
+{
+  "variant": "carrier-r1",
+  "code_checkpoint": "fe02bf7",
+  "hardware_acceptance": "accepted_windows_on_tested_configuration",
+  "physical_logs_verified": true,
+  "metadata_comparison_compilers": [
+    "gcc",
+    "clang"
+  ],
+  "source_runtime_changed": false,
+  "binaries_rebuilt": false,
+  "prior_validation_record": "../stage4a/summary.json",
+  "hardware_report": "hardware-report.json",
+  "hardware_report_sha256": "e43510f31d7cbb10f33f8f8bcd461d421504b277e65e179313b7dcc4a7bab775",
+  "artifacts": {
+    "zero": {
+      "image": "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-cpu-rm-zero.efi",
+      "efi_sha256": "fab513e7116f86c2de333f7b6050e5083d5e2671347b981ca1935416a0362978",
+      "archive": "target/carrier-r1/cmp40-rust-cpu-rm-zero-usb.zip",
+      "archive_sha256": "84a03fc1b04937c36a1960349e41926ce15b64fa7575bccb578194573cc7edeb",
+      "features": [
+        "cpu-rm",
+        "adapters"
+      ],
+      "guide": "tests/CARRIER_GPU_HARDWARE.md",
+      "guide_sha256": "3b7a61139d2baa238ea68aa507a80a6c62bfb63e831715b1f1bf44aac7f61d9e",
+      "image_matches_recorded_qemu": true,
+      "hardware_acceptance": "accepted_windows_on_tested_configuration",
+      "frozen_archive": "target/baseline-carrier-gpu-fe02bf7/cmp40-rust-cpu-rm-zero-usb.zip",
+      "frozen_archive_sha256": "84a03fc1b04937c36a1960349e41926ce15b64fa7575bccb578194573cc7edeb"
+    },
+    "full": {
+      "image": "target/carrier-r1/x86_64-unknown-uefi/release/cmp40-cpu-rm-full.efi",
+      "efi_sha256": "8cbc06100323032dd75654f70103c925ae886a863876cdd2df0f595b29176735",
+      "archive": "target/carrier-r1/cmp40-rust-cpu-rm-full-usb.zip",
+      "archive_sha256": "9bc18416fae1289b6923f260f7128776a2cd07530be5117abba92d5c1507fdc4",
+      "features": [
+        "cpu-rm",
+        "adapters"
+      ],
+      "guide": "tests/CARRIER_GPU_HARDWARE.md",
+      "guide_sha256": "3b7a61139d2baa238ea68aa507a80a6c62bfb63e831715b1f1bf44aac7f61d9e",
+      "image_matches_recorded_qemu": true,
+      "hardware_acceptance": "accepted_windows_on_tested_configuration",
+      "frozen_archive": "target/baseline-carrier-gpu-fe02bf7/cmp40-rust-cpu-rm-full-usb.zip",
+      "frozen_archive_sha256": "9bc18416fae1289b6923f260f7128776a2cd07530be5117abba92d5c1507fdc4"
+    }
+  },
+  "frozen_gpu_packages": "target/baseline-carrier-gpu-fe02bf7",
+  "earlier_gpu_baseline": "target/baseline-memory-e1422c1",
+  "gpu_parent_linux_acceptance": "accepted_full_on_tested_configuration_620.70.06_gsp_off",
+  "frozen_current_guide": {
+    "path": "target/baseline-carrier-gpu-fe02bf7/CURRENT_GPU_GUIDE.md",
+    "sha256": "4eba57582d43f3e5bbb44c06aec7eed682b06ad772d5dc92a46c8221b68a7acd"
+  },
+  "gpu_parent_linux_record": "../stage4d/hardware-report.json"
+}

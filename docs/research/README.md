@@ -6,6 +6,7 @@ install or use the project; start from the [main README](../../README.md) and th
 
 | Note | Contents |
 |---|---|
+| [`RUST_EFI_PORT.md`](RUST_EFI_PORT.md) | Rust EFI port, read-only hardware report, compute unlock core, C comparisons and remaining EFI integration |
 | [`CMP40_NVIDIA_PATCHER_PIPELINE_CORRELATION.md`](CMP40_NVIDIA_PATCHER_PIPELINE_CORRELATION.md) | RM/glcore throttle control in 610/615/620, stock Linux A/B/A results under `1f4b`, CUDA discovery failure, selector recovery and reproduction protocol |
 | [`CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md`](CMP40_CPU_RM_VULKAN_PIPELINE_THROTTLE.md) | Vulkan pipeline-bind delay with proprietary GSP OFF and argument-0 measurements using command buffers and glcore |
 | [`WINDOWS_DISK_PCI_AUDIT.md`](WINDOWS_DISK_PCI_AUDIT.md) | Disk I/O boundaries, Gen2 guards, experimental ReBAR policy and requirements for a conservative standalone EFI |

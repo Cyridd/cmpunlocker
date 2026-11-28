@@ -47,7 +47,7 @@ def generate(tree, diagnostic):
     init, = re.findall(r'    if \(!rm_init_adapter\(sp, nv\)\)\n    \{.*?\n    \}',
                        after[NV], re.S)
     after[NV] = replace_once(after[NV], init, init + '\n\n    os_cmp40_gen2(nv, 2);')
-    after['kernel-open/nvidia/gen2_core.h'] = (REPO / 'linux/cpu-rm/kernel/gen2_core.h').read_text()
+    after['kernel-open/nvidia/gen2_core.h'] = (REPO / 'linux/preboot/kernel/gen2_core.h').read_text()
     after['kernel-open/nvidia/nv-cmp40-gen2.h'] = (REPO / 'tools/gen2/open_adapter.h').read_text()
     output = []
     for p in after:

@@ -1,0 +1,19 @@
+[workspace]
+members = ["core", "app", "tests/boot-fixture"]
+default-members = ["core"]
+resolver = "2"
+
+[workspace.package]
+version = "2.2.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[workspace.dependencies]
+uefi = { version = "=0.41.0", features = ["alloc", "global_allocator", "logger", "panic_handler"] }

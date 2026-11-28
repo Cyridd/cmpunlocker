@@ -7,14 +7,20 @@ NVIDIA-*.tar.xz
 NVIDIA-kernel-module-source-*/
 NVIDIA-kernel-module-source-*.tar.*
 artifacts/
-linux/cpu-rm/build/
-linux/cpu-rm/kernel/*.o
-linux/cpu-rm/kernel/*.ko
-linux/cpu-rm/kernel/*.mod
-linux/cpu-rm/kernel/*.mod.c
-linux/cpu-rm/kernel/.*.cmd
-linux/cpu-rm/kernel/Module.symvers
-linux/cpu-rm/kernel/modules.order
+
+# Local agent configuration and cloud credentials.
+.agents/
+.codex/
+.aws/
+
+linux/preboot/build/
+linux/preboot/kernel/*.o
+linux/preboot/kernel/*.ko
+linux/preboot/kernel/*.mod
+linux/preboot/kernel/*.mod.c
+linux/preboot/kernel/.*.cmd
+linux/preboot/kernel/Module.symvers
+linux/preboot/kernel/modules.order
 
 # Python helper bytecode.
 __pycache__/
@@ -43,3 +49,6 @@ windows/tools/unlock40x/*.signed.efi
 # proprietary libnvidia-glcore.so and is generated locally, never committed.
 cmp_glcore_patch/patch_glcore
 cmp_glcore_patch/libnvidia-glcore.so*
+
+# Rust EFI port build outputs.
+windows/efi-rust/target/

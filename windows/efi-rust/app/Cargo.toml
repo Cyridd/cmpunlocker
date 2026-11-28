@@ -1,0 +1,78 @@
+[package]
+name = "cmp40-efi"
+description = "Read-only carrier and experimental CMP40HX compute unlock EFI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.91"
+publish = false
+
+[features]
+unlock = ["dep:uefi-raw"]
+gen2-experiment = ["unlock"]
+
+[dependencies]
+cmp40-efi-core = { path = "../core" }
+uefi.workspace = true
+uefi-raw = { version = "=0.17.0", optional = true }
+
+[[bin]]
+name = "cmp40-readonly"
+path = "src/main.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-unlock-full"
+path = "src/full.rs"
+required-features = ["unlock"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-unlock-zero"
+path = "src/zero.rs"
+required-features = ["unlock"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-logcheck"
+path = "src/logcheck.rs"
+required-features = ["unlock"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-entrycheck"
+path = "src/entrycheck.rs"
+required-features = ["unlock"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-gen2-prepare"
+path = "src/gen2_prepare.rs"
+required-features = ["gen2-experiment"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-gen2-targets"
+path = "src/gen2_targets.rs"
+required-features = ["gen2-experiment"]
+test = false
+bench = false
+
+[[bin]]
+name = "cmp40-gen2-retrain"
+path = "src/gen2_retrain.rs"
+required-features = ["gen2-experiment"]
+test = false
+bench = false
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"

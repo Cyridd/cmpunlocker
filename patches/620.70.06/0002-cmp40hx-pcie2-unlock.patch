@@ -72,7 +72,7 @@ diff --git a/kernel-open/nvidia/gen2_core.h b/kernel-open/nvidia/gen2_core.h
 +++ b/kernel-open/nvidia/gen2_core.h
 @@ -0,0 +1,352 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
-+/* Shared by CPU-RM and the generated open-driver patches. No ownership changes.
++/* Shared by the pre-driver module and the generated open-driver patches. No ownership changes.
 + * Policy reference: xrip/cmp50hx-unlock b630a493b7877fbd4472113dcb960a93749c0a78.
 + * The caller serializes access and supplies a decoded, unlocked TU106 BAR0.
 + */
@@ -83,7 +83,7 @@ diff --git a/kernel-open/nvidia/gen2_core.h b/kernel-open/nvidia/gen2_core.h
 +#include <linux/pci.h>
 +
 +#ifndef CMP40_GEN2_LOG
-+#define CMP40_GEN2_LOG "cmp40_preboot: GEN2"
++#define CMP40_GEN2_LOG "CMPUNLOCKER: GEN2"
 +#endif
 +#define GEN2_BAR_SIZE 0x90000
 +#define REG_OVR      0x8872c

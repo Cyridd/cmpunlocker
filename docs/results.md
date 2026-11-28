@@ -3,7 +3,7 @@
 Unless stated otherwise, the measurements below come from the Windows/UEFI unlock
 path on one system: CMP 40HX, AMD Ryzen 5 5600G host, NVIDIA driver `617.14`,
 CUDA Toolkit `13.4`. The Windows-side summary is in
-[`windows/README.md`](../windows/README.md#results). My Linux measurements
+[`windows/README.md`](../windows/README.md#results). Linux measurements
 and a separately attributed community GRID/vGPU report follow below.
 
 ## clpeak (CUDA backend)
@@ -84,7 +84,7 @@ mechanism behind the CUDA loops has not been investigated here.
 ### Setup notes
 
 - This earlier "after" state has GSP enabled (`EnableGpuFirmware=1`). The
-  current small-WPR EFI supports GSP OFF; see the CPU-RM results below.
+  small-WPR tests below cover both GSP modes.
   With GSP on, the driver reserves some video memory, so the reported VRAM
   drops from `8191 MB` to `8024 MB` (CUDA) and from `8016 MB` to `7857 MB` (Vulkan).
   These figures describe the earlier GSP-ON comparison.
@@ -144,9 +144,9 @@ sbccc1888's own benchmarks. They are replaced by the clpeak measurements above:
 | FP16 cuBLAS, `~0.39 -> 11.42 TFLOPS` | Replaced. cuBLASLt GEMM fp16 measures 1.12 TFLOPS before and 56.5 TFLOPS after. |
 | FP16 Tensor Core MMA, *unavailable -> 63.8 TFLOPS* | Replaced. The Tensor path runs on the stock card at about 1.1 TFLOPS (WMMA fp16) and reaches 72.0 TFLOPS after. |
 
-## My measurements (Linux, own benchmarks)
+## Local measurements (Linux benchmarks)
 
-The sections below are single-system observations by me. The benchmark
+The sections below are single-system observations. The benchmark
 sources are not published in this repository, so treat them as reported
 observations, not reproducible results.
 
@@ -209,18 +209,26 @@ Before the userspace pipeline fix, the affected game configurations showed a ver
 large slowdown, reported as up to roughly 10-15x. The application figures above
 are observations from one system, not universal performance guarantees.
 
+## GSP enabled on Linux and Windows
+
+On 2026-11-26 I tested compute unlock with the proprietary NVIDIA driver on
+Linux (`NVreg_EnableGpuFirmware=1`) and with the Rust EFI on Windows
+(`EnableGpuFirmware=1`). In both systems, `nvidia-smi -q` reported a GSP
+firmware version, compute unlock persisted, and the driver ran stably.
+Gen2 also worked in these tests. The performance differences I observed
+were within measurement error.
+
 ## Proprietary Linux and Windows with GSP OFF
 
-The current small-WPR CPU-RM path passed native proprietary Linux 610.43.03
+The small-WPR handoff passed native proprietary Linux 610.43.03
 and 615.78.08 initialization. At a verified 150 W on 615, FP16 WMMA increased
 from 1.0440 to 66.1629 TFLOPS, INT8 WMMA from 2.0724 to 131.0379 TOPS, and
 cuBLASLt FP16 from 1.0335 to 52.1347 TFLOPS. A separate numerical WMMA test
 matched 163,840 outputs with maximum error 0 and passed again after a fresh
 FULL unlock. The earlier 610 pair used the recorded 184 W default limit.
 
-I confirmed successful Windows ZERO/FULL initialization and FULL unlock with
-the 960 KiB EFI. I also tested the integrated installer and reproduced an
-upgrade: Disable GSP changed `EnableGpuFirmware=1` to `0`, and the Gen2 task
+Successful Windows ZERO/FULL initialization and FULL unlock are confirmed
+with the 960 KiB EFI. Integrated installer tests reproduced an upgrade: Disable GSP changed `EnableGpuFirmware=1` to `0`, and the Gen2 task
 left it at `0`. GRID/vGPU support has not been independently validated.
 The exact geometry, controls, full table, provenance and limitations are in
 [CPU_RM_SMALL_WPR.md](research/CPU_RM_SMALL_WPR.md).

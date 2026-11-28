@@ -16,8 +16,8 @@ applied again after a full GPU reset or power cycle.
 | --- | --- |
 | Compute | `SS0=0x88888888`, `SS1=0x00000008`; Tensor Core FP16 from about 1.1 to about 72 TFLOPS (clpeak WMMA) and INT8 `dp4a` from about 1 to about 34 TOPS on the reference card; see [`docs/results.md`](../docs/results.md) |
 | PCIe | Gen2 x16 when the platform accepts the retrain |
-| ReBAR | BAR1 enlarged from 64 MiB to 8 GiB; confirmed by me in GPU-Z and `40HXCheck.exe` with the ESP-policy build |
-| NVIDIA driver | GSP OFF / CPU-RM: ZERO/FULL initialization and FULL unlock tested by me |
+| ReBAR | BAR1 enlarged from 64 MiB to 8 GiB; confirmed on hardware in GPU-Z and `40HXCheck.exe` with the ESP-policy build |
+| NVIDIA driver | FULL compute unlock tested with GSP on and off. The GSP-on test used the Rust EFI |
 
 PCIe Gen3 and RT-core unlocks are research topics and are not advertised as
 working features. This tree targets CMP 40HX only.
@@ -56,11 +56,10 @@ See [the disk/PCI audit](../docs/research/WINDOWS_DISK_PCI_AUDIT.md).
 
 ## Package Contents
 
-This repository ships the source tree only. Prebuilt executables are not
-committed: download `CMP40HX-Windows-vX.Y.Z.zip` from the GitHub Releases page,
-verify it against the attached `SHA256SUMS.txt`, and extract the entire ZIP,
-or build the tools yourself. The `SHA256SUMS.txt` inside the ZIP verifies the
-individual package files. `tools/build_release.bat` builds the tools and
+The release workflow builds the Go executables from source. Download
+`CMP40HX-Windows-vX.Y.Z.zip` from the GitHub Releases page, verify it against the
+attached `SHA256SUMS.txt`, and extract the entire ZIP. The `SHA256SUMS.txt`
+inside the ZIP verifies the individual package files. `tools/build_release.bat` builds the tools and
 assembles a package into `release-fork/` from the following inputs:
 
 - `tools/inst40hx/` - GUI and command-line installer (`40HXInstaller.exe`).
@@ -69,13 +68,15 @@ assembles a package into `release-fork/` from the following inputs:
 - `tools/inst40hx/embed/40HXUNLK.EFI` - the UEFI unlock application.
 - [`release-files/`](release-files/) - documents and helpers that ship alongside
   the binaries: `make_usb_efi.bat` (FAT32 recovery USB),
-  `EFI应急修复指南.md` (recovery guide), `README.md` (release readme),
-  `AI辅助安装提示词.txt`. No benchmark is bundled; for an independent compute
+  `EFI应急修复指南.md` (recovery guide), `README.md` (release readme).
+  No benchmark is bundled; for an independent compute
   check use a third-party tool such as
   [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) or
   [OpenCL-Benchmark](https://github.com/ProjectPhysX/OpenCL-Benchmark).
 
-The source EFI application is [`tools/unlock40x`](tools/unlock40x).
+The installer embeds Rust FULL from [`efi-rust/`](efi-rust/README.md).
+The old C implementation in [`tools/unlock40x/`](tools/unlock40x/) supplies
+firmware inputs and reference functions for the Rust tests.
 Fork-specific changes and research boundaries are documented in
 [`FORK_CHANGES.md`](FORK_CHANGES.md).
 
@@ -120,13 +121,14 @@ Windows boots normally, the unlock never runs, and nothing reports an error.
 
 ### Signing the EFI with your own key
 
-On Linux, with [`sbctl`](https://github.com/Foxboron/sbctl):
+The Linux example below signs a local build of the old C implementation.
+The signing helper accepts another unsigned EFI through its `IN` argument.
 
 ```bash
 sudo sbctl create-keys                       # once, if you have no keys yet
 sudo sbctl enroll-keys --microsoft           # once — see the warning below
 cd windows/tools/unlock40x
-./build_v70.sh                               # reproducible, unsigned
+./build_v70.sh                               # old C EFI
 sudo ./sign_efi.sh                           # -> 40HXUNLK.signed.efi
 ```
 
@@ -193,22 +195,26 @@ certificate's Common Name, which should be the key you enrolled.
 ## Installation
 
 Run `40HXInstaller.exe` as Administrator. The GUI scans the current state and
-preselects missing or outdated components. A complete installation selects
-**Disable GSP (recommended)**, installs the EFI entry, deploys the Gen2 helper, registers the login
-task, and disables Windows Fast Startup and PCIe ASPM.
+preselects missing or outdated components. A complete installation preserves
+the configured GSP policy. It installs the EFI entry and Gen2 helper, registers
+the login task, and disables Windows Fast Startup and PCIe ASPM.
 
-I tested installation and reproduced an upgrade by setting
+Earlier installation tests reproduced an explicit GSP-OFF upgrade by setting
 `EnableGpuFirmware=1` first: **Disable GSP** changed it to `0`, and the Gen2
 login task left it at `0`.
 
 When upgrading, install the **new EFI and new installer together**. The GUI
-recognizes an outdated ESP image and preselects Compute EFI. It deploys the
-updated EFI before writing the CMP40HX hardware-bound registry DWORD
-`EnableGpuFirmware=0`. A stale EFI blocks the GSP change. Existing Gen2
-login entries are redirected to the new installer, and the obsolete
+recognizes an outdated ESP image and preselects Compute EFI. Only an explicit
+**Disable GSP** selection writes `EnableGpuFirmware=0` on the CMP40HX adapter.
+A stale EFI blocks that change. Uninstall also preserves the current value.
+Existing Gen2 login entries are redirected to the new installer, and the obsolete
 `40HXGspEnsure` task is removed. The Gen2 task no longer writes the GSP setting.
 If you use Secure Boot, sign the new EFI and select it with `-efi` or the
 signed sidecar described above.
+
+In checker JSON, `gpu.gsp` describes the registry policy. Values are
+`enabled`, `disabled`, `default` (no override), and `unknown` (unreadable or
+unrecognized). To check the running firmware, use `nvidia-smi -q`.
 
 After installation, reboot. The EFI screen should appear briefly before
 Windows starts. After login, the Gen2 task performs the link operation and
@@ -265,10 +271,12 @@ shows:
   signed, and by which certificate. With Secure Boot on and an unsigned image,
   the verdict says so directly rather than reporting a generic "not unlocked".
 
-The diagnostic bundle is collected under
-`%LOCALAPPDATA%\40HXUnlock\logs\`. The EFI application writes
-`40hx_log.txt` to the ESP. Send those files when reporting a hardware-specific
-failure.
+The checker saves its report and EFI log in
+`%LOCALAPPDATA%\40HXUnlock\logs\`. When the unlock EFI is present, the checker copies the
+highest numbered record with a matching header from `EFI/40HX/LOGS/` on the
+mounted ESP, including an interrupted run. If it finds no managed record, it
+looks for the C EFI's `40hx_log.txt` in the ESP root. When reporting a failure,
+include `diagnose.txt` and the EFI log named in that report.
 
 An idle GPU can temporarily report Gen1 because of link power management. The
 target link speed and a sustained-load measurement are more useful than one
@@ -348,11 +356,12 @@ after the application returns, the unlock state is lost.
 | `tools/check40x` | Status and diagnostic utility |
 | `tools/uninstall40x` | Component-level uninstaller |
 | `tools/40hxcore` | Shared Windows operations and Gen2 logic |
-| `tools/unlock40x` | EFI source, embedded firmware blobs, and build script |
+| `efi-rust` | Current Rust EFI and its tests |
+| `tools/unlock40x` | Old C EFI, its build script and shared firmware inputs |
 | `tools/unlock40x/sign_efi.sh` | Signs the built EFI with your own Secure Boot key |
-| `tools/winres_gen` | Generator for the installer's Windows resource object |
+| `tools/winres_gen` | Generates Windows version resources for the Go tools |
 | `tools/build_release.bat` | Packages `release-fork/` with a SHA-256 manifest |
-| `tools/verify_source.ps1` | Checks that expected source inputs are present |
+| `tools/verify_source.ps1` | Checks source inputs in a checkout or file hashes in an extracted package |
 | `release-files` | Documents and helpers packaged with the binaries |
 | `40HX_Gen2_Windows` | Legacy standalone Gen2 scripts, helper drivers, and WinRing0 source |
 
@@ -386,44 +395,46 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H=windowsg
 the installer to build.
 
 Run `tools/build_release.bat` on Windows to create a package with a SHA-256
-manifest in `release-fork/`. The source verification helper is
-`tools/verify_source.ps1`.
+manifest in `release-fork/`. The script checks the embedded Rust FULL image
+before building. From the extracted package, run `.\verify_source.ps1` in
+PowerShell to check each file listed in `SHA256SUMS.txt`.
 
 ### Publishing a Windows release
 
 The [Release workflow](../.github/workflows/release.yml) runs when a `v*` tag
-is pushed. A push to `main` runs CI checks; it does not create a release.
+is pushed. It runs the CI workflow on the tagged commit, including the Go check
+of the complete embedded image and the comparison with a fresh Rust FULL
+build. Packaging and draft creation require that workflow to pass.
 
-Before tagging, update `Version` in `tools/40hxcore/i18n.go` and the manifest,
-file and product versions in `tools/winres_gen/main.go`. Regenerate the
-installer resource object from the repository root:
-
-```sh
-go -C windows/tools/winres_gen run . ../inst40hx/rsrc_windows_amd64.syso
-```
-
-Commit the version changes and regenerated resource, push `main`, and wait
-for CI to pass. Then tag that commit; for this release:
+For v2.2.0, the Go tools report `v2.2.0`, Windows file properties show
+`2.2.0.0`, and the Rust EFI workspace version is `2.2.0`. The version sources
+are `tools/40hxcore/i18n.go`, `tools/winres_gen/main.go`, and
+`efi-rust/Cargo.toml`. The Windows CI checks the generated resource objects.
+Run the following loop from the repository root to regenerate them.
 
 ```sh
-git tag -a v2.1.2 -m "v2.1.2"
-git push origin v2.1.2
+for module in inst40hx check40x uninstall40x winres_gen; do
+  go -C windows/tools/winres_gen run . -tool "$module" "../$module/rsrc_windows_amd64.syso"
+done
 ```
 
-CI builds the three Windows executables, packages them with the committed
-EFI, helper drivers and documentation, and creates a draft GitHub Release.
-Its two assets are `CMP40HX-Windows-v2.1.2.zip` and `SHA256SUMS.txt` with
-the archive checksum. Review the draft's description and assets, then select
-**Publish release** on GitHub. The version inside the programs is set by the
-source files above; it is not derived automatically from the tag.
+After CI passes, the workflow attaches `CMP40HX-Windows-v2.2.0.zip` and its
+archive checksum in `SHA256SUMS.txt` to the release draft. Review the notes
+and assets before publishing the release on GitHub.
 
 ## EFI Build
 
-`tools/unlock40x/build_v70.sh` requires gcc, binutils, gnu-efi headers and
-libraries, and the `.bin` blobs in the same directory. Intermediate `.o`/`.so`
-files and the resulting `unlock40x_v70.efi` are build outputs and are not
-tracked; the authoritative copy of the built EFI is
-`tools/inst40hx/embed/40HXUNLK.EFI`.
+The [Rust EFI guide](efi-rust/README.md) covers the current builds and tests.
+The installer embeds FULL. ZERO is a separate diagnostic control. The
+[FULL/ZERO hardware results](efi-rust/tests/evidence/stage3e/README.md)
+include a Windows compute test after handoff.
+
+### Old C implementation
+
+`tools/unlock40x/build_v70.sh` builds the old `unlock40x_v70.efi` using gcc,
+binutils, gnu-efi and the firmware blobs in that directory. Rust CI still
+compiles individual C functions for comparison with the Rust implementation.
+The following options apply to the C build.
 
 The normal build chainloads Windows after the unlock; add the
 `--return-to-bootloader` load option instead to hand control back to a parent
@@ -437,7 +448,7 @@ only for a dedicated diagnostic run.
 Linux/gnu-efi builds use a SysV-ABI internal logger; EFI service callbacks
 remain Microsoft-ABI. This avoids corrupted `%s` diagnostics in the EFI log.
 
-The default build is **FULL CPU-RM**, with the tested 960 KiB Booter heap
+The default build is **FULL compute unlock**, with the tested 960 KiB Booter heap
 and exact 8 GiB layout checks. It preserves the published firmware/payload
 and lets the native Booter complete without the old post-Booter cleanup.
 The build verifies the payload hash and compiles the actual metadata builder

@@ -109,6 +109,51 @@ func findGpuClassKeyByName() string {
 	return ""
 }
 
+// GspRegistrySetting reports configured policy, independently of the running firmware.
+func GspRegistrySetting() string {
+	key := FindGpuClassKey()
+	if key == "" {
+		return "unknown"
+	}
+	return gspRegistrySettingAt(registry.LOCAL_MACHINE, key)
+}
+
+func gspRegistrySettingAt(root registry.Key, key string) string {
+	k, err := registry.OpenKey(root, key, registry.QUERY_VALUE)
+	if err != nil {
+		return "unknown"
+	}
+	defer k.Close()
+	value, kind, err := k.GetIntegerValue(GpuEnableFw)
+	if errors.Is(err, registry.ErrNotExist) {
+		return "default"
+	}
+	if err != nil || kind != registry.DWORD {
+		return "unknown"
+	}
+	switch value {
+	case 0:
+		return "disabled"
+	case 1:
+		return "enabled"
+	default:
+		return "unknown"
+	}
+}
+
+func GspSettingText(setting string) string {
+	switch setting {
+	case "enabled":
+		return T("enabled", "включён", "已启用")
+	case "disabled":
+		return T("disabled", "отключён", "已关闭")
+	case "default":
+		return T("driver default", "по умолчанию драйвера", "驱动默认值")
+	default:
+		return T("unknown", "неизвестно", "未知")
+	}
+}
+
 // GspEnabled: 读当前 EnableGpuFirmware (1=开, 0/缺省=关)
 func GspEnabled() bool {
 	key := FindGpuClassKey()
@@ -124,8 +169,7 @@ func GspEnabled() bool {
 	return err == nil && v == 1
 }
 
-// GspDisabled requires an explicit zero so upgrading replaces a legacy GSP=1
-// setting even when a missing value would also use CPU-RM on this card.
+// GspDisabled requires an explicit zero on the target adapter.
 func GspDisabled() bool {
 	key := FindGpuClassKey()
 	if key == "" {

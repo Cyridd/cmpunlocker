@@ -2,11 +2,10 @@
 
 Hardware-research project for the NVIDIA CMP 40HX (TU106, PCI device ID `10de:1f0b`), covering both Linux and Windows.
 
-- **Linux** — open-kernel-module patches for NVIDIA `580.173.02`, `610.57.04`, `615.71.09`, `615.78.08` and `620.70.06` (default), installed by `install.sh`; a separate [proprietary CPU-RM unlock](linux/cpu-rm/README.md) validated on `610.43.03`, `615.78.08` and `620.70.06` with GSP OFF; and an optional proprietary-userspace pipeline patch. The 620 runtime tests cover manual driver switching; startup before the first NVIDIA initialization still needs validation.
+- **Linux** — open-kernel-module patches for NVIDIA `580.173.02`, `610.57.04`, `615.71.09`, `615.78.08` and `620.70.06` (default), installed by `install.sh`; a separate [pre-driver compute unlock](linux/preboot/README.md) validated on `610.43.03`, `615.78.08` and `620.70.06` with GSP OFF; and an optional proprietary-userspace pipeline patch. The 620 runtime tests cover manual driver switching; startup before the first NVIDIA initialization still needs validation.
 - **Windows / UEFI** ([`windows/`](windows/)) — a UEFI unlock application and Go installer/checker/uninstaller tools. See [`windows/README.md`](windows/README.md).
 
-Choose the path matching your driver and OS. The proprietary Linux and Windows
-CPU-RM paths share the published CMP40HX selector payload and small-WPR strategy.
+Choose the path matching your driver and OS. The Linux pre-driver module and Windows EFI share the published CMP40HX selector payload and small-WPR strategy.
 
 ## What it unlocks
 
@@ -16,7 +15,7 @@ CPU-RM paths share the published CMP40HX selector payload and small-WPR strategy
 - **Pipeline bind / MME throttle unlock** (Linux, optional) — removes the artificial delay executed on classic `vkCmdBindPipeline` paths by patching the NVIDIA userspace `libnvidia-glcore.so` emitter.
 
 None of these modifications flashes the VBIOS. Compute can be unlocked by
-patched open modules, the Linux pre-driver CPU-RM module, or the Windows EFI.
+patched open modules, the Linux pre-driver module, or the Windows EFI.
 The proprietary Linux path covers compute and an optional runtime Gen2
 helper. ReBAR and the profiling patch require the open-module path on Linux.
 The pipeline unlock patches a local copy
@@ -25,12 +24,15 @@ reapplied after a full GPU reset or power cycle.
 
 ## Results
 
-**GSP OFF is now supported.** Proprietary Linux 615.78.08 at a verified 150 W
+I tested the proprietary Linux driver and the Windows Rust EFI with GSP enabled.
+Both retained compute unlock. [GSP test results](docs/results.md#gsp-enabled-on-linux-and-windows).
+
+With GSP disabled, proprietary Linux 615.78.08 at a verified 150 W
 reached FP16 WMMA `1.0440 → 66.1629 TFLOPS` and INT8 WMMA
 `2.0724 → 131.0379 TOPS`; a numerical WMMA check matched 163,840 outputs
-with zero error. I confirmed successful Windows ZERO/FULL initialization,
-FULL unlock, and the installer's GSP-OFF upgrade. See
-[CPU-RM results](docs/research/CPU_RM_SMALL_WPR.md).
+with zero error. Successful Windows ZERO/FULL initialization, FULL unlock,
+and the installer's GSP-OFF upgrade are confirmed. See
+[Small-WPR results](docs/research/CPU_RM_SMALL_WPR.md).
 The screenshots below describe the earlier Windows GSP-ON setup.
 
 Measured with the independent [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) on one Windows system, NVIDIA driver `617.14`:
@@ -61,9 +63,9 @@ The full tables (including OpenCL and Vulkan), PCIe Gen2, ReBAR and pipeline mea
 
 ### Linux
 
-For the **proprietary driver with GSP OFF**, follow
-[`linux/cpu-rm/README.md`](linux/cpu-rm/README.md). Compute unlock runs before
-NVIDIA loads; the optional [CPU-RM Gen2 helper](linux/cpu-rm/gen2.sh) runs after
+For the **proprietary driver**, follow
+[`linux/preboot/README.md`](linux/preboot/README.md). Compute unlock runs before
+NVIDIA loads; the optional [runtime Gen2 helper](linux/preboot/gen2.sh) runs after
 native initialization and was validated with 615.78.08 and 620.70.06. The commands below are
 for the **open kernel modules**.
 
@@ -90,12 +92,14 @@ other metrics and Nsight Compute still need validation. See
 
 Download the Windows ZIP from the [Releases page](https://github.com/Cyridd/cmpunlocker/releases), verify its checksum against the attached `SHA256SUMS.txt`, and extract the entire archive. Then follow [`windows/README.md`](windows/README.md) for firmware prerequisites, installation, verification and recovery. The EFI application is unsigned, so Secure Boot must be off or you must sign it yourself.
 
+Hosting links use the `Cyridd/cmpunlocker` repository.
+
 ## Compatibility at a glance
 
 - **Linux:** open-gpu-kernel-modules `580.173.02`, `610.57.04`, `615.71.09` (Ubuntu `nvidia-*-615-server-open`), `615.78.08` and `620.70.06` (default); 620 compute, ReBAR and CUPTI counters passed runtime tests. Other versions need porting and revalidation. Secure Boot must be disabled or the modules signed. Rebuild after a kernel update.
-- **Proprietary Linux CPU-RM:** `610.43.03`, `615.78.08` and `620.70.06`, GSP OFF, 8 GiB TU106. The 620 tests confirmed compute, numerical WMMA and runtime Gen2 after driver unload.
+- **Proprietary Linux, earlier GSP-OFF tests:** `610.43.03`, `615.78.08` and `620.70.06`, GSP OFF, 8 GiB TU106. The 620 tests confirmed compute, numerical WMMA and runtime Gen2 after driver unload.
 - **Windows:** UEFI/GPT, Above 4G Decoding on, Secure Boot and CSM off.
-- **Windows GSP OFF:** the installer now recommends `EnableGpuFirmware=0`; upgrade both the EFI and installer. Gen2 no longer changes GSP.
+- **Windows GSP setting:** installation preserves the driver setting by default. The GUI offers an explicit GSP-OFF option.
 - **PCIe Gen2 x16 is verified; Gen3 and RT-core unlocks are not implemented.**
 - The CMP 40HX has no display outputs; graphics use needs a headless, secondary-GPU or remote-display setup.
 
@@ -106,7 +110,7 @@ Full list: [`docs/compatibility.md`](docs/compatibility.md).
 | Document | Contents |
 |---|---|
 | [`docs/linux-install.md`](docs/linux-install.md) | Linux prerequisites, installer options, verification, removal |
-| [`linux/cpu-rm/README.md`](linux/cpu-rm/README.md) | Proprietary Linux driver, GSP OFF: firmware, pre-driver module, guarded handoff |
+| [`linux/preboot/README.md`](linux/preboot/README.md) | Proprietary Linux driver: firmware, pre-driver module, guarded handoff |
 | [`windows/README.md`](windows/README.md) | Windows/UEFI guide: prerequisites, installation, Secure Boot, recovery |
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Technical description of the four unlocks |
 | [`docs/results.md`](docs/results.md) | Benchmark screenshots and measured results |

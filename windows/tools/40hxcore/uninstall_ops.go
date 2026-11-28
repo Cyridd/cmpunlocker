@@ -90,6 +90,14 @@ func UninstallEspEfi() bool {
 	} else if !os.IsNotExist(err) {
 		fmt.Printf("  [ReBAR] could not remove ESP policy %s: %v\n", policy, err)
 	}
+	count, logErr := removeManagedLogs(esp + `:\`)
+	if count > 0 {
+		removed = true
+		fmt.Printf(T("    Removed %d Rust EFI log(s)\n", "    Удалено журналов Rust EFI: %d\n", "    已删除 %d 个 Rust EFI 日志\n"), count)
+	}
+	if logErr != nil {
+		fmt.Println(T("    Could not finish Rust EFI log cleanup:", "    Ошибка при удалении журналов Rust EFI:", "    无法完成 Rust EFI 日志清理:"), logErr)
+	}
 	if entries, err := os.ReadDir(esp + ":\\EFI\\40HX"); err == nil && len(entries) == 0 {
 		os.Remove(esp + ":\\EFI\\40HX")
 	}
@@ -150,23 +158,6 @@ func UninstallDriverFiles() {
 		}
 	}
 	os.Remove(os.Getenv("SystemRoot") + "\\System32\\WinRing0x64.dll")
-}
-
-// UninstallGspKey: 删 EnableGpuFirmware(恢复 GSP 默认关), 返回是否删除过
-func UninstallGspKey() bool {
-	key := FindGpuClassKey()
-	if key == "" {
-		return false
-	}
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, key, registry.SET_VALUE)
-	if err != nil {
-		return false
-	}
-	defer k.Close()
-	if err := k.DeleteValue("EnableGpuFirmware"); err != nil {
-		return false
-	}
-	return true
 }
 
 // UninstallProgramData: 清 ProgramData\40HXUnlock (gen2_status 历史缓存 + 驱动备份)。
@@ -255,6 +246,13 @@ func CheckLeftover() []string {
 		if _, err := os.Stat(esp + ":\\EFI\\Boot\\bootx64.efi.40hx.bak"); err == nil {
 			rem = append(rem, T("- bootx64.efi.40hx.bak backup was not restored", "- Резервная копия bootx64.efi.40hx.bak не восстановлена", "- bootx64.efi.40hx.bak 备份未还原"))
 			fmt.Println(T("  [!] The bootx64.efi.40hx.bak backup is still present", "  [!] Резервная копия bootx64.efi.40hx.bak все еще на месте", "  [!] bootx64.efi.40hx.bak 备份仍存在"))
+		}
+		_, logErr := visitManagedLogs(esp+`:\`, inspectLatestLog, func(log efiLog, _ *os.File) error {
+			rem = append(rem, T("- Rust EFI log on the ESP: ", "- Журнал Rust EFI на ESP: ", "- ESP 上的 Rust EFI 日志: ")+log.name)
+			return nil
+		})
+		if logErr != nil {
+			rem = append(rem, T("- Could not check Rust EFI logs: ", "- Ошибка проверки журналов Rust EFI: ", "- 无法检查 Rust EFI 日志: ")+logErr.Error())
 		}
 		if _, err := os.Stat(esp + ":\\40hx_log.txt"); err == nil {
 			rem = append(rem, T("- 40hx_log.txt in the ESP root (stale EFI log)", "- 40hx_log.txt в корне ESP (устаревший журнал EFI)", "- ESP 根 40hx_log.txt (历史 EFI 日志)"))

@@ -1,4 +1,4 @@
-// 40HXCheck — CMP 40HX 解锁独立诊断工具 v2.1.2
+// 40HXCheck — CMP 40HX 解锁独立诊断工具 v2.2.0
 //
 // 双击即诊, 只读为主; v2.5 起若发现"算力/Gen2 无法实测(驱动未运行)"且驱动文件
 // 在包内, 会临时拉起 ThrottleStop + WinRing0 实测后自清理(用完即卸, 保持无痕):
@@ -160,7 +160,7 @@ func classifyLoadErr(raw string) string {
 	case strings.Contains(r, "1060"), strings.Contains(r, "不存在"):
 		return tr("Service not found (error 1060) — the driver file was not deployed successfully; re-run the installer and retry", "Служба не найдена (ошибка 1060) — файл драйвера не был развернут; перезапустите установщик и повторите", "服务未找到(错误 1060)——驱动文件未部署成功, 重跑安装器后重试")
 	}
-	return tr("Driver start failed — usually a third-party AV HIPS / driver block. Allow both .sys files in its trust/allow list and retry; if it still fails, send the logs to me.", "Не удалось запустить драйвер — обычно из-за HIPS / блокировки драйверов стороннего антивируса. Добавьте оба файла .sys в доверенные/белый список и повторите; если не помогло, отправьте журналы мне.", "驱动启动失败——多因第三方杀软的 HIPS/驱动拦截, 请到其信任/白名单放行两个 .sys 后重试; 仍不行发日志给我")
+	return tr("Driver start failed — usually a third-party AV HIPS / driver block. Allow both .sys files in its trust/allow list and retry; if it still fails, include the logs in a bug report.", "Не удалось запустить драйвер — обычно из-за HIPS / блокировки драйверов стороннего антивируса. Добавьте оба файла .sys в доверенные/белый список и повторите; если не помогло, приложите журналы к сообщению об ошибке.", "驱动启动失败——多因第三方杀软的 HIPS/驱动拦截, 请到其信任/白名单放行两个 .sys 后重试; 仍不行请在问题报告中附上日志")
 }
 
 // cleanupDrivers: 自清理 — 停服务、删服务、删驱动文件(保持无痕, 不给反作弊留磁盘残留)。
@@ -224,7 +224,7 @@ func selfElevate() {
 		uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)),
 		uintptr(unsafe.Pointer(params)), 0, 1)
 	if r <= 32 {
-		msgbox(tr("Administrator rights are required to read the EFI unlock log (40hx_log.txt).\nRight-click this program -> Run as administrator.", "Для чтения журнала разблокировки EFI (40hx_log.txt) нужны права администратора.\nЩелкните программу правой кнопкой -> Запуск от имени администратора.", "需要管理员权限才能读取 EFI 解锁日志(40hx_log.txt)。\n请右键本程序 -> 以管理员身份运行。"), 0x30)
+		msgbox(tr("Administrator rights are required to read the EFI unlock log.\nRight-click this program -> Run as administrator.", "Для чтения журнала разблокировки EFI нужны права администратора.\nЩелкните программу правой кнопкой -> Запуск от имени администратора.", "需要管理员权限才能读取 EFI 解锁日志。\n请右键本程序 -> 以管理员身份运行。"), 0x30)
 	}
 	os.Exit(0)
 }
@@ -241,28 +241,29 @@ func logsDir() string {
 }
 
 // collectLogs: 把相关日志汇集到固定目录, 返回目录路径
-func collectLogs(diagSnapshot string) string {
+func collectLogs(diagSnapshot string) (string, string) {
 	dir := logsDir()
 	// 1. 安装器/Gen2 日志 (%TEMP%\40HX_installer.log)
 	if b, err := os.ReadFile(filepath.Join(os.TempDir(), "40HX_installer.log")); err == nil {
 		os.WriteFile(filepath.Join(dir, "installer.log"), b, 0o644)
 	}
-	// 2. EFI 解锁链日志 (ESP 根 40hx_log.txt) — 管理员下可读;
-	//    v3.0.0: 仅当解锁 EFI 本体还在时才收集 — 卸载 EFI 后该文件是历史残留,
-	//    拷进 logs 会在回溯时被误当"本次 EFI 运行日志"。
+	// Record the exact file from this collection in the diagnostic snapshot.
 	if esp := hxcore.MountESP(); esp != "" {
-		if _, efiErr := os.Stat(esp + `:\EFI\40HX\40HXUNLK.EFI`); efiErr == nil {
-			if b, err := os.ReadFile(esp + ":\\40hx_log.txt"); err == nil {
-				os.WriteFile(filepath.Join(dir, "40hx_log.txt"), b, 0o644)
-			}
-		}
+		name, err := hxcore.CollectEfiLog(esp+`:\`, dir)
 		hxcore.UnmountESP(esp)
+		if err != nil {
+			diagSnapshot += "\n" + tr("EFI log export: ", "Экспорт журнала EFI: ", "EFI 日志导出: ") + err.Error() + "\n"
+		} else {
+			diagSnapshot += "\n" + tr("Exported EFI log: ", "Экспортирован журнал EFI: ", "已导出的 EFI 日志: ") + name + "\n"
+		}
+	} else {
+		diagSnapshot += "\n" + tr("EFI log export: could not mount the ESP.", "Экспорт журнала EFI: не удалось подключить ESP.", "EFI 日志导出: 无法挂载 ESP。") + "\n"
 	}
 	// 3. 本次诊断快照(最新) + 时间戳归档(保留历史便于对比)
 	os.WriteFile(filepath.Join(dir, "diagnose.txt"), []byte(diagSnapshot), 0o644)
 	ts := time.Now().Format("20060102_150405")
 	os.WriteFile(filepath.Join(dir, "diagnose_"+ts+".txt"), []byte(diagSnapshot), 0o644)
-	return dir
+	return dir, diagSnapshot
 }
 
 // indentLines: 多行文本统一加 4 空格缩进(状态文件内容展示用)
@@ -456,7 +457,7 @@ func knownIssuesBlock() string {
 	sb.WriteString(tr("\n--- Known limitations / potential issues ("+hxcore.Version+", not fully covered by the community) ---\n", "\n--- Известные ограничения / возможные проблемы ("+hxcore.Version+", не полностью проверено сообществом) ---\n", "\n--- 已知限制 / 潜在问题 ("+hxcore.Version+", 社区未全覆盖项) ---\n"))
 	sb.WriteString("\u00b7 Gen2 can remain unavailable after GPU register preparation. Collect the installer log and both sides of the PCIe link before choosing another recovery attempt.\n")
 	sb.WriteString("\u00b7 Complex PCIe topologies: ordinary retraining requires a verified immediate GPU-only port. Link Disable is limited to an exclusive direct bus-0 root port and is off by default.\n")
-	sb.WriteString(tr("· EFI cannot find the card (older versions only scanned bus 0-7): the current EFI extended this to 0-16 plus a CF8 0-255 fallback, covering AGESA/high buses (MSI B450 measured at bus 0x10). If it is still not found after reinstalling the current EFI, the firmware likely did not initialize that headless slot — in BIOS set Above4G + Re-Size BAR / Init Display First = PEG / move the card to the top CPU slot, and send 40hx_log.txt (with the \"diag: CF8 visible devices\" device-map section) to me.\n", "· EFI не находит карту (старые версии сканировали только шину 0-7): текущий EFI расширил это до 0-16 плюс резерв CF8 0-255, охватывая AGESA/высокие шины (MSI B450 измерена на шине 0x10). Если после переустановки текущего EFI карта все еще не найдена, прошивка, вероятно, не инициализировала этот безголовый слот — в BIOS включите Above4G + Re-Size BAR / Init Display First = PEG / переставьте карту в верхний слот CPU и отправьте 40hx_log.txt (с разделом карты устройств \"diag: CF8 visible devices\") мне.\n", "· EFI 找不到卡(旧版只扫 bus 0-7): v3.0 已扩到 0-16 + CF8 全 0-255 兜底, 覆盖 AGESA/高总线(微星 B450 实测 bus 0x10); 若重装 v3.0 EFI 后仍 not found, 多为固件没初始化该无头槽 — 走 BIOS: Above4G+Re-Size BAR / Init Display First=PEG / 插 CPU 顶槽, 并把 40hx_log.txt(含 \"diag: CF8 visible devices\" 设备映射段)发给我。\n"))
+	sb.WriteString(tr("· EFI cannot find the card (older versions only scanned bus 0-7): the current EFI extended this to 0-16 plus a CF8 0-255 fallback, covering AGESA/high buses (MSI B450 measured at bus 0x10). If it is still not found after reinstalling the current EFI, the firmware likely did not initialize that headless slot — in BIOS set Above4G + Re-Size BAR / Init Display First = PEG / move the card to the top CPU slot, and attach the EFI log named in diagnose.txt to the report.\n", "· EFI не находит карту (старые версии сканировали только шину 0-7): текущий EFI расширил это до 0-16 плюс резерв CF8 0-255, охватывая AGESA/высокие шины (MSI B450 измерена на шине 0x10). Если после переустановки текущего EFI карта все еще не найдена, прошивка, вероятно, не инициализировала этот безголовый слот — в BIOS включите Above4G + Re-Size BAR / Init Display First = PEG / переставьте карту в верхний слот CPU и приложите к отчёту журнал EFI, указанный в diagnose.txt.\n", "· EFI 找不到卡(旧版只扫 bus 0-7): v3.0 已扩到 0-16 + CF8 全 0-255 兜底, 覆盖 AGESA/高总线(微星 B450 实测 bus 0x10); 若重装 v3.0 EFI 后仍 not found, 多为固件没初始化该无头槽 — 走 BIOS: Above4G+Re-Size BAR / Init Display First=PEG / 插 CPU 顶槽, 并在问题报告中附上 diagnose.txt 中列出的 EFI 日志。\n"))
 	sb.WriteString("\u00b7 A Gen2 target alone does not confirm a Gen2 link. Gen1 may be an idle state or failed training; verify the actual speed under sustained load on the CMP 40HX.\n")
 	sb.WriteString(tr("· Coexistence with the ThrottleStop app: this tool shares ThrottleStop\x27s driver name, reuses its driver, and neither removes nor interrupts it; if there is a conflict, close ThrottleStop and re-run.\n", "· Сосуществование с приложением ThrottleStop: инструмент использует то же имя драйвера, повторно использует его драйвер и не удаляет и не прерывает его; при конфликте закройте ThrottleStop и перезапустите.\n", "· ThrottleStop 软件共存: 本工具驱动与 ThrottleStop 同名, 自动复用其驱动、不删除不打断; 若冲突可关闭 ThrottleStop 后重跑。\n"))
 	sb.WriteString(tr("· AV quarantine: third-party AV may quarantine the driver .sys; Defender exclusions are added, for other AV please allow this project\x27s files in its security center.\n", "· Карантин антивируса: сторонний антивирус может поместить .sys драйвера в карантин; исключения Defender добавлены, для других антивирусов разрешите файлы этого проекта в их центре безопасности.\n", "· 杀软隔离: 第三方杀软可能隔离驱动 .sys; 已加 Defender 排除, 其他杀软请在安全中心放行本项目文件。\n"))
@@ -514,8 +515,6 @@ func check() {
 	gpuOK := hxcore.FindGPU()
 	sbOn := hxcore.SecureBootOn()
 	tsOn := hxcore.TestSigningOn()
-	gsOff := hxcore.GspDisabled()
-	sub, _, _ := hxcore.GspDiag() // 只需判断 GSP 键是否存在(开关式显示, 不展示寄存器/Adapter 细节)
 
 	// --- A. 主判定: 算力 + Gen2 最优先 (v2.5) ---
 	selfM, drvOK, drvFail := ensureDrivers()
@@ -568,12 +567,7 @@ func check() {
 	w("%s\n", bar)
 
 	// --- B. 基础状态 ---
-	gspTxt := tr("— GSP OFF not explicitly configured", "— GSP OFF явно не задан", "— 尚未明确设置 GSP OFF")
-	if gsOff {
-		gspTxt = tr("✓ disabled (recommended CPU-RM mode)", "✓ отключён (рекомендуемый режим CPU-RM)", "✓ 已关闭（推荐 CPU-RM 模式）")
-	} else if sub == "" {
-		gspTxt = tr("— GPU registry key not found", "— раздел GPU в реестре не найден", "— 未找到 GPU 注册表键")
-	}
+	gspTxt := hxcore.GspSettingText(hxcore.GspRegistrySetting())
 	w("GPU 40HX: %s   Secure Boot: %s   GSP: %s\n",
 		map[bool]string{true: "✓", false: "✗"}[gpuOK],
 		map[bool]string{true: tr("on (must disable!)", "вкл (нужно отключить!)", "开启(需关闭!)"), false: tr("off (OK)", "выкл (OK)", "关闭(OK)")}[sbOn], gspTxt)
@@ -707,9 +701,6 @@ func check() {
 	if tsOn {
 		tips = append(tips, tr("· Test signing is on (not needed since v2.5): disable with bcdedit /set testsigning off", "· Тестовая подпись включена (не нужна с v2.5): отключите через bcdedit /set testsigning off", "· 测试签名已开启 (v2.5 不需要): bcdedit /set testsigning off 可关闭"))
 	}
-	if !gsOff {
-		tips = append(tips, tr("· Select [Disable GSP (recommended)] in 40HXInstaller.exe and reboot after installing the updated EFI.", "· Выберите «Отключить GSP (рекомендуется)» в 40HXInstaller.exe и перезагрузитесь после установки обновлённого EFI.", "· 在 40HXInstaller.exe 选择关闭 GSP（推荐），安装更新的 EFI 后重启。"))
-	}
 	if gpuOK && st.SS0OK && !st.Unlocked {
 		tips = append(tips, tr("· EFI compute unlock not in effect (SS0 locked): if the '40HX Unlock' EFI is not deployed / was uninstalled on this machine, this is expected and compute stays locked — to restore it re-run 40HXInstaller.exe and check [Compute EFI deploy + firmware boot entry]; if the EFI is installed, confirm the boot went through the '40HX Unlock' entry / Above 4G is on / Secure Boot is off", "· Разблокировка вычислений через EFI не действует (SS0 заблокирован): если EFI '40HX Unlock' не развернут / удален на этой машине, это ожидаемо и вычисления остаются заблокированными — чтобы восстановить, перезапустите 40HXInstaller.exe и отметьте [Развертывание вычислительного EFI + запись загрузки прошивки]; если EFI установлен, проверьте, что загрузка прошла через запись '40HX Unlock' / Above 4G включен / Secure Boot выключен", "· EFI 算力解锁未生效(SS0 锁定): 若本机未部署/已卸载 '40HX Unlock' 解锁 EFI, 此提示属预期, 算力会保持锁定 — 想恢复请重跑 40HXInstaller.exe 勾选[算力 EFI 部署+固件启动项]; 若 EFI 已装, 则确认开机走了 '40HX Unlock' 启动项 / Above 4G 已开 / Secure Boot 已关"))
 	}
@@ -775,14 +766,14 @@ func check() {
 	w("%s", knownIssuesBlock())
 
 	out := sb.String()
-	fmt.Println(out)
 
 	// v2.5: 本工具拉起过驱动则用完即卸 (保持系统无第三方驱动)
 	if selfM {
 		cleanupDrivers()
 	}
 
-	dir := collectLogs(out)
+	dir, out := collectLogs(out)
+	fmt.Println(out)
 	copied := copyToClipboard(out)
 	note := ""
 	if copied {
@@ -790,7 +781,7 @@ func check() {
 	}
 	ok := st.Unlocked && hxcore.Gen2Reached(st.Speed)
 	// 弹窗只给简洁结论 + 指向详细日志; 详细内容已在 diagnose.txt 与剪贴板。
-	msgbox(guiHead+popupTip+tr("\n\nThe full diagnostics (with troubleshooting suggestions and raw PCIe registers) were written to:\n", "\n\nПолная диагностика (с рекомендациями и сырыми регистрами PCIe) записана в:\n", "\n\n完整诊断(含排查建议与原始 PCIe 寄存器)已写入:\n")+dir+tr("\\diagnose.txt\nFor troubleshooting guidance see AI辅助安装提示词.txt (AI-assisted install prompts) inside the package", "\\diagnose.txt\nРуководство по устранению неполадок см. в AI辅助安装提示词.txt (подсказки для установки с помощью ИИ) внутри пакета", "\\diagnose.txt\n排查引导见包内 AI辅助安装提示词.txt")+note,
+	msgbox(guiHead+popupTip+tr("\n\nThe full diagnostics (with troubleshooting suggestions and raw PCIe registers) were written to:\n", "\n\nПолная диагностика (с рекомендациями и сырыми регистрами PCIe) записана в:\n", "\n\n完整诊断(含排查建议与原始 PCIe 寄存器)已写入:\n")+filepath.Join(dir, "diagnose.txt")+note,
 		map[bool]uint{true: 0x40, false: 0x30}[ok])
 }
 

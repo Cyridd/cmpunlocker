@@ -1,0 +1,49 @@
+{
+  "date": "2026-11-17",
+  "qemu_version": "QEMU emulator version 11.1.3",
+  "machine": "q35,accel=tcg",
+  "images": {
+    "cmp40-readonly.efi": "61f7ea02f6982ba6636a0647dcdc6672f5be040a3dd2184093aeb803c669baef",
+    "cmp40-fixture-windows.efi": "4a7325964cda59eedb4cfa4e36ace9c8e19612eb02e070308225b414bbaef767",
+    "cmp40-fixture-parent.efi": "0d60da00131f9cd719407fa0b29943178aaa8d1a8097a383ff3c02525a8b1c35"
+  },
+  "ovmf_code_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
+  "ovmf_vars_sha256": "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e",
+  "cases": [
+    {
+      "case": "windows",
+      "passed": true,
+      "seconds": 1.78
+    },
+    {
+      "case": "unique-windows",
+      "passed": true,
+      "seconds": 1.83
+    },
+    {
+      "case": "parent",
+      "passed": true,
+      "seconds": 1.83
+    },
+    {
+      "case": "no-windows",
+      "passed": true,
+      "seconds": 1.78
+    },
+    {
+      "case": "invalid-windows",
+      "passed": true,
+      "seconds": 1.78
+    },
+    {
+      "case": "ambiguous-windows",
+      "passed": true,
+      "seconds": 1.88
+    },
+    {
+      "case": "self-windows",
+      "passed": true,
+      "seconds": 1.83
+    }
+  ]
+}

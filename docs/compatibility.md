@@ -2,14 +2,14 @@
 
 ## Linux
 
-The Gen2 engine updated on 2026-11-08 is shared by CPU-RM 0.17.0 and all four
+The Gen2 engine updated on 2026-11-08 is shared by pre-driver module 0.17.0 and all four
 open patch sets. Hardware validation passed. The Gen2 measurements below
 were taken with the earlier implementation. See
 [the Gen2 report](research/CPU_RM_PCIE_GEN2.md#shared-gen2-engine-0170).
 
-- **Proprietary CPU-RM compute unlock:** native initialization and CUDA
+- **Proprietary pre-driver compute unlock:** native initialization and CUDA
   throughput validated on `610.43.03`, `615.78.08` and `620.70.06` with GSP OFF, on an
-  8 GiB CMP40HX/TU106. Use [the separate guide](../linux/cpu-rm/README.md).
+  8 GiB CMP40HX/TU106. A subsequent [GSP-enabled test](results.md#gsp-enabled-on-linux-and-windows) also retained compute unlock. Use [the separate guide](../linux/preboot/README.md).
   For `620.70.06`, the module build/offline checks and manual native
   initialization, numerical WMMA and runtime Gen2 tests passed on
   `7.3.3-1-cachyos`. A separate
@@ -85,10 +85,8 @@ sudo ./install.sh --no-download
   **Secure Boot** and **CSM** disabled — the EFI application is unsigned.
 - The unlock is volatile and is reapplied at every boot by the EFI entry. POST,
   FLR, a driver reset, or a power cycle clears it.
-- The current small-WPR EFI supports **GSP OFF / CPU-RM**. The installer
-  explicitly writes `EnableGpuFirmware=0`, replaces old login-task targets,
-  and recommends upgrading the EFI first. I tested ZERO/FULL initialization,
-  FULL unlock, and the installer's GSP-OFF upgrade; results are recorded in
+- The Windows Rust EFI also passed the [GSP-enabled test](results.md#gsp-enabled-on-linux-and-windows). The Go installer preserves the GSP setting by default. Its optional **Disable GSP** action writes `EnableGpuFirmware=0` after checking the deployed EFI. ZERO/FULL initialization, FULL
+  unlock, and the installer's GSP-OFF upgrade were tested; results are recorded in
   [the report](research/CPU_RM_SMALL_WPR.md);
   the exact final Windows driver version was not recorded.
 - Earlier GSP-ON measurements reported about 8024 MB CUDA VRAM instead of

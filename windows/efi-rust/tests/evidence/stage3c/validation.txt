@@ -1,0 +1,24 @@
+Passed locally:
+
+cargo fmt --all -- --check
+cargo test --locked --offline -p cmp40-efi-core
+  25 tests passed
+CC=clang cargo test --locked --offline -p cmp40-efi-core --test transaction
+  8 tests passed; original C MMIO sequence/status comparisons retained
+python3 tests/test_assets.py
+  2 tests passed
+cargo clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
+cargo clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters -- -D warnings
+cargo build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features cpu-rm,adapters
+python3 tests/qemu_smoke.py --cpu-rm --adapters
+  12 scenarios passed; run-tt0wdyfj
+  Persisted FAT bytes matched exact expected log contents
+  Failed child did not resume its parent after FAILURE_PARKED
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnullvm
+cargo check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-msvc
+python3 tests/package_cpu_rm.py --output-dir target/diagnostic-r1
+  LOGCHECK and corrected ZERO/FULL archives created
+Archive content/SHA256SUMS validation
+  All three archives match their final release images and included guide
+git diff --check

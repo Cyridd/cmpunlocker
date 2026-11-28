@@ -1,0 +1,236 @@
+{
+  "variant": "carrier-r1",
+  "code_checkpoint": "fe02bf7",
+  "provided_at_commit": "76c008b",
+  "accepted_configuration": "tested CMP40HX TU106 10de:1f0b / 8 GiB; direct Windows RawBuffer preload",
+  "confirmed_windows_and_nvidia_work_both_modes": true,
+  "confirmed_full_compute_unlock_in_windows": true,
+  "load_options_and_cold_power_events_not_separately_reconfirmed_in_latest_report": true,
+  "numeric_benchmark_provided": false,
+  "gpu_parent_linux_acceptance": "accepted_full_in_followup_stage4d",
+  "controls": {
+    "zero": {
+      "log": "RZ000003.LOG",
+      "log_bytes": 576823,
+      "log_sha256": "ab29057073176522f68831541517bb07090a06a2505f2414830212dc2766cd64",
+      "handoff_parent": false,
+      "handoff_source": "RawBuffer",
+      "metadata_bytes": 256,
+      "metadata_sha256": "d1c71283a83bda85b8895c5a6d4d5ef7b4d4f64be1fa3f624ca987b8e14010b5",
+      "metadata_matches_c_gcc": true,
+      "metadata_matches_c_clang": true,
+      "metadata_and_manifest_match_memory_r1": true,
+      "fwsec_halt_wait_us": 99000,
+      "trace_records": 20499,
+      "trace_dropped": 0,
+      "omitted_data_ports": 14943,
+      "total_recorded_stall_us": 5357100,
+      "native_ready": true,
+      "native": {
+        "00409664": "00000000",
+        "0040966c": "00000000",
+        "001fa824": "1ffffe00",
+        "001fa828": "00000000",
+        "00409650": "ffffff8f",
+        "00840040": "00000000",
+        "00840100": "00000010",
+        "00110100": "00000010",
+        "00840094": "deadb00d"
+      }
+    },
+    "full": {
+      "log": "RF000004.LOG",
+      "log_bytes": 576823,
+      "log_sha256": "fcfada296b7a5120688ea5e15cc8cb050a311fee3dd4a09f4ba807fbf4e75d00",
+      "handoff_parent": false,
+      "handoff_source": "RawBuffer",
+      "metadata_bytes": 256,
+      "metadata_sha256": "d1c71283a83bda85b8895c5a6d4d5ef7b4d4f64be1fa3f624ca987b8e14010b5",
+      "metadata_matches_c_gcc": true,
+      "metadata_matches_c_clang": true,
+      "metadata_and_manifest_match_memory_r1": true,
+      "fwsec_halt_wait_us": 99000,
+      "trace_records": 20499,
+      "trace_dropped": 0,
+      "omitted_data_ports": 14943,
+      "total_recorded_stall_us": 5357100,
+      "native_ready": true,
+      "native": {
+        "00409664": "88888888",
+        "0040966c": "00000008",
+        "001fa824": "1ffffe00",
+        "001fa828": "00000000",
+        "00409650": "ffffff8f",
+        "00840040": "00000000",
+        "00840100": "00000010",
+        "00110100": "00000010",
+        "00840094": "deadb00d"
+      }
+    }
+  },
+  "trace_comparisons": {
+    "full_against_memory_r1": {
+      "baseline": "../stage3f/RF000002.LOG",
+      "changes": [
+        {
+          "record_index": 6,
+          "before": {
+            "kind": "W",
+            "offset": "00009410",
+            "value": "18e3fedf",
+            "count": 1
+          },
+          "after": {
+            "kind": "W",
+            "offset": "00009410",
+            "value": "18e3f439",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 7,
+          "before": {
+            "kind": "W",
+            "offset": "00009400",
+            "value": "9dab4a00",
+            "count": 1
+          },
+          "after": {
+            "kind": "W",
+            "offset": "00009400",
+            "value": "de17bc00",
+            "count": 1
+          }
+        }
+      ],
+      "all_other_retained_records_identical": true
+    },
+    "zero_against_full": {
+      "changes": [
+        {
+          "record_index": 6,
+          "before": {
+            "kind": "W",
+            "offset": "00009410",
+            "value": "18e3f429",
+            "count": 1
+          },
+          "after": {
+            "kind": "W",
+            "offset": "00009410",
+            "value": "18e3f439",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 7,
+          "before": {
+            "kind": "W",
+            "offset": "00009400",
+            "value": "91c48000",
+            "count": 1
+          },
+          "after": {
+            "kind": "W",
+            "offset": "00009400",
+            "value": "de17bc00",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 20470,
+          "before": {
+            "kind": "R",
+            "offset": "00409664",
+            "value": "00000000",
+            "count": 1
+          },
+          "after": {
+            "kind": "R",
+            "offset": "00409664",
+            "value": "88888888",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 20471,
+          "before": {
+            "kind": "R",
+            "offset": "0040966c",
+            "value": "00000000",
+            "count": 1
+          },
+          "after": {
+            "kind": "R",
+            "offset": "0040966c",
+            "value": "00000008",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 20476,
+          "before": {
+            "kind": "R",
+            "offset": "00409664",
+            "value": "00000000",
+            "count": 1
+          },
+          "after": {
+            "kind": "R",
+            "offset": "00409664",
+            "value": "88888888",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 20477,
+          "before": {
+            "kind": "R",
+            "offset": "0040966c",
+            "value": "00000000",
+            "count": 1
+          },
+          "after": {
+            "kind": "R",
+            "offset": "0040966c",
+            "value": "00000008",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 20491,
+          "before": {
+            "kind": "R",
+            "offset": "00409664",
+            "value": "00000000",
+            "count": 1
+          },
+          "after": {
+            "kind": "R",
+            "offset": "00409664",
+            "value": "88888888",
+            "count": 1
+          }
+        },
+        {
+          "record_index": 20492,
+          "before": {
+            "kind": "R",
+            "offset": "0040966c",
+            "value": "00000000",
+            "count": 1
+          },
+          "after": {
+            "kind": "R",
+            "offset": "0040966c",
+            "value": "00000008",
+            "count": 1
+          }
+        }
+      ],
+      "differences_only_ptimer_and_selector_reads": true
+    },
+    "firmware_data_ports_compared": false
+  },
+  "gpu_parent_linux_followup": "../stage4d/hardware-report.json"
+}

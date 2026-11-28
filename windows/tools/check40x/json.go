@@ -178,7 +178,7 @@ func writeJSONReport(st hxcore.UnlockState, drvOK bool, efi efiFacts, aspm strin
 		OS:        osVersion(),
 		GPU: jsonGPU{
 			Present40HX: hxcore.FindGPU(),
-			GSP:         map[bool]string{true: "enabled", false: "disabled"}[hxcore.GspEnabled()],
+			GSP:         hxcore.GspRegistrySetting(),
 		},
 		Firmware: jsonFirmware{
 			SecureBoot:       hxcore.SecureBootOn(),

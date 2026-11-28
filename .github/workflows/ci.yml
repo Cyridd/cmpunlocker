@@ -1,6 +1,6 @@
 # CI for the CMP 40HX unlock project.
 #
-# Independent Windows/UEFI and Linux CPU-RM gates:
+# Independent Windows/UEFI and Linux pre-driver gates:
 #
 #   1. go-tools — builds every Go module, vets it, and runs the unit tests
 #      that can only execute on Windows (40hxcore imports
@@ -10,31 +10,32 @@
 #      cross-build is also the cheapest proof that the tree is complete:
 #      inst40hx fails to compile if any //go:embed input went missing.
 #
-#   2. efi — rebuilds unlock40x_v70.c from source inside the pinned toolchain
-#      container and compares the SHA-256 against the committed
-#      embed/40HXUNLK.EFI. The build is byte-for-byte reproducible, so a
-#      mismatch means the committed payload and its source have drifted.
+#   2. rust-efi-core — checks the Rust EFI against its C reference,
+#      compares the installer image with a fresh FULL build, and runs QEMU.
 #
-# The CPU-RM job builds without loading a module and exercises the firmware
+# The Linux pre-driver job builds without loading a module and exercises the firmware
 # parsers/layout offline. The open-module patch series has its separate CI.
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, port/rust]
     paths:
       - 'windows/**'
-      - 'linux/cpu-rm/**'
+      - 'linux/preboot/**'
       - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
   pull_request:
     paths:
       - 'windows/**'
-      - 'linux/cpu-rm/**'
+      - 'linux/preboot/**'
       - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -44,8 +45,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  linux-cpu-rm:
-    name: Linux CPU-RM module and offline firmware checks
+  rust-efi-core:
+    name: Rust EFI core, carrier and QEMU boot checks
+    runs-on: ubuntu-latest
+    env:
+      RUST_TOOLCHAIN: '1.100.0'
+    defaults:
+      run:
+        working-directory: windows/efi-rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy --target x86_64-pc-windows-gnu --target x86_64-unknown-uefi
+      - name: Fetch locked EFI dependencies
+        run: cargo +"$RUST_TOOLCHAIN" fetch --locked --target x86_64-unknown-uefi
+      - name: Check formatting and lints
+        run: |
+          set -euo pipefail
+          cargo +"$RUST_TOOLCHAIN" fmt --all -- --check
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline -p cmp40-efi-core --all-targets -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi --features unlock -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi-boot-fixture --features adapters -- -D warnings
+          cargo +"$RUST_TOOLCHAIN" clippy --locked --offline --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters -- -D warnings
+      - name: Compare Rust boot data and firmware operations with the actual C EFI functions
+        run: |
+          set -euo pipefail
+          cargo +"$RUST_TOOLCHAIN" test --locked --offline -p cmp40-efi-core
+          python3 tests/test_assets.py
+          python3 -m unittest discover -s tests -p 'test_trace_log.py' -v
+      - name: Check the core for the Windows target
+        run: cargo +"$RUST_TOOLCHAIN" check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
+      - name: Build the standard EFI and test boot targets
+        run: cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features unlock,adapters
+      - name: Install QEMU and OVMF
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Compare the embedded EFI with the Rust FULL build
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          set -euo pipefail
+          bash build_installer_efi.sh
+          python3 tests/compare_installer_efi.py target/x86_64-unknown-uefi/release/cmp40-unlock-full.efi ../tools/inst40hx/embed/40HXUNLK.EFI
+      - name: Boot the installer EFI and verify persisted logs and parked failure in QEMU
+        run: python3 tests/qemu_smoke.py --unlock --adapters --raw --rebar
+      - name: Check early logs and unstarted candidate images
+        run: python3 tests/qemu_smoke.py --case entrycheck --case entrycheck-invalid
+      - name: Build the Gen2 experiment and test fixtures
+        run: cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/gen2 -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters
+      - name: Boot the Gen2 experiment in QEMU
+        run: python3 tests/qemu_smoke.py --image-dir target/gen2/x86_64-unknown-uefi/release --gen2
+      - name: Preserve the QEMU boot evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rust-efi-qemu-logs
+          path: |
+            windows/efi-rust/target/qemu-smoke/**/serial.log
+            windows/efi-rust/target/qemu-smoke/**/report.json
+            windows/efi-rust/target/qemu-smoke/**/summary.json
+            windows/efi-rust/target/qemu-smoke/**/R*.LOG
+          if-no-files-found: ignore
+
+  linux-unlock:
+    name: Linux pre-driver module and offline firmware checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,14 +119,14 @@ jobs:
           set -euo pipefail
           kdir=$(find /lib/modules -maxdepth 2 -name build | sort | tail -n1)
           test -n "$kdir"
-          make -C linux/cpu-rm/kernel KDIR="$kdir" W=1 -j2
+          make -C linux/preboot/kernel KDIR="$kdir" W=1 -j2
       - name: Verify firmware preparation and parsers
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s linux/cpu-rm/firmware -p 'test_*.py' -v
-          python3 linux/cpu-rm/firmware/prepare.py
-          make -C linux/cpu-rm offline-test
-          bash -n linux/cpu-rm/unlock.sh linux/cpu-rm/gen2.sh linux/cpu-rm/common.sh linux/cpu-rm/mkinitcpio/cmp40-unlock
+          python3 -m unittest discover -s linux/preboot/firmware -p 'test_*.py' -v
+          python3 linux/preboot/firmware/prepare.py
+          make -C linux/preboot offline-test
+          bash -n linux/preboot/unlock.sh linux/preboot/gen2.sh linux/preboot/common.sh linux/preboot/mkinitcpio/cmp40-unlock
 
   go-tools:
     name: Go tools (${{ matrix.name }})
@@ -89,6 +152,18 @@ jobs:
         with:
           go-version-file: windows/tools/inst40hx/go.mod
           cache-dependency-path: windows/tools/*/go.sum
+
+      - name: Check Go formatting
+        if: matrix.cross == '1'
+        shell: bash
+        working-directory: windows/tools
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l .)
+          if [[ -n "$unformatted" ]]; then
+            printf '::error::gofmt found unformatted files:\n%s\n' "$unformatted"
+            exit 1
+          fi
 
       - name: Build every module
         shell: bash
@@ -157,94 +232,25 @@ jobs:
         shell: powershell
         run: windows/tools/test_efi_copy.ps1
 
+      - name: Test the release package verifier
+        if: matrix.cross == '0'
+        shell: powershell
+        run: windows/tools/test_package_verification.ps1
+
       # winres_gen produces a PE resource object, so it cross-generates fine
       # on Linux. Kept on the Linux leg because the byte comparison uses
       # `cmp`, which every Linux runner has.
-      - name: Regenerate the Windows resource object and compare
+      - name: Compare Windows version resources for each Go tool
         if: matrix.cross == '1'
         shell: bash
         working-directory: windows/tools/winres_gen
         run: |
           set -euo pipefail
-          go run . "$RUNNER_TEMP/rsrc_windows_amd64.syso"
-          if ! cmp -s "$RUNNER_TEMP/rsrc_windows_amd64.syso" \
-                     ../inst40hx/rsrc_windows_amd64.syso; then
-            echo "::error::windows/tools/inst40hx/rsrc_windows_amd64.syso is stale — regenerate it with 'go run . <path>' in windows/tools/winres_gen and commit the result"
-            exit 1
-          fi
-          echo "resource object matches the committed copy"
-
-  efi:
-    name: EFI payload reproducibility
-    runs-on: ubuntu-latest
-    env:
-      # Pinned by digest. The EFI link is sensitive to the exact toolchain:
-      # the committed payload needs gcc 16 / binutils 2.47 / gnu-efi 4.0.4
-      # and does not even build under Ubuntu's older binutils (the .rodata
-      # section disappears and build_v70.sh rejects the output). Pinning the
-      # image keeps the hash comparison meaningful; Arch is a rolling
-      # distribution, so when the digest is refreshed the hash below is
-      # expected to change too.
-      EFI_IMAGE: archlinux:base@sha256:f3691b4dde62ba4c4b6f0ae2c1fbf28e8c0c8c4b9a35c7e06dc1f70e21aa29f6
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Rebuild inside the pinned toolchain container
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/efi-out"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE/windows/tools:/src:ro" \
-            -v "$RUNNER_TEMP/efi-out:/out" \
-            -w /src \
-            "$EFI_IMAGE" \
-            bash -lc '
-              set -euo pipefail
-              pacman -Sy --noconfirm --quiet gcc binutils make gnu-efi python
-
-              # The image digest fixes the package database, not the packages:
-              # Arch is a rolling distribution, so `pacman -Sy` resolves to
-              # whatever is current. The EFI link is byte-sensitive to the
-              # exact gcc/binutils. Fail here, with a precise message, when
-              # the versions drift — otherwise the payload comparison below
-              # reports a misleading "source and payload have drifted".
-              check_pkg() { # <name> <expected>
-                local actual
-                actual="$(pacman -Q "$1" | awk "{print \$2}")"
-                case "$actual" in
-                  "$2"*|"$2") ;;
-                  *) echo "::error::package $1 is $actual, expected $2*; re-pin EFI_EXPECTED_${1^^}_VERSION in ci.yml and regenerate windows/tools/inst40hx/embed/40HXUNLK.EFI" >&2; exit 1 ;;
-                esac
-              }
-              check_pkg gcc     16.2.1
-              check_pkg binutils 2.47
-              check_pkg make    4.4.1
-              check_pkg gnu-efi 4.0.4
-
-              cp -r /src /build
-              cd /build/unlock40x
-              CPU_RM_CONTROL=zero EFI_OUT=/out/40HXZERO.EFI ./build_v70.sh
-              CPU_RM_CONTROL=full VBIOS_DUMP=0 DIRECT_WRITE_PROBE=0 PRELOAD_PROBE=0 ./build_v70.sh
-              cp unlock40x_v70.efi /out/
-            '
-
-      - name: Compare with the committed embedded EFI
-        run: |
-          set -euo pipefail
-          built=$(sha256sum "$RUNNER_TEMP/efi-out/unlock40x_v70.efi" | cut -d' ' -f1)
-          committed=$(sha256sum windows/tools/inst40hx/embed/40HXUNLK.EFI | cut -d' ' -f1)
-          echo "rebuilt from source : $built"
-          echo "committed payload   : $committed"
-          if [ "$built" != "$committed" ]; then
-            echo "::error::embed/40HXUNLK.EFI does not match a fresh build of tools/unlock40x/unlock40x_v70.c. Either the source changed and the payload needs re-embedding, or the pinned toolchain digest was updated and the payload needs regenerating."
-            exit 1
-          fi
-          echo "EFI payload reproduces byte-for-byte"
-
-      - name: Upload the rebuilt EFI
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: unlock40x_v70.efi
-          path: ${{ runner.temp }}/efi-out/unlock40x_v70.efi
-          if-no-files-found: error
-          retention-days: 14
+          for module in inst40hx check40x uninstall40x winres_gen; do
+            generated="$RUNNER_TEMP/$module.syso"
+            go run . -tool "$module" "$generated"
+            if ! cmp -s "$generated" "../$module/rsrc_windows_amd64.syso"; then
+              echo "::error::$module has a stale Windows resource object"
+              exit 1
+            fi
+          done

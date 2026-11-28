@@ -1,49 +1,44 @@
 package hxcore
 
 import (
-	"os"
+	"errors"
 	"strings"
 )
 
-// AnalyzeEfiLog: 读 ESP 根目录 40hx_log.txt (EFI 解锁链日志), 按失败特征
-// 分类给出精确解决步骤。SS0 锁定时调用; 返回诊断建议字符串(可多行)。
-//
-// v2.4.4: 社区 #1 (X99 双卡 code43) 教训 — 相同症状可能来自不同根因:
-//
-//	A. "WPR2 NOT up" + "IMEM[0]=0xffffffff"  → GPU DMA 够不到 >4GB 载荷
-//	   = 主板 Above 4G Decoding 未开 (开发机 Z170 开了才成功)
-//	B. "not-OK (m0=0x89 halted)" → booter 注入失败 (时序/槽位问题)
-//	C. 日志显示已 UNLOCKED 但 SS0 锁 → 驱动层覆盖(重跑安装器)
-//	D. 无日志 → EFI 没跑 (启动项未置顶/Secure Boot)
+// AnalyzeEfiLog describes the last EFI record on the mounted ESP.
 func AnalyzeEfiLog() string {
 	esp := MountESP()
 	if esp == "" {
 		return T("  [EFI log] Cannot mount the ESP (administrator required) — the unlock log is unreadable", "  [журнал EFI] Не удалось подключить ESP (нужны права администратора) — журнал разблокировки недоступен", "  [EFI日志] 无法挂载 ESP(需管理员) — 无法读取解锁日志")
 	}
 	defer UnmountESP(esp)
-	// v3.0.0: 先确认解锁 EFI 本体是否还在 —— 卸载 EFI 后 ESP 根目录的
-	// 40hx_log.txt 是历史残留, 不能再拿去套"booter 失败/换槽/Above4G"这类
-	// 分析(会给没装 EFI 的用户派无关引导, 社区实机踩过)。
-	efiPath := esp + `:\EFI\40HX\40HXUNLK.EFI`
-	_, efiErr := os.Stat(efiPath)
-	p := esp + ":\\40hx_log.txt"
-	data, err := os.ReadFile(p)
-	if err != nil {
-		if efiErr != nil {
-			return T("  [EFI log] The unlock EFI is not deployed or was removed (no \\EFI\\40HX\\40HXUNLK.EFI and no 40hx_log.txt on the ESP)\n  Compute staying locked is expected. To unlock it, run 40HXInstaller.exe and tick [Compute EFI + firmware boot entry].", "  [журнал EFI] Разблокировочный EFI не установлен или удален (на ESP нет ни \\EFI\\40HX\\40HXUNLK.EFI, ни 40hx_log.txt)\n  Заблокированные вычисления — ожидаемо. Чтобы разблокировать: запустите 40HXInstaller.exe и отметьте [EFI разблокировки + запись загрузки].", "  [EFI日志] 解锁 EFI 未部署/已卸载(ESP 上无 \\EFI\\40HX\\40HXUNLK.EFI, 也无 40hx_log.txt)\n  算力保持锁定属预期; 想解锁算力: 40HXInstaller.exe 勾选[算力 EFI 部署+固件启动项]安装")
-		}
-		return T("  [EFI log] No 40hx_log.txt on the ESP — the EFI application probably never ran\n  In firmware setup: move '40HX Unlock' to the top of the boot order, or disable Secure Boot.", "  [журнал EFI] На ESP нет 40hx_log.txt — приложение EFI, скорее всего, не запускалось\n  В настройках прошивки: поднимите '40HX Unlock' на первое место в порядке загрузки или отключите Secure Boot.", "  [EFI日志] ESP 上无 40hx_log.txt — EFI 可能没执行\n  请进 BIOS: 将 '40HX Unlock' 置为第一启动项 或 关 Secure Boot")
+	return analyzeEfiLogOnESP(esp + `:\`)
+}
+
+func analyzeEfiLogOnESP(esp string) string {
+	log, err := readEfiLog(esp)
+	switch {
+	case errors.Is(err, errEfiAbsent):
+		return T("[EFI] The unlock EFI is absent from the ESP. Any existing logs are historical.", "[EFI] На ESP нет разблокировочного EFI. Сохранившиеся журналы относятся к прошлым запускам.", "[EFI] ESP 上没有解锁 EFI。现有日志属于以前的运行。")
+	case errors.Is(err, errNoEfiLog):
+		return T("[EFI] No EFI log found on this ESP.", "[EFI] На этом ESP журнал EFI не найден.", "[EFI] 此 ESP 上没有 EFI 日志。")
+	case err != nil:
+		return T("[EFI] Could not read the log: ", "[EFI] Ошибка чтения журнала: ", "[EFI] 读取日志失败: ") + err.Error()
+	case log.control != "":
+		return log.diagnosis()
+	default:
+		return T("[40hx_log.txt] Legacy EFI log. Boot date unknown.\n", "[40hx_log.txt] Журнал C EFI. Дата загрузки неизвестна.\n", "[40hx_log.txt] 旧版 EFI 日志，启动日期未知。\n") + analyzeLegacyEfiLog(log.data)
 	}
-	if efiErr != nil {
-		return T("  [EFI log] Note: the 40hx_log.txt in the ESP root is a leftover — the unlock EFI is gone (removed or never installed)\n  The old log does not describe the current state. Locked compute is expected; reinstall [Compute EFI + firmware boot entry] to restore it.", "  [журнал EFI] Примечание: 40hx_log.txt в корне ESP — это остаток от прошлой установки, самого разблокировочного EFI уже нет (удален или не устанавливался)\n  Старый журнал не отражает текущее состояние. Заблокированные вычисления ожидаемы; переустановите [EFI разблокировки + запись загрузки].", "  [EFI日志] 注: ESP 根目录的 40hx_log.txt 是历史残留 — 解锁 EFI 已不在(已卸载/未安装)\n  旧日志不代表当前状态; 算力锁定属预期, 想恢复请重装[算力 EFI 部署+固件启动项]")
-	}
+}
+
+func analyzeLegacyEfiLog(data []byte) string {
 	low := strings.ToLower(string(data))
 	hit := func(s string) bool { return strings.Contains(low, strings.ToLower(s)) }
 
 	// 解锁成功标志优先 (注意: "SEC2 unlocked" 仅指核可注入, 非算力解锁!
 	// 必须匹配算力解锁特征 "*** UNLOCKED ***" 或 SS0 实际值)
 	if hit("*** unlocked ***") || hit("already unlocked (ss0/ss1 exact)") {
-		return T("  [EFI log] The unlock chain did reach UNLOCKED — the driver layer overwrote the state afterwards\n  Run the installer once more (it resets GSP), reboot, or go back to a driver version I tested.", "  [журнал EFI] Цепочка разблокировки дошла до UNLOCKED — состояние затем перезаписал драйвер\n  Запустите установщик еще раз (он переустановит GSP) и перезагрузитесь, либо вернитесь к версии драйвера, проверенной мной.", "  [EFI日志] 解锁链实际已 UNLOCKED — 是驱动层覆盖了状态\n  请重跑一次安装器(重设 GSP)后重启, 或换回我实测的驱动版本")
+		return T("  [EFI log] The unlock chain did reach UNLOCKED — the driver layer overwrote the state afterwards\n  Run the installer once more (it resets GSP), reboot, or go back to a tested driver version.", "  [журнал EFI] Цепочка разблокировки дошла до UNLOCKED — состояние затем перезаписал драйвер\n  Запустите установщик еще раз (он переустановит GSP) и перезагрузитесь, либо вернитесь к проверенной версии драйвера.", "  [EFI日志] 解锁链实际已 UNLOCKED — 是驱动层覆盖了状态\n  请重跑一次安装器(重设 GSP)后重启, 或换回已验证的驱动版本")
 	}
 	// 失败模式 A: DMA 够不到 >4GB (Above 4G 未开)
 	if hit("wpr2 not up") || (hit("imem[0]=0xffffffff") && hit("fwsec40")) {

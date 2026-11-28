@@ -1,0 +1,18 @@
+# Checkpoint excerpt. Device topology, buffers and full trace omitted; output redacted.
+CMP40-CPU-RM: BEGIN Zero; FLR=off
+CMP40-REBAR: POLICY requested=true
+CMP40-CPU-RM: HANDOFF_PREPARED parent=false source=Some(RawBuffer)
+MEMORY_LAYOUT zero_image=in_radix saved_reserved_bytes=29339648 image_bytes=29339080 table_bytes=65536 radix_bytes=29405184
+CMP40-CPU-RM: TRANSACTION_BEGIN; trace buffered until completion
+FWSEC_COMPLETION CPUCTL=00000010 waited_us=99000 registers=Some(FwsecRegisters { mailbox0: 00000000, mailbox1: 00000000, scratch0e: 00000000, wpr2_lo: 01ffe000, wpr2_hi: 01ffee00 })
+TRACE_BEGIN records=20499 omitted_data_ports=14943 dropped=0
+TRACE_END
+CMP40-CPU-RM: TRANSACTION Ready failed_at=None result=Ok(())
+NATIVE_STATE SS0=Some(00000000) SS1=Some(00000000) WPR2_HI=Some(00000000) WPR2_LO=Some(1ffffe00) PLM=Some(ffffff8f) SEC2_CPU=Some(00000010) MBOX0=Some(00000000) GSP_CPU=Some(00000010)
+CMP40-CPU-RM: NATIVE_READY Zero
+CMP40-REBAR: BEGIN requested=true bytes=8589934592
+TRACE_BEGIN records=111 omitted_data_ports=0 dropped=0
+TRACE_END
+REBAR_PROBE BAR1=[0000000c, fffffffe] BAR3_BYTES=0000000002000000 READBACK=[0000000c, 00000006] VRAM=[00000000, 00000000]
+CMP40-REBAR: RESULT Active BAR1=0000000600000000 BAR3=0000000800000000 LIMIT=0000000801ffffff attempt=0
+CMP40-CPU-RM: HANDOFF_READY Zero

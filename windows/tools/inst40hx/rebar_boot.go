@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -17,7 +20,36 @@ const rebarPolicyEnabled = "CMP40HX_REBAR_V1=1\n"
 const rebarPolicyDisabled = "CMP40HX_REBAR_V1=0\n"
 
 func rebarPolicySupported(image []byte) bool {
-	return bytes.Contains(image, []byte(rebarPolicyEnabled))
+	if bytes.Contains(image, []byte(rebarPolicyEnabled)) {
+		return true // C EFI embeds the literal policy value.
+	}
+	// Optimized Rust builds can inline the value comparison. The file reader
+	// embeds the UEFI path (NUL-terminated CHAR16) and its policy diagnostic.
+	var path []byte
+	for _, c := range efiDir + "\\" + rebarPolicyFile + "\x00" {
+		path = binary.LittleEndian.AppendUint16(path, uint16(c))
+	}
+	return bytes.Contains(image, path) &&
+		(bytes.Contains(image, []byte("CMPUNLOCKER-REBAR: POLICY file=")) ||
+			bytes.Contains(image, []byte("CMP40-REBAR: POLICY file=")))
+}
+
+func verifyRebarImages(selected []byte, primary, fallback string) error {
+	if !rebarPolicySupported(selected) {
+		return errors.New(tr("the selected EFI has no recognized ESP ReBAR policy reader",
+			"в выбранном EFI не распознан обработчик файла REBAR.CFG", "未识别到所选 EFI 的 REBAR.CFG 读取功能"))
+	}
+	for _, path := range []string{primary, fallback} {
+		image, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf(tr("cannot read EFI %s: %w", "не удалось прочитать EFI %s: %w", "无法读取 EFI %s: %w"), path, err)
+		}
+		if !bytes.Equal(image, selected) {
+			return fmt.Errorf(tr("EFI at %s differs from the selected image",
+				"EFI по пути %s отличается от выбранного образа", "%s 处的 EFI 与所选映像不一致"), path)
+		}
+	}
+	return nil
 }
 
 type bcdCommandFunc func(string, ...string) (string, error)

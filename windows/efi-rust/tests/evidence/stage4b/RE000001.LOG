@@ -1,0 +1,18 @@
+CMP40-ENTRYCHECK: BEGIN GPU_WRITES=0 CHILD_STARTS=0
+CMP40-ENTRYCHECK: POLICY_BEGIN
+CMP40-ENTRYCHECK: POLICY_OK parent=false
+CMP40-ENTRYCHECK: PCI_BEGIN
+CMP40-ENTRYCHECK: TARGET 0000:10:00.0 Standard GPU_WRITES=0
+CMP40-ENTRYCHECK: LOAD_BEGIN ZERO route=Firmware
+CMP40-ENTRYCHECK: LOAD_OK ZERO route=Firmware file=CStr16(['\\', 'E', 'F', 'I', '\\', 'C', 'M', 'P', '4', '0', '\\', 'Z', 'E', 'R', 'O', 'C', 'H', 'K', '.', 'E', 'F', 'I', '\0']) CHILD_STARTS=0
+CMP40-ENTRYCHECK: LOAD_BEGIN ZERO route=RawBuffer
+CMP40-ENTRYCHECK: FILE ZERO bytes=425984
+CMP40-ENTRYCHECK: LOAD_OK ZERO route=RawBuffer file=CStr16(['\\', 'E', 'F', 'I', '\\', 'C', 'M', 'P', '4', '0', '\\', 'Z', 'E', 'R', 'O', 'C', 'H', 'K', '.', 'E', 'F', 'I', '\0']) CHILD_STARTS=0
+CMP40-ENTRYCHECK: LOAD_BEGIN FULL route=Firmware
+CMP40-ENTRYCHECK: LOAD_OK FULL route=Firmware file=CStr16(['\\', 'E', 'F', 'I', '\\', 'C', 'M', 'P', '4', '0', '\\', 'F', 'U', 'L', 'L', 'C', 'H', 'K', '.', 'E', 'F', 'I', '\0']) CHILD_STARTS=0
+CMP40-ENTRYCHECK: LOAD_BEGIN FULL route=RawBuffer
+CMP40-ENTRYCHECK: FILE FULL bytes=425984
+CMP40-ENTRYCHECK: LOAD_OK FULL route=RawBuffer file=CStr16(['\\', 'E', 'F', 'I', '\\', 'C', 'M', 'P', '4', '0', '\\', 'F', 'U', 'L', 'L', 'C', 'H', 'K', '.', 'E', 'F', 'I', '\0']) CHILD_STARTS=0
+CMP40-ENTRYCHECK: WINDOWS_PREPARE_BEGIN
+CMP40-ENTRYCHECK: WINDOWS_PREPARED source=RawBuffer CHILD_STARTS=0
+CMP40-ENTRYCHECK: READY GPU_WRITES=0 CHILD_STARTS=0
