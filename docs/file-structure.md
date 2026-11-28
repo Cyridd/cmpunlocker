@@ -38,15 +38,15 @@ local outputs and are not committed.
 |---|---|
 | `windows/README.md` | Windows user guide: prerequisites, installation, verification, recovery |
 | `windows/FORK_CHANGES.md` | Fork-specific changes, the boot-manager handoff, and research boundaries |
-| `windows/tools/unlock40x/` | UEFI unlock application source, firmware blobs, and `build_v70.sh` |
-| `windows/efi-rust/` | Rust port: read-only EFI carrier, compute unlock core, C comparisons and QEMU boot tests; the Windows installer still ships the C EFI |
+| `windows/tools/unlock40x/` | Old C EFI implementation, its build script, and the firmware blobs used by Rust |
+| `windows/efi-rust/` | Current EFI implementation, including the installer’s Rust FULL image, the ZERO control and QEMU tests |
 | `docs/research/RUST_EFI_PORT.md` | Rust port baseline, completed stage and remaining validation |
 | `windows/tools/inst40hx/` | Installer GUI/CLI (`40HXInstaller.exe`) and its embedded EFI/drivers |
 | `windows/tools/check40x/` | Status and diagnostic utility (`40HXCheck.exe`) |
 | `windows/tools/uninstall40x/` | Component-level uninstaller (`40HXUninstaller.exe`) |
 | `windows/tools/40hxcore/` | Shared Windows operations and Gen2 link logic |
 | `windows/tools/build_release.bat` | Packages a release with a SHA-256 manifest |
-| `windows/tools/verify_source.ps1` | Verifies expected source inputs and prints EFI hashes |
+| `windows/tools/verify_source.ps1` | Checks source inputs in a checkout or verifies the SHA-256 manifest in a package |
 | `windows/release-files/` | Recovery guide, FAT32 USB helper, and other packaged documents |
 | `windows/40HX_Gen2_Windows/` | Legacy standalone Gen2 scripts, helper drivers, and WinRing0 source |
 

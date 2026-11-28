@@ -8,7 +8,8 @@ C EFI source. The frozen carrier-r1 FULL/ZERO pair has
 [Limine/Linux acceptance](tests/evidence/stage4d/README.md) with proprietary
 NVIDIA 620.70.06, GSP OFF. I also confirmed FULL compute unlock in Windows
 with GSP enabled. See the [GSP test results](../../docs/results.md#gsp-enabled-on-linux-and-windows).
-The shipped installer still uses the C EFI.
+The Windows installer embeds the Rust FULL image. The installer
+and standalone checker read its logs from the mounted ESP.
 ReBAR-r1 now has [FULL/ZERO hardware acceptance](tests/evidence/stage5/README.md),
 including `norebar` precedence, OS-visible 8 GiB BAR1 and retained FULL compute.
 
@@ -62,7 +63,9 @@ generated inputs into Cargo's output directory. The GSP boot source is 128 KiB;
 only its first 24 KiB are copied by C and embedded by Rust, with a separate
 prefix hash. ZERO changes only the two original selector operands. The current
 production Booter signature is reapplied at `0x8700` immediately before port
-loading. No generated firmware or EFI binary is added to source control.
+loading. The installer keeps its reviewed FULL image in `tools/inst40hx/embed/`
+under `windows/`. Intermediate firmware and diagnostic images stay in Cargo's
+output directory.
 
 The experimental adapter preserves RootBridgeIo standard/compact addressing
 and segment-zero CF8 fallback, assigned BAR0 below 4 GiB, high reserved slots
@@ -287,6 +290,26 @@ refusals without accessing a real registry or GPU. The negative hardware
 results do not verify the model's failure/rollback paths on Windows. The guide
 also covers restoration after the manually tested value 1.
 
+## Build the installer EFI
+
+The installer uses FULL with compute unlock, opt-in ReBAR and managed ESP logs.
+The release image omits the Gen2 experiment and the ZERO control payload.
+Build it on x86-64 Linux with Python 3 and Rust 1.100.0.
+
+```bash
+rustup toolchain install 1.100.0 --profile minimal --target x86_64-unknown-uefi
+cargo +1.100.0 fetch --locked --target x86_64-unknown-uefi
+RUSTUP_TOOLCHAIN=1.100.0 bash build_installer_efi.sh
+python3 tests/compare_installer_efi.py \
+  target/x86_64-unknown-uefi/release/cmp40-unlock-full.efi \
+  ../tools/inst40hx/embed/40HXUNLK.EFI
+```
+
+Run these commands from `windows/efi-rust/`. The build remaps compiler paths
+and omits variable linker metadata so CI can compare every byte. QEMU boots
+the same FULL build. The Go test `TestEmbeddedRustEfiIsFull` checks the
+SHA-256 of the installer copy.
+
 ## Local checks
 
 Run these commands in `windows/efi-rust/` with Rust, Python 3 and a native host
@@ -423,7 +446,5 @@ has [Windows acceptance](tests/evidence/stage4c/README.md), including verified
 raw logs and confirmation of FULL compute unlock. The original pair is frozen
 under `target/baseline-carrier-gpu-fe02bf7/`. FULL parent/Linux compute handoff
 also has [acceptance](tests/evidence/stage4d/README.md) with proprietary driver
-620.70.06, GSP OFF and no independent Linux unlocker. The Go checker and
-uninstaller still need managed-log support before the installer can ship
-the Rust image. ReBAR-r1 FULL/ZERO with and without `norebar`
+620.70.06, GSP OFF and no independent Linux unlocker. ReBAR-r1 FULL/ZERO with and without `norebar`
 is accepted on the tested configuration in [stage 5](tests/evidence/stage5/README.md).

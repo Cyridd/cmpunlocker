@@ -7,7 +7,7 @@ caps. Input hashes, metadata, buffer addresses, FWSEC completion, native state,
 ReBAR results and handoff checkpoints remain available. These observations
 use existing reads. The logging-r1 sizes describe the frozen accepted images;
 optimization-r1 adds the managed storage envelope described below.
-The shipped Go installer still uses the C EFI.
+The Windows installer on this branch embeds the Rust FULL image.
 
 ## Summary and diagnostic modes
 
@@ -89,10 +89,15 @@ scan refuses more than 4096 entries or exhaustion of the numbering space.
 The existing directory must be readable, and required filesystem operations
 must succeed.
 
-Legacy log migration remains explicit: copy/export old logs before deciding
-whether to remove them. This implementation performs no automatic migration
-or deletion of those files. The shipped Go checker/uninstaller still needs
-managed-format support before installer integration.
+On Windows, the checker exports the newest owned generation on the mounted
+ESP under its original name, even if the run ended before the footer. It
+checks the byte count and FNV-1a checksum before reporting a handoff marker.
+`HANDOFF_READY` records the EFI state just before handoff. Windows boot and
+driver status require observations from the OS.
+
+Uninstall removes managed files whose generation and control match the
+ownership format. Legacy root `RF`/`RZ`/`RL`/`RE` logs remain available
+for manual export.
 
 ## Output and memory costs
 
@@ -273,6 +278,4 @@ quota pressure and short/failed writes. QEMU exercises real FAT files,
 interruption, legacy/foreign preservation, numbering above 999, a full
 filesystem and an actual failing StartImage child. GPU DMA scheduling,
 Windows retention and filesystem behavior on other firmware require
-separate hardware trials. The Go checker and
-uninstaller still need support for managed logs before the installer can
-ship the Rust image.
+separate hardware trials.

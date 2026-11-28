@@ -19,7 +19,7 @@ The installer GUI and logs support `-lang en`, `-lang ru`, and `-lang zh`.
 English is the default. The same choice can be made with
 `CMP40HX_LANG=en|ru|zh`.
 
-This package uses the FULL EFI with a 960 KiB Booter heap. Installation preserves
+This package uses the Rust FULL EFI with a 960 KiB Booter heap. Installation preserves
 the CMP40HX registry setting by default and updates existing login
 entries to use this installer. The Gen2 task no longer writes GSP settings.
 
@@ -30,6 +30,7 @@ entries to use this installer. The Gen2 task no longer writes GSP settings.
 - `40HXCheck.exe` - verify compute selectors, GSP, ReBAR, and PCIe status.
 - `files/40HXUNLK.EFI` - UEFI unlock application.
 - `make_usb_efi.bat` and `copy_efi_verified.ps1` - prepare a FAT32 USB fallback.
+- `WinRing0-LICENSE.txt` - the GPLv3 license for the bundled [WinRing0 driver](https://github.com/Cyridd/cmpunlocker/tree/main/windows/40HX_Gen2_Windows/source/WinRing0-master).
 
 No benchmark is bundled. For an independent compute check, use a third-party
 tool such as [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) or
@@ -37,10 +38,6 @@ tool such as [clpeak](https://github.com/krrishnarraj/clpeak) (CUDA backend) or
 
 The unlock is volatile. POST, a driver reset, FLR, or a power cycle can clear
 it. No VBIOS flash is required or recommended.
-
-The packaged EFI uses the normal unlock path. Its VBIOS dump, Falcon preload
-probe, and direct FEAT_OVR host-write probe are diagnostic build options and
-are not enabled in this release image.
 
 ## ReBAR
 
@@ -69,16 +66,24 @@ actual BAR1 size using `40HXCheck.exe` or GPU-Z.
 
 ## Verification and Logs
 
+Verify the ZIP against the SHA-256 published with the release. After extraction,
+run `.\verify_source.ps1` in PowerShell to check the files listed in the
+package's own `SHA256SUMS.txt`.
+
 Successful compute unlock normally reports `SS0=0x88888888` and
-`SS1=0x00000008`. The EFI log is `40hx_log.txt` on the ESP; Windows diagnostics
-are collected under `%LOCALAPPDATA%\40HXUnlock\logs\`.
+`SS1=0x00000008`. Rust EFI writes numbered logs under `EFI/40HX/LOGS/` on
+its boot volume. On the mounted ESP, the checker selects the newest matching
+record, even if that run was interrupted. It looks for the old C EFI log
+`40hx_log.txt` only when no matching Rust log exists. For a failure report,
+include `diagnose.txt` and the EFI log it names from
+`%LOCALAPPDATA%\40HXUnlock\logs\`.
 
 If Gen2 is not reached, run `40HXInstaller.exe -gen2` or use the GUI's Gen2
 controls. `-gen2 -hard` enables the optional Link Disable fallback.
 
 For full BIOS, recovery, boot-manager handoff, build, and limitation
 documentation, see the
-[repository README](../../README.md).
+[Windows guide](https://github.com/Cyridd/cmpunlocker/blob/main/windows/README.md).
 
 PCIe Gen3 and RT-core unlocks are research-only and are not guaranteed by this
 release. Do not use this package on another GPU family without independent
