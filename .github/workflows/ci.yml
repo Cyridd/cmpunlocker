@@ -10,10 +10,8 @@
 #      cross-build is also the cheapest proof that the tree is complete:
 #      inst40hx fails to compile if any //go:embed input went missing.
 #
-#   2. efi — rebuilds unlock40x_v70.c from source inside the pinned toolchain
-#      container and compares the SHA-256 against the committed
-#      embed/40HXUNLK.EFI. The build is byte-for-byte reproducible, so a
-#      mismatch means the committed payload and its source have drifted.
+#   2. rust-efi-core — checks the Rust EFI against its C reference,
+#      compares the installer image with a fresh FULL build, and runs QEMU.
 #
 # The Linux pre-driver job builds without loading a module and exercises the firmware
 # parsers/layout offline. The open-module patch series has its separate CI.
@@ -28,13 +26,16 @@ on:
       - 'linux/preboot/**'
       - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
   pull_request:
     paths:
       - 'windows/**'
       - 'linux/preboot/**'
       - 'tools/gen2/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -75,19 +76,25 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_trace_log.py' -v
       - name: Check the core for the Windows target
         run: cargo +"$RUST_TOOLCHAIN" check --locked --offline -p cmp40-efi-core --lib --target x86_64-pc-windows-gnu
-      - name: Build the read-only EFI and test boot targets
-        run: |
-          set -euo pipefail
-          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture
-          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features unlock,adapters
-          cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters
+      - name: Build the standard EFI and test boot targets
+        run: cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi -p cmp40-efi -p cmp40-efi-boot-fixture --features unlock,adapters
       - name: Install QEMU and OVMF
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
-      - name: Boot EFI and verify persisted logs and parked failure in QEMU
-        run: python3 tests/qemu_smoke.py --unlock --adapters --raw --rebar --gen2
+      - name: Compare the embedded EFI with the Rust FULL build
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          set -euo pipefail
+          bash build_installer_efi.sh
+          python3 tests/compare_installer_efi.py target/x86_64-unknown-uefi/release/cmp40-unlock-full.efi ../tools/inst40hx/embed/40HXUNLK.EFI
+      - name: Boot the installer EFI and verify persisted logs and parked failure in QEMU
+        run: python3 tests/qemu_smoke.py --unlock --adapters --raw --rebar
       - name: Check early logs and unstarted candidate images
-        working-directory: windows/efi-rust
         run: python3 tests/qemu_smoke.py --case entrycheck --case entrycheck-invalid
+      - name: Build the Gen2 experiment and test fixtures
+        run: cargo +"$RUST_TOOLCHAIN" build --locked --offline --release --target x86_64-unknown-uefi --target-dir target/gen2 -p cmp40-efi -p cmp40-efi-boot-fixture --features gen2-experiment,adapters
+      - name: Boot the Gen2 experiment in QEMU
+        run: python3 tests/qemu_smoke.py --image-dir target/gen2/x86_64-unknown-uefi/release --gen2
       - name: Preserve the QEMU boot evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -145,6 +152,18 @@ jobs:
         with:
           go-version-file: windows/tools/inst40hx/go.mod
           cache-dependency-path: windows/tools/*/go.sum
+
+      - name: Check Go formatting
+        if: matrix.cross == '1'
+        shell: bash
+        working-directory: windows/tools
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l .)
+          if [[ -n "$unformatted" ]]; then
+            printf '::error::gofmt found unformatted files:\n%s\n' "$unformatted"
+            exit 1
+          fi
 
       - name: Build every module
         shell: bash
@@ -213,94 +232,25 @@ jobs:
         shell: powershell
         run: windows/tools/test_efi_copy.ps1
 
+      - name: Test the release package verifier
+        if: matrix.cross == '0'
+        shell: powershell
+        run: windows/tools/test_package_verification.ps1
+
       # winres_gen produces a PE resource object, so it cross-generates fine
       # on Linux. Kept on the Linux leg because the byte comparison uses
       # `cmp`, which every Linux runner has.
-      - name: Regenerate the Windows resource object and compare
+      - name: Compare Windows version resources for each Go tool
         if: matrix.cross == '1'
         shell: bash
         working-directory: windows/tools/winres_gen
         run: |
           set -euo pipefail
-          go run . "$RUNNER_TEMP/rsrc_windows_amd64.syso"
-          if ! cmp -s "$RUNNER_TEMP/rsrc_windows_amd64.syso" \
-                     ../inst40hx/rsrc_windows_amd64.syso; then
-            echo "::error::windows/tools/inst40hx/rsrc_windows_amd64.syso is stale — regenerate it with 'go run . <path>' in windows/tools/winres_gen and commit the result"
-            exit 1
-          fi
-          echo "resource object matches the committed copy"
-
-  efi:
-    name: EFI payload reproducibility
-    runs-on: ubuntu-latest
-    env:
-      # Pinned by digest. The EFI link is sensitive to the exact toolchain:
-      # the committed payload needs gcc 16 / binutils 2.47 / gnu-efi 4.0.4
-      # and does not even build under Ubuntu's older binutils (the .rodata
-      # section disappears and build_v70.sh rejects the output). Pinning the
-      # image keeps the hash comparison meaningful; Arch is a rolling
-      # distribution, so when the digest is refreshed the hash below is
-      # expected to change too.
-      EFI_IMAGE: archlinux:base@sha256:f3691b4dde62ba4c4b6f0ae2c1fbf28e8c0c8c4b9a35c7e06dc1f70e21aa29f6
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Rebuild inside the pinned toolchain container
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/efi-out"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE/windows/tools:/src:ro" \
-            -v "$RUNNER_TEMP/efi-out:/out" \
-            -w /src \
-            "$EFI_IMAGE" \
-            bash -lc '
-              set -euo pipefail
-              pacman -Sy --noconfirm --quiet gcc binutils make gnu-efi python
-
-              # The image digest fixes the package database, not the packages:
-              # Arch is a rolling distribution, so `pacman -Sy` resolves to
-              # whatever is current. The EFI link is byte-sensitive to the
-              # exact gcc/binutils. Fail here, with a precise message, when
-              # the versions drift — otherwise the payload comparison below
-              # reports a misleading "source and payload have drifted".
-              check_pkg() { # <name> <expected>
-                local actual
-                actual="$(pacman -Q "$1" | awk "{print \$2}")"
-                case "$actual" in
-                  "$2"*|"$2") ;;
-                  *) echo "::error::package $1 is $actual, expected $2*; re-pin EFI_EXPECTED_${1^^}_VERSION in ci.yml and regenerate windows/tools/inst40hx/embed/40HXUNLK.EFI" >&2; exit 1 ;;
-                esac
-              }
-              check_pkg gcc     16.2.1
-              check_pkg binutils 2.47
-              check_pkg make    4.4.1
-              check_pkg gnu-efi 4.0.4
-
-              cp -r /src /build
-              cd /build/unlock40x
-              CPU_RM_CONTROL=zero EFI_OUT=/out/40HXZERO.EFI ./build_v70.sh
-              CPU_RM_CONTROL=full VBIOS_DUMP=0 DIRECT_WRITE_PROBE=0 PRELOAD_PROBE=0 ./build_v70.sh
-              cp unlock40x_v70.efi /out/
-            '
-
-      - name: Compare with the committed embedded EFI
-        run: |
-          set -euo pipefail
-          built=$(sha256sum "$RUNNER_TEMP/efi-out/unlock40x_v70.efi" | cut -d' ' -f1)
-          committed=$(sha256sum windows/tools/inst40hx/embed/40HXUNLK.EFI | cut -d' ' -f1)
-          echo "rebuilt from source : $built"
-          echo "committed payload   : $committed"
-          if [ "$built" != "$committed" ]; then
-            echo "::error::embed/40HXUNLK.EFI does not match a fresh build of tools/unlock40x/unlock40x_v70.c. Either the source changed and the payload needs re-embedding, or the pinned toolchain digest was updated and the payload needs regenerating."
-            exit 1
-          fi
-          echo "EFI payload reproduces byte-for-byte"
-
-      - name: Upload the rebuilt EFI
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: unlock40x_v70.efi
-          path: ${{ runner.temp }}/efi-out/unlock40x_v70.efi
-          if-no-files-found: error
-          retention-days: 14
+          for module in inst40hx check40x uninstall40x winres_gen; do
+            generated="$RUNNER_TEMP/$module.syso"
+            go run . -tool "$module" "$generated"
+            if ! cmp -s "$generated" "../$module/rsrc_windows_amd64.syso"; then
+              echo "::error::$module has a stale Windows resource object"
+              exit 1
+            fi
+          done

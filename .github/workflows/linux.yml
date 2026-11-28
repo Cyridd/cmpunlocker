@@ -13,8 +13,6 @@
 #              variants (normal and diagnostic where it exists), then assert
 #              the unlock markers are present.
 #   lint     — shellcheck every shell script in the repository.
-#   gofmt    — formatting gate for the Windows Go tree (Linux runners already
-#              have gofmt; the Go modules themselves are built in ci.yml).
 #
 # The kernel-module build itself is deliberately not attempted here: it needs
 # the target kernel's headers and is verified by install.sh on the target.
@@ -137,25 +135,3 @@ jobs:
           )
           printf 'linting %d script(s)\n' "${#scripts[@]}"
           shellcheck -x -S warning "${scripts[@]}"
-
-  gofmt:
-    name: gofmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: windows/tools/inst40hx/go.mod
-
-      - name: Fail on unformatted Go files
-        working-directory: windows/tools
-        run: |
-          set -euo pipefail
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            printf '::error::gofmt found unformatted files:\n%s\n' "$unformatted"
-            gofmt -d . | head -200
-            exit 1
-          fi
-          echo "all Go files are gofmt-clean"

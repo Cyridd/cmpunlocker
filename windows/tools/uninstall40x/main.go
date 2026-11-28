@@ -1,4 +1,4 @@
-// 40HX 一键卸载工具 v2.1.2 (CMP 40HX Windows Unlock Uninstaller)
+// 40HX 一键卸载工具 v2.2.0 (CMP 40HX Windows Unlock Uninstaller)
 // GUI 无窗口版: 双击不弹黑框, 输出入 %TEMP%\40HX_uninstaller.log, 结束弹消息框
 // 移除: 计划任务(含 Gen2 重试任务) / Gen2 Run 键 / 固件启动项 "40HX Unlock"
 //
@@ -160,7 +160,6 @@ func main() {
 	// 6. 驱动文件
 	fmt.Println(tr("[6/8] Removing driver files...", "[6/8] Удаление файлов драйверов...", "[6/8] 删除驱动文件..."))
 	hxcore.UninstallDriverFiles()
-
 
 	// 6.6 ProgramData 残留: gen2_status.txt(诊断会当"结果"显示!) + drivers 备份源 + 策略键
 	fmt.Print(tr("[6.6/8] Cleaning %ProgramData%\\40HXUnlock + policy key ... ", "[6.6/8] Очистка %ProgramData%\\40HXUnlock + ключа политики ... ", "[6.6/8] 清理 %ProgramData%\\40HXUnlock + 策略键 ... "))

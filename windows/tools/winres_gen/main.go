@@ -1,8 +1,8 @@
-// winres_gen: 一次性生成 inst40hx 的 .syso 资源(comctl32 v6 清单 + 版本信息)。
-// walk 需要 v6 清单才有现代控件外观。用法: go run . <输出.syso 路径>
+// winres_gen writes the Windows version resources and the installer's UI manifest.
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -10,29 +10,47 @@ import (
 	"github.com/tc-hib/winres/version"
 )
 
+const windowsVersion = "2.2.0.0"
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("usage: winres_gen <out.syso>")
+	tool := flag.String("tool", "inst40hx", "Go module name of the Windows tool")
+	flag.Parse()
+	if flag.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: winres_gen [-tool module] <out.syso>")
 		os.Exit(1)
 	}
+
 	rs := winres.ResourceSet{}
-	am := winres.AppManifest{
-		Identity:            winres.AssemblyIdentity{Name: "40HX.Installer", Version: [4]uint16{2, 1, 2, 0}},
-		Description:         "CMP 40HX Unlock Manager (compute unlock + PCIe Gen2)",
-		UseCommonControlsV6: true,
-		DPIAwareness:        winres.DPIPerMonitorV2,
-		ExecutionLevel:      winres.AsInvoker,
-	}
-	rs.SetManifest(am)
 	vi := version.Info{}
-	vi.SetFileVersion("2.1.2.0")
-	vi.SetProductVersion("2.1.2.0")
+	vi.SetFileVersion(windowsVersion)
+	vi.SetProductVersion(windowsVersion)
+	var filename, description string
+	switch *tool {
+	case "inst40hx":
+		filename, description = "40HXInstaller.exe", "40HX Installer/Manager"
+		rs.SetManifest(winres.AppManifest{
+			Identity:            winres.AssemblyIdentity{Name: "40HX.Installer", Version: vi.FileVersion},
+			Description:         "CMP 40HX Unlock Manager (compute unlock + PCIe Gen2)",
+			UseCommonControlsV6: true,
+			DPIAwareness:        winres.DPIPerMonitorV2,
+			ExecutionLevel:      winres.AsInvoker,
+		})
+	case "check40x":
+		filename, description = "40HXCheck.exe", "40HX Diagnostics"
+	case "uninstall40x":
+		filename, description = "40HXUninstaller.exe", "40HX Uninstaller"
+	case "winres_gen":
+		filename, description = "winresgen.exe", "40HX Windows resource generator"
+	default:
+		fmt.Fprintln(os.Stderr, "unknown Go module:", *tool)
+		os.Exit(1)
+	}
 	vi.Set(winres.LCIDDefault, "ProductName", "CMP 40HX Windows Unlock")
-	vi.Set(winres.LCIDDefault, "FileDescription", "40HX Installer/Manager")
+	vi.Set(winres.LCIDDefault, "FileDescription", description)
 	vi.Set(winres.LCIDDefault, "LegalCopyright", "For personal hardware research and study only")
-	vi.Set(winres.LCIDDefault, "OriginalFilename", "40HXInstaller.exe")
+	vi.Set(winres.LCIDDefault, "OriginalFilename", filename)
 	rs.SetVersionInfo(vi)
-	f, err := os.Create(os.Args[1])
+	f, err := os.Create(flag.Arg(0))
 	if err != nil {
 		panic(err)
 	}
@@ -40,5 +58,5 @@ func main() {
 	if err := rs.WriteObject(f, winres.ArchAMD64); err != nil {
 		panic(err)
 	}
-	fmt.Println("written:", os.Args[1])
+	fmt.Println("written:", flag.Arg(0))
 }

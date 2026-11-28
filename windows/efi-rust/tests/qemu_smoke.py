@@ -210,13 +210,13 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
     elif adapter_case:
         if case == "logcheck":
             copy(binaries[7], esp, "EFI/BOOT/BOOTX64.EFI")
-            required = ["CMPUNLOCKER-LOGCHECK: BEGIN GPU_WRITES=0", "LOG_VERIFIED",
+            required = ["CMPUNLOCKER-LOGCHECK: BEGIN GPU_WRITES=0", "FILE_WRITE_TEST GPU_WRITES=0",
                         "CMPUNLOCKER-LOGCHECK: LOG_CHECK_READY GPU_WRITES=0"]
         elif case in ("logging", "retention", "volume-full"):
             if case == "retention":
                 (esp / "ROTATE.TXT").write_bytes(b"1")
             copy(binaries[5], esp, "EFI/BOOT/BOOTX64.EFI")
-            required = ["LOG_VERIFIED", "CMPUNLOCKER-FIXTURE: LOG_TEST_READY GPU_WRITES=0"]
+            required = ["CMPUNLOCKER-FIXTURE: LOG_TEST_READY GPU_WRITES=0"]
         elif case == "failed-start":
             copy(binaries[6], esp, "EFI/BOOT/BOOTX64.EFI")
             child = next(path for path in binaries if path.name == "cmp40-fixture-return-error.efi")
@@ -241,7 +241,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             body = b"CMP40_LOG_V3 generation=0000999 control=full\nold summary\n"
             footer = f"CMP40_END_V3 kind=S bytes={len(body):020} fnv={fnv(body):016x}\n"
             fat.add("EFI/40HX/LOGS/L0000999.LOG", body + footer.encode())
-            required.insert(1, "RETENTION_READY GPU_WRITES=0")
+            required.insert(0, "RETENTION_READY GPU_WRITES=0")
         if case == "volume-full":
             fat.add("RF000999.LOG", b"legacy preserved")
             fat.add("EFI/40HX/LOGS/KEEP.TXT", b"unrelated preserved")
@@ -304,6 +304,7 @@ def run_case(case, artifacts, binaries, qemu, code, variables, timeout):
             forbidden += ["WINDOWS_CHAIN_REACHED"]
         else:
             raise ValueError(f"unknown case: {case}")
+    forbidden += ["LOG_VERIFIED", "CMPUNLOCKER: LOG_FAILED", "CMPUNLOCKER: *** UNLOCKED"]
     private_variables = root / "OVMF_VARS.fd"
     shutil.copyfile(variables, private_variables)
     serial, stderr = root / "serial.log", root / "qemu.log"

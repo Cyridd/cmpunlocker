@@ -13,7 +13,7 @@ use cmp40_efi_core::{
     metadata::{self, DmaAddresses, SignatureKind, WprMetadata},
     options::UnlockOptions,
     radix::RadixPlan,
-    state::{Control, Snapshot},
+    state::{Control, Snapshot, SS0_FULL, SS1_FULL},
     timer::{self, Rtc},
     transaction::{self, reg, Io, Transaction},
 };
@@ -26,6 +26,20 @@ struct RunOptions {
     #[cfg(feature = "gen2-experiment")]
     gen2: Action,
 }
+
+struct ComputeImage {
+    control: Control,
+    payload: &'static [u8; metadata::PAYLOAD_BYTES],
+}
+
+const FULL: ComputeImage = ComputeImage {
+    control: Control::Full,
+    payload: assets::FULL,
+};
+const ZERO: ComputeImage = ComputeImage {
+    control: Control::Zero,
+    payload: assets::ZERO,
+};
 
 struct Backend {
     mmio: Mmio,
@@ -59,9 +73,17 @@ impl Io for Backend {
     }
 }
 
-pub fn entry(control: Control) -> Status {
+pub fn full_entry() -> Status {
     entry_variant(
-        control,
+        FULL,
+        #[cfg(feature = "gen2-experiment")]
+        Action::Off,
+    )
+}
+
+pub fn zero_entry() -> Status {
+    entry_variant(
+        ZERO,
         #[cfg(feature = "gen2-experiment")]
         Action::Off,
     )
@@ -69,13 +91,17 @@ pub fn entry(control: Control) -> Status {
 
 #[cfg(feature = "gen2-experiment")]
 pub fn gen2_entry(action: Action) -> Status {
-    entry_variant(Control::Full, action)
+    entry_variant(FULL, action)
 }
 
-fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: Action) -> Status {
+fn entry_variant(
+    image: ComputeImage,
+    #[cfg(feature = "gen2-experiment")] action: Action,
+) -> Status {
     if let Err(error) = uefi::helpers::init() {
         return error.status();
     }
+    let control = image.control;
     let name = match control {
         Control::Full => "full",
         Control::Zero => "zero",
@@ -133,7 +159,10 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
     let mut output = match Output::open(name) {
         Ok(output) => output,
         Err(status) => {
-            uefi::println!("CMPUNLOCKER: LOG_OPEN_FAILED {:?} GPU_WRITES=0", status);
+            uefi::println!(
+                "CMPUNLOCKER: LOG_FAILED {:?} while opening log; GPU_WRITES=0",
+                status
+            );
             return status;
         }
     };
@@ -146,36 +175,33 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
         &mut windows,
         &mut gpu_attempted,
         options,
-        control,
+        image,
         rebar_requested,
     );
     let mut status = result.err().map_or(Status::SUCCESS, failure_status);
-    if let Err(error) = output.finish_traces(status.is_error()) {
-        uefi::println!(
-            "CMPUNLOCKER: LOG_DETAIL_FAILED {:?}; handoff refused",
-            error
-        );
-        if !status.is_error() {
-            status = failure_status(error);
-        }
-    }
+    let mut log_result = output.finish_traces(status.is_error());
     if !status.is_error() {
-        let batches = output.physical_writes();
-        if let Err(error) = output.write(format_args!(
-            "LOG_IO batches_before_seal={} buffer_bytes=4096\n",
-            batches
-        )) {
+        log_result = log_result.and_then(|()| {
+            let batches = output.physical_writes();
+            output.write(format_args!(
+                "LOG_IO batches_before_seal={} buffer_bytes=4096\n",
+                batches
+            ))
+        });
+        if let Err(error) = log_result {
             status = failure_status(error);
         }
     }
     if status.is_error() {
-        let _ = output.checkpoint(format_args!(
+        let abort_result = output.checkpoint(format_args!(
             "CMPUNLOCKER: ABORT {:?}; no retry; power off before another attempt\n",
             status
         ));
+        log_result = log_result.and(abort_result);
     }
-    if let Err(error) = output.seal() {
-        uefi::println!("CMPUNLOCKER: LOG_SEAL_FAILED {:?}; handoff refused", error);
+    let seal_result = output.seal();
+    if let Err(error) = log_result.and(seal_result) {
+        uefi::println!("CMPUNLOCKER: LOG_FAILED {:?}; handoff refused", error);
         if !status.is_error() {
             status = failure_status(error);
         }
@@ -185,6 +211,13 @@ fn entry_variant(control: Control, #[cfg(feature = "gen2-experiment")] action: A
             handoff::release(image);
         }
         return terminal::failure(status, gpu_attempted);
+    }
+    if control == Control::Full {
+        uefi::println!(
+            "CMPUNLOCKER: *** UNLOCKED (SS0=0x{:08x} SS1=0x{:x}) ***",
+            SS0_FULL,
+            SS1_FULL
+        );
     }
     if let Some(image) = windows {
         // Logs and scoped hardware protocols are closed before entering Windows.
@@ -201,9 +234,10 @@ fn run(
     windows: &mut Option<Handle>,
     gpu_attempted: &mut bool,
     options: RunOptions,
-    control: Control,
+    image: ComputeImage,
     rebar_requested: bool,
 ) -> Result<(), Status> {
+    let control = image.control;
     output.checkpoint(format_args!("CMPUNLOCKER: BEGIN {:?}; FLR=off\n", control))?;
     output.write(format_args!(
         "LOG_FORMAT version=2 image_version={} trace_requested={}\n",
@@ -251,7 +285,7 @@ fn run(
     let mut txn = Transaction::new();
     // Retain even a preparation/checkpoint failure's captured observations.
     let native_result = (|| {
-        let result = prepare_and_execute(&mut io, &mut txn, output, control);
+        let result = prepare_and_execute(&mut io, &mut txn, output, image);
         if let Some(fwsec) = io.fwsec_result {
             output.checkpoint(format_args!(
                 "FWSEC_COMPLETION CPUCTL={:08x} waited_us={} registers={:08x?}\n",
@@ -303,7 +337,7 @@ fn prepare_and_execute(
     io: &mut Backend,
     txn: &mut Transaction,
     output: &mut Output,
-    control: Control,
+    image: ComputeImage,
 ) -> Result<(), Status> {
     let boot0 = io.read32(0);
     let initial = Snapshot {
@@ -344,7 +378,7 @@ fn prepare_and_execute(
     timer::seed(io, rtc);
     let mut slots = HighSlots::new();
     let mut payload = Dma::allocate(&mut slots, metadata::PAYLOAD_BYTES)?;
-    payload.copy(assets::payload(control));
+    payload.copy(image.payload);
     io.flush();
     let mut booter = Dma::allocate(&mut slots, transaction::BOOTER_BYTES)?;
     booter.copy(assets::BOOTER);
@@ -392,7 +426,7 @@ fn prepare_and_execute(
     let mut allocation_failure = None;
     let result = txn.run(
         io,
-        control,
+        image.control,
         meta.address(),
         |io| {
             let mut fwsec =

@@ -19,15 +19,22 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Verify tagged commit
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build release assets
+    needs: verify
+    permissions:
+      contents: write
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,6 +71,7 @@ jobs:
           cp windows/tools/inst40hx/embed/ThrottleStop.sys "$OUT/gen2/drivers/ThrottleStop.sys"
           cp windows/tools/inst40hx/embed/WinRing0x64.sys "$OUT/gen2/drivers/WinRing0x64.sys"
           cp windows/tools/inst40hx/embed/WinRing0x64.sys "$OUT/files/WinRing0x64.sys"
+          cp windows/40HX_Gen2_Windows/source/WinRing0-master/LICENSE "$OUT/WinRing0-LICENSE.txt"
           cp windows/FORK_CHANGES.md "$OUT/FORK_CHANGES.md"
           cp windows/release-files/README.md "$OUT/README.md"
           cp windows/release-files/EFI应急修复指南.md "$OUT/"
@@ -72,17 +80,12 @@ jobs:
           cp windows/tools/verify_source.ps1 "$OUT/"
 
       - name: Write SHA256SUMS.txt
-        shell: bash
-        env:
-          OUT: ${{ github.workspace }}/windows/release
-        run: |
-          set -euo pipefail
-          cd "$OUT"
-          find . -type f ! -name SHA256SUMS.txt -print0 \
-            | sort -z \
-            | xargs -0 sha256sum \
-            | sed 's|\./||' > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+        shell: powershell
+        run: '& ./windows/tools/write_package_manifest.ps1 -Directory ./windows/release'
+
+      - name: Check the package with its bundled verifier
+        shell: powershell
+        run: '& ./windows/release/verify_source.ps1'
 
       - name: Create the Windows ZIP and archive checksum
         shell: python
@@ -121,6 +124,13 @@ jobs:
 
           Download CMP40HX-Windows-${GITHUB_REF_NAME}.zip and verify it against the attached SHA256SUMS.txt. Extract the entire ZIP before running the installer; its SHA256SUMS.txt verifies the individual package files. See FORK_CHANGES.md inside the ZIP for the changes in this fork.
           EOF
+          # An old run can be retried after a tag is moved. Check its peeled commit.
+          tagged_commit=$(git ls-remote --exit-code origin "$GITHUB_REF" "${GITHUB_REF}^{}" |
+            awk -v ref="$GITHUB_REF" '$2 == ref {direct=$1} $2 == ref "^{}" {peeled=$1} END {print (peeled ? peeled : direct)}')
+          if [[ "$tagged_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo "::error::The release tag no longer points to the commit verified by CI."
+            exit 1
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --verify-tag \
             --draft \

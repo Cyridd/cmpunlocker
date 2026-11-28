@@ -174,13 +174,7 @@ impl Output {
     pub fn checkpoint(&mut self, args: fmt::Arguments<'_>) -> Result<(), Status> {
         uefi::print!("{}", args);
         self.write(args)?;
-        self.verify_and_reopen()?;
-        uefi::println!(
-            "CMPUNLOCKER: LOG_VERIFIED {:?} bytes={}",
-            self.name,
-            self.length
-        );
-        Ok(())
+        self.verify_and_reopen()
     }
     pub fn seal(mut self) -> Result<(), Status> {
         let (length, digest) = (self.length, self.checksum);

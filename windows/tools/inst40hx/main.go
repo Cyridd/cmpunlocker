@@ -1,4 +1,4 @@
-// 40HX 一键安装工具 v2.1.2 (CMP 40HX Windows Unlock Installer)
+// 40HX 一键安装工具 v2.2.0 (CMP 40HX Windows Unlock Installer)
 // 功能:
 //
 //	Install: ESP 双路部署 40HXUNLK.EFI (V70)
@@ -1113,12 +1113,13 @@ func applyRebarLoadOption(enable bool) bool {
 	}
 	defer hxcore.UnmountESP(esp)
 	if enable {
-		for _, path := range []string{esp + ":" + efiDir + "\\" + efiFile, esp + ":" + efiStdDir + "\\" + efiStdF} {
-			image, err := os.ReadFile(path)
-			if err != nil || !efiFileCurrent(path) || !rebarPolicySupported(image) {
-				fmt.Printf("  [ReBAR] deploy the current Compute EFI first; %s does not match this policy-aware build\n", path)
-				return false
-			}
+		selected, _, err := resolveEFIPayload()
+		if err == nil {
+			err = verifyRebarImages(selected, esp+":"+efiDir+"\\"+efiFile, esp+":"+efiStdDir+"\\"+efiStdF)
+		}
+		if err != nil {
+			fmt.Println("  [ReBAR]", err)
+			return false
 		}
 	}
 	if err := setRebarBootOption(hxcore.RunOut, guid, enable); err != nil {
